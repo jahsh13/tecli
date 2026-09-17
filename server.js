@@ -648,6 +648,7 @@ function renderHTML(data, isLoading = false) {
 
     <div class="actions">
       <button id="add-project-btn" class="btn btn-secondary">+ Add Project</button>
+      <button id="favorites-btn" class="btn btn-secondary">Favorites</button>
       <button id="leave-bal-btn" class="btn btn-secondary">Leave Balances</button>
       <div class="actions-right">
         <span id="unsaved-indicator" class="unsaved-indicator" style="display: none;">Unsaved changes</span>
@@ -756,6 +757,22 @@ function renderHTML(data, isLoading = false) {
       <div class="modal-footer">
         <button class="btn btn-secondary modal-cancel">Cancel</button>
         <button class="btn btn-primary" id="confirm-sign">Sign</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Favorites Modal -->
+  <div id="favorites-modal" class="modal" style="display: none;">
+    <div class="modal-content modal-wide">
+      <div class="modal-header">
+        <h2>Favorites</h2>
+        <button class="modal-close">&times;</button>
+      </div>
+      <div class="modal-body" id="favorites-modal-body">
+        <p>Loading...</p>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary modal-cancel">Close</button>
       </div>
     </div>
   </div>
@@ -944,6 +961,17 @@ app.get("/api/leave", async (req, res) => {
   try {
     const result = await withClient(async (cp) => {
       return await cp.getLeaveBalances();
+    });
+    res.json(result);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.get("/api/favorites", async (req, res) => {
+  try {
+    const result = await withClient(async (cp) => {
+      return await cp.getFavorites();
     });
     res.json(result);
   } catch (e) {

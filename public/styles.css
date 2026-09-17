@@ -499,6 +499,11 @@ thead .col-weekend {
   border-color: var(--color-text-secondary);
 }
 
+.btn-sm {
+  padding: 4px 10px;
+  font-size: 12px;
+}
+
 .btn-success {
   background: var(--color-success);
   color: var(--color-bg);

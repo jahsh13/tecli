@@ -135,6 +135,8 @@ let statusTimer = null;
 let pendingChanges = new Map();
 let leaveData = null;     // { balances, details } from getLeaveBalances()
 let showLeave = false;    // toggle: timesheet vs leave view
+let favoritesData = null; // array of { code, description, payType }
+let showFavorites = false;
 let isProcessing = false;
 let spinnerFrame = 0;
 const SPINNER = '\u28fe\u28fd\u28fb\u28bf\u28ff\u28df\u28ef\u28f7';
@@ -362,6 +364,27 @@ async function doLeaveBalances() {
   }
 }
 
+async function doFavorites() {
+  if (isProcessing) return;
+  isProcessing = true;
+  startSpinner();
+  setStatus('Loading favorites...');
+  render();
+
+  try {
+    const cp = await getClient();
+    favoritesData = await cp.getFavorites();
+    showFavorites = true;
+    setStatus(chalk.green('Favorites loaded.'), 3000);
+  } catch (e) {
+    setStatus(chalk.red('Favorites failed: ' + e.message), 5000);
+  } finally {
+    isProcessing = false;
+    stopSpinner();
+    render();
+  }
+}
+
 // ─── Helpers ───────────────────────────────────────────────────
 
 function getCellValue(row, col) {
@@ -481,6 +504,26 @@ function render() {
         lines.push('  ' + rpad(d.date, 12) + rpad(d.type, 10) + color(lpad(hrs, 8)) + '  ' + (d.leaveTypeDesc || d.leaveTypeCode));
       }
     }
+  } else if (showFavorites && favoritesData) {
+    // ── Favorites view ──
+    lines.push(chalk.bold('Favorites'));
+    lines.push('');
+
+    if (favoritesData.length === 0) {
+      lines.push(chalk.dim('  No favorites found. Add them in the Costpoint web UI.'));
+    } else {
+      const codeW = favoritesData.reduce((m, f) => Math.max(m, (f.code || '').length), 4);
+      lines.push(chalk.dim('  ' + rpad('#', 3) + rpad('Code', codeW + 2) + rpad('Pay', 5) + 'Description'));
+      lines.push(chalk.dim('  ' + '─'.repeat(3) + '─'.repeat(codeW + 2) + '─'.repeat(5) + '─'.repeat(30)));
+      favoritesData.forEach((f, i) => {
+        lines.push(
+          '  ' + chalk.yellow(rpad(String(i + 1), 3)) +
+          rpad(f.code || '', codeW + 2) +
+          rpad(f.payType || '', 5) +
+          chalk.dim(f.description || '')
+        );
+      });
+    }
   } else if (data && data.projects && data.dates) {
     // ── Timesheet table ──
     const nDays = data.dates.length;
@@ -584,8 +627,10 @@ function render() {
     } else {
       if (showLeave) {
         lines.push(chalk.dim('[l]eave back  [r]efresh  [q]uit'));
+      } else if (showFavorites) {
+        lines.push(chalk.dim('[1-' + (favoritesData && favoritesData.length > 0 ? favoritesData.length : 'N') + '] add  [f]avorites back  [q]uit'));
       } else {
-        lines.push(chalk.dim('[s]ave  [S]ign  [r]efresh  [a]dd  [C]omment  [c]opy Thu\u2192Fri  [l]eave  [q]uit'));
+        lines.push(chalk.dim('[s]ave  [S]ign  [r]efresh  [a]dd  [C]omment  [c]opy Thu\u2192Fri  [l]eave  [f]av  [q]uit'));
       }
     }
   }
@@ -619,6 +664,19 @@ function handleNavigateKey(str, key) {
     if (str === 'l' || key.name === 'escape') { showLeave = false; render(); return; }
     if (str === 'r') { doLeaveBalances(); return; }
     if (str === 'q') { shutdown(); return; }
+    return;
+  }
+
+  if (showFavorites) {
+    if (str === 'f' || key.name === 'escape') { showFavorites = false; render(); return; }
+    if (str === 'q') { shutdown(); return; }
+    const n = parseInt(str, 10);
+    if (n >= 1 && favoritesData && n <= favoritesData.length) {
+      showFavorites = false;
+      const fav = favoritesData[n - 1];
+      doAddProject(fav.code, fav.payType || 'REG');
+      return;
+    }
     return;
   }
 
@@ -683,6 +741,11 @@ function handleNavigateKey(str, key) {
       if (str === 'l') {
         if (showLeave) { showLeave = false; render(); }
         else { doLeaveBalances(); }
+        return;
+      }
+      if (str === 'f') {
+        if (showFavorites) { showFavorites = false; render(); }
+        else { doFavorites(); }
         return;
       }
       if (str === 'q') {

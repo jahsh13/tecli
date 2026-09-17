@@ -198,6 +198,13 @@
       });
     });
 
+    // Favorites
+    const favoritesBtn = document.getElementById("favorites-btn");
+    const favoritesModal = document.getElementById("favorites-modal");
+    if (favoritesBtn && favoritesModal) {
+      favoritesBtn.addEventListener("click", handleFavorites);
+    }
+
     // Leave balances
     const leaveBalBtn = document.getElementById("leave-bal-btn");
     const leaveModal = document.getElementById("leave-modal");
@@ -707,6 +714,48 @@
     }
   }
 
+  async function handleFavorites() {
+    const modal = document.getElementById("favorites-modal");
+    const body = document.getElementById("favorites-modal-body");
+    body.innerHTML = "<p>Loading favorites...</p>";
+    showModal(modal);
+
+    try {
+      const response = await fetch("/api/favorites");
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || "Failed to fetch favorites");
+      }
+      const favs = await response.json();
+
+      if (favs.length === 0) {
+        body.innerHTML = "<p>No favorites found. Add them in the Costpoint web UI.</p>";
+        return;
+      }
+
+      let html = '<table class="leave-table"><thead><tr><th>Code</th><th>Pay Type</th><th>Description</th><th></th></tr></thead><tbody>';
+      for (const f of favs) {
+        html += '<tr><td><code>' + escapeHtml(f.code) + '</code></td>' +
+          '<td>' + escapeHtml(f.payType || '') + '</td>' +
+          '<td>' + escapeHtml(f.description || '') + '</td>' +
+          '<td><button class="btn btn-sm btn-primary fav-add-btn" data-code="' + escapeHtml(f.code) + '" data-paytype="' + escapeHtml(f.payType || 'REG') + '">Add</button></td></tr>';
+      }
+      html += '</tbody></table>';
+      body.innerHTML = html;
+
+      body.querySelectorAll(".fav-add-btn").forEach(btn => {
+        btn.addEventListener("click", async () => {
+          const code = btn.dataset.code;
+          const payType = btn.dataset.paytype;
+          hideAllModals();
+          await addProject(code, payType);
+        });
+      });
+    } catch (err) {
+      body.innerHTML = '<p class="error">' + (err.message || "Failed to load favorites") + "</p>";
+    }
+  }
+
   async function handleLeaveBalances() {
     const leaveModal = document.getElementById("leave-modal");
     const leaveBody = document.getElementById("leave-modal-body");
@@ -748,6 +797,29 @@
     }
   }
 
+  async function addProject(code, payType) {
+    updateSyncStatus("syncing");
+    try {
+      const response = await fetch("/api/project", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ code, payType })
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || "Failed to add project");
+      }
+
+      showSuccess("Project added successfully! Reloading...");
+      setTimeout(() => { window.location.reload(); }, 1000);
+    } catch (err) {
+      console.error("Add project failed:", err);
+      showError(err.message || "Failed to add project. Please check the code and try again.");
+      updateSyncStatus("error");
+    }
+  }
+
   async function handleAddProject() {
     const projectCodeInput = document.getElementById("project-code");
     const projectPayTypeSelect = document.getElementById("project-pay-type");
@@ -761,37 +833,12 @@
 
     confirmAddProject.disabled = true;
     confirmAddProject.textContent = "Adding...";
-    updateSyncStatus("syncing");
 
     try {
-      const response = await fetch("/api/project", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ code, payType })
-      });
-
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.error || "Failed to add project");
-      }
-
       hideAllModals();
       projectCodeInput.value = "";
-      if (projectPayTypeSelect) {
-        projectPayTypeSelect.value = "REG";
-      }
-
-      showSuccess("Project added successfully! Reloading...");
-
-      // Reload to get updated data
-      setTimeout(() => {
-        window.location.reload();
-      }, 1000);
-
-    } catch (err) {
-      console.error("Add project failed:", err);
-      showError(err.message || "Failed to add project. Please check the code and try again.");
-      updateSyncStatus("error");
+      if (projectPayTypeSelect) projectPayTypeSelect.value = "REG";
+      await addProject(code, payType);
     } finally {
       confirmAddProject.disabled = false;
       confirmAddProject.textContent = "Add";
@@ -966,6 +1013,10 @@
         errorBanner.style.display = "none";
       }, 3000);
     }
+  }
+
+  function escapeHtml(str) {
+    return String(str).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
   }
 
   function showModal(modal) {

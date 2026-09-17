@@ -297,22 +297,28 @@ program
   });
 
 program
-  .command("add <code> [payType]")
+  .command("add [code] [payType]")
   .description(
-    "add project code to timesheet\n" +
+    "add project code to timesheet (pick from favorites if no code given)\n" +
     "  Shortcuts: " + COMMON_CODES.map(c => c.alias).join(", ") + "\n" +
     "  e.g. 'te add pto' → ZLEAVE.CMP (REG)",
   )
   .action(async (code, payType) => {
     try {
-      // Resolve shortcut aliases (e.g. "pto" → ZLEAVE.CMP + REG)
-      const alias = resolveAlias(code);
-      if (alias) {
-        if (!payType) payType = alias.payType;
-        code = alias.code;
-      }
-
       const cp = await connect();
+
+      if (!code) {
+        const picked = await pickFromFavorites(cp);
+        if (!picked) { await cp.close(); return; }
+        code = picked.code;
+        if (!payType) payType = picked.payType || undefined;
+      } else {
+        const alias = resolveAlias(code);
+        if (alias) {
+          if (!payType) payType = alias.payType;
+          code = alias.code;
+        }
+      }
 
       const label = payType ? `${code} (${payType})` : code;
       const s = spin(`Adding ${label}...`);
@@ -323,6 +329,69 @@ program
       showStatus(cp);
       console.log();
       cp.display();
+      await cp.close();
+    } catch (e) {
+      console.error(chalk.red(`\n  ${e.message}`));
+      process.exit(1);
+    }
+  });
+
+async function pickFromFavorites(cp) {
+  const s = spin("Loading favorites...");
+  const favs = await cp.getFavorites();
+  s.succeed("Favorites loaded");
+  console.log();
+
+  if (favs.length === 0) {
+    console.log(chalk.dim("  No favorites saved. Run 'te add <code>' or save favorites in the Costpoint web UI."));
+    return null;
+  }
+
+  const t = new Table({
+    head: [chalk.cyan("#"), chalk.cyan("Code"), chalk.cyan("Description"), chalk.cyan("Pay Type")],
+  });
+  favs.forEach((f, i) => t.push([i + 1, f.code, f.description || "", f.payType || ""]));
+  console.log(t.toString());
+  console.log();
+
+  const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+  const answer = await new Promise(resolve => {
+    rl.question(`  Pick favorite [1-${favs.length}] or Enter to cancel: `, resolve);
+  });
+  rl.close();
+
+  const trimmed = (answer || "").trim();
+  if (!trimmed) return null;
+  const n = parseInt(trimmed, 10);
+  if (!Number.isFinite(n) || n < 1 || n > favs.length) {
+    console.log(chalk.red(`  Invalid selection: ${trimmed}`));
+    return null;
+  }
+  return favs[n - 1];
+}
+
+program
+  .command("favorites")
+  .alias("fav")
+  .description("list favorite charge codes saved in Costpoint")
+  .action(async () => {
+    try {
+      const cp = await connect();
+      const s = spin("Loading favorites...");
+      const favs = await cp.getFavorites();
+      s.succeed("Favorites loaded");
+      console.log();
+
+      if (favs.length === 0) {
+        console.log(chalk.dim("  No favorites found. Add them in the Costpoint web UI."));
+      } else {
+        const t = new Table({
+          head: [chalk.cyan("#"), chalk.cyan("Code"), chalk.cyan("Description"), chalk.cyan("Pay Type")],
+        });
+        favs.forEach((f, i) => t.push([i, f.code, f.description || '', f.payType || '']));
+        console.log(t.toString());
+      }
+      console.log();
       await cp.close();
     } catch (e) {
       console.error(chalk.red(`\n  ${e.message}`));

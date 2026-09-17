@@ -331,32 +331,13 @@ class DirectClient {
   async add(code, payType) {
     debug('Adding project code: ' + code + (payType ? ' (payType=' + payType + ')' : ''));
 
-    // Create a new row locally at -59999 with template fields from existing rows.
-    // The browser copies employee defaults from existing rows before TMMTS_NEW_TS_LINE.
-    const numCols = this.childData.rows[0].length;
-    const newRow = new Array(numCols).fill('');
-
-    // Copy uniform template fields from first existing row (employee ID, pay schedule, etc.)
-    const TEMPLATE_COLS = [0, 150, 151, 187, 193, 194, 197, 234, 235, 336, 398];
-    const templateRow = this.childData.rows[0];
-    for (const ci of TEMPLATE_COLS) {
-      if (ci < templateRow.length && templateRow[ci]) newRow[ci] = templateRow[ci];
+    // Reuse an existing pending line (e.g. from getFavorites) if present; otherwise
+    // create one and register it with TMMTS_NEW_TS_LINE.
+    const alreadyPending = this.childData.rowNums.some(n => parseInt(n, 10) < 0);
+    if (!alreadyPending) {
+      this._stagePendingLine();
+      await this._newTimesheetLine();
     }
-    // col[1] and col[198] are the sequence number (next line number)
-    const nextSeq = String(this.childData.rows.length + 1);
-    newRow[1] = nextSeq;
-    newRow[198] = nextSeq;
-    // col[196] and col[393] are "N" for new rows (empty in existing rows)
-    newRow[196] = 'N';
-    newRow[393] = 'N';
-
-    this.childData.rows.push(newRow);
-    this.childData.rowNums.push('-59999');
-    if (this.childData.rowFlags) this.childData.rowFlags.push('19');
-
-    // Step 1: TMMTS_NEW_TS_LINE — register the new row with the server.
-    // The server populates employee defaults and establishes server-side state.
-    await this._newTimesheetLine();
 
     // Step 2: Set the project code and validate it.
     // Find the new row (may have been replaced by server response).
@@ -373,6 +354,101 @@ class DirectClient {
     await this._validateUdt02();
 
     this._buildTableRows();
+  }
+
+  /**
+   * Fetch the user's charge favorites from Costpoint.
+   *
+   * Reuses the TC_UDT02_CHARGE_LKP result set with an HLKP query that
+   * targets the server-side "favorites" level (LVL=2, ROW=0) instead of
+   * the per-code lookup (LVL=1, ROW=-2) used by _buildHlkpQuery.
+   *
+   * Returns an array of { code, description, payType } entries.
+   */
+  /**
+   * Stage a new child row locally at rowNum -59999 with template defaults
+   * copied from an existing row. Matches what the browser does before
+   * sending TMMTS_NEW_TS_LINE.
+   */
+  _stagePendingLine() {
+    const numCols = this.childData.rows[0].length;
+    const newRow = new Array(numCols).fill('');
+
+    const TEMPLATE_COLS = [0, 150, 151, 187, 193, 194, 197, 234, 235, 336, 398];
+    const templateRow = this.childData.rows[0];
+    for (const ci of TEMPLATE_COLS) {
+      if (ci < templateRow.length && templateRow[ci]) newRow[ci] = templateRow[ci];
+    }
+    const nextSeq = String(this.childData.rows.length + 1);
+    newRow[1] = nextSeq;
+    newRow[198] = nextSeq;
+    newRow[196] = 'N';
+    newRow[393] = 'N';
+
+    this.childData.rows.push(newRow);
+    this.childData.rowNums.push('-59999');
+    if (this.childData.rowFlags) this.childData.rowFlags.push('19');
+  }
+
+  async getFavorites() {
+    // Favorites require a pending row at -59999 — the lookup is scoped to it
+    // via HLKP's X=-59999. Matches the browser flow: user clicks "add row"
+    // before the magnifier is clickable.
+    const hasPending = this.childData.rowNums.some(n => parseInt(n, 10) < 0);
+    if (!hasPending) {
+      this._stagePendingLine();
+      await this._newTimesheetLine();
+    }
+
+    // Bare OPEN_RS K2 (no PUT K1) — matches the browser's magnifier click.
+    const openResp = await this._postServlet(this._buildOpenFavoritesLookup());
+    const openErr = protocol.checkErrors(protocol.parseResponse(openResp));
+    if (openErr) throw new Error('Favorites open error: ' + openErr);
+
+    // Categories-view primer (LVL=1 ROW=-1, no code filter). This is what the
+    // browser sends immediately after OPEN_RS when the lookup dialog first
+    // opens. Without this, the favorites HLKP (LVL=2) returns <NO DATA>.
+    await this._postServlet(this._buildCategoriesLookup());
+
+    const queryResp = await this._postServlet(this._buildFavoritesQuery());
+    const queryParsed = protocol.parseResponse(queryResp);
+    const queryErr = protocol.checkErrors(queryParsed);
+    if (queryErr) throw new Error('Favorites query error: ' + queryErr);
+
+    const k2Data = protocol.extract204(queryParsed, 2);
+    if (!k2Data || k2Data.rows.length === 0) return [];
+
+    const seen = new Set();
+    const favorites = [];
+    for (const row of k2Data.rows) {
+      const code = row[5] || '';
+      if (!code) continue;
+      const payType = row[15] || '';
+      const key = code + '|' + payType;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      favorites.push({
+        code,
+        description: row[0] || '',
+        payType,
+      });
+    }
+    return favorites;
+  }
+
+  /**
+   * Add a project by index into the favorites list. Convenience wrapper:
+   * fetches favorites, picks by index, delegates to add().
+   */
+  async addFromFavorite(index) {
+    const favs = await this.getFavorites();
+    if (!favs.length) throw new Error('No favorites available');
+    if (index < 0 || index >= favs.length) {
+      throw new Error('Favorite index ' + index + ' out of range (0-' + (favs.length - 1) + ')');
+    }
+    const fav = favs[index];
+    await this.add(fav.code, fav.payType || undefined);
+    return fav;
   }
 
   /**
@@ -2450,6 +2526,87 @@ class DirectClient {
         { name: 'checkCache', value: '0' },
         { code: 'C', value: '-60000' },
         { code: 'V', value: 'true' },
+      ])),
+      this._keepalive(),
+    ];
+    return protocol.buildRequestBody(this.sid, cmds);
+  }
+
+  /**
+   * OPEN_RS K2 without the preceding PUT K1 that _buildOpenRsChargeLookup
+   * bundles. Matches the captured browser request when the magnifier is
+   * clicked with no pending code typed.
+   */
+  _buildOpenFavoritesLookup() {
+    const cmds = [
+      this._wrap(this._cmd(201, [
+        { code: 'K', value: '2' },
+        { code: 'I', value: 'TC_UDT02_CHARGE_LKP' },
+        { code: 'N', value: '0' },
+        { code: 'L', value: '16' },
+        { code: 'P', value: '1' },
+        { name: 'objectId', value: 'UDT02_ID' },
+        { name: 'checkCache', value: '0' },
+        { code: 'C', value: '-60000' },
+        { code: 'V', value: 'true' },
+      ])),
+      this._keepalive(),
+    ];
+    return protocol.buildRequestBody(this.sid, cmds);
+  }
+
+  /**
+   * CMD 204 HLKP query targeting the server-side favorites level.
+   * LVL=2, ROW=0 — distinct from the per-code lookup (LVL=1, ROW=-2).
+   * Mirrors the captured browser request when the favorites tab is active.
+   */
+  _buildFavoritesQuery() {
+    // WHERE clause targets the favorites level (LVL=2, ROW=0).
+    // C=0 (not -60000) — browser uses top-of-list cursor when no row is selected.
+    const where = '1|C^$H_LKP_SEL_LVL$^1^2^0|C^$H_LKP_SEL_ROW$^1^0^0|';
+    const cmds = [
+      this._wrap(this._cmd(204, [
+        { name: 'rsType', value: 'L' },
+        { code: 'R', value: 'HLKP' },
+        { code: 'S', value: '0' }, { code: 'E', value: '100' },
+        { code: 'X', value: '-59999' },
+        { code: 'W', value: where },
+        { name: 'objectId', value: 'UDT02_ID' },
+        { code: 'K', value: '2' }, { code: 'C', value: '0' },
+        { code: 'P', value: '1' }, { code: 'V', value: 'true' },
+      ])),
+      this._keepalive(),
+    ];
+    return protocol.buildRequestBody(this.sid, cmds);
+  }
+
+  /**
+   * CMD 204 HLKP categories-view query (LVL=1, ROW=-1, no code filter).
+   * Mirrors the captured browser request sent immediately after OPEN_RS K2
+   * when the charge lookup dialog first opens. Seeds K2 into a state where
+   * the subsequent favorites HLKP (LVL=2) returns rows instead of <NO DATA>.
+   */
+  _buildCategoriesLookup() {
+    const where = '1|C^$H_LKP_SEL_LVL$^1^1^0|C^$H_LKP_SEL_ROW$^1^-1^0|';
+    const cmds = [
+      this._wrap(this._cmd(204, [
+        { name: 'rsType', value: 'L' },
+        { code: 'R', value: 'HLKP' },
+        { code: 'S', value: '0' }, { code: 'E', value: '100' },
+        { code: 'X', value: '-59999' },
+        { code: 'W', value: where },
+        { name: 'objectId', value: 'UDT02_ID' },
+        { code: 'K', value: '2' }, { code: 'C', value: '-60000' },
+        { code: 'P', value: '1' }, { code: 'V', value: 'true' },
+      ])),
+      this._wrap(this._cmd(204, [
+        { name: 'rsType', value: 'L' },
+        { code: 'R', value: 'HLKP' },
+        { code: 'S', value: '-59999' }, { code: 'E', value: '-59899' },
+        { code: 'X', value: '-59999' },
+        { name: 'newQry', value: 'Y' },
+        { code: 'K', value: '2' }, { code: 'C', value: '-60000' },
+        { code: 'P', value: '1' }, { code: 'V', value: 'true' },
       ])),
       this._keepalive(),
     ];

@@ -91,7 +91,7 @@ function _linuxGet(account) {
       'lookup', 'service', SERVICE, 'username', account
     ], { encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'] }).trim();
   } catch {
-    return null;
+    return _fallbackGet(account);
   }
 }
 

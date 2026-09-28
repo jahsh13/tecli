@@ -377,7 +377,7 @@ thead .col-weekend {
   background: rgba(255, 255, 255, 0.03);
 }
 
-/* Inactive (previous week) cells */
+/* Read-only cells (week not editable, or line absent from that week) */
 .col-inactive {
   opacity: 0.5;
 }

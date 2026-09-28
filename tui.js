@@ -6,6 +6,7 @@ const readline = require('readline');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
+const moment = require('moment');
 const DirectClient = require('./direct');
 const Costpoint = require('./costpoint');
 const { normalizeTimesheetStatus } = require('./timesheet-status');
@@ -24,21 +25,38 @@ const { url, username, password, system, useDirect } = creds;
 
 // ─── Session management ────────────────────────────────────────
 
+// One session at a time, bound to a period (0 = active week, 1 = previous
+// week). Asking for the other period relaunches it: a previous-week session
+// is launched fresh and moved to its period before anything else runs.
 let activeClient = null;
+let activeClientPeriod = 0;
 let clientIdleTimer = null;
 const CLIENT_IDLE_TIMEOUT = 5 * 60 * 1000;
 
-async function launchNewClient() {
-  if (useDirect) return DirectClient.launch(url, username, password);
-  return Costpoint.launch(url, username, password, system);
+async function launchNewClient(period) {
+  if (!useDirect) {
+    if (period !== 0) throw new Error('Editing the previous week requires direct mode (COSTPOINT_DIRECT=true)');
+    return Costpoint.launch(url, username, password, system);
+  }
+  if (period === 0) return DirectClient.launch(url, username, password, { loadPreviousPeriod: true });
+  const cp = await DirectClient.launch(url, username, password);
+  try {
+    await cp.selectPeriod(period);
+  } catch (e) {
+    try { await cp.close(); } catch (e2) { /* ignore */ }
+    throw e;
+  }
+  return cp;
 }
 
-async function getClient() {
+async function getClient(period = 0) {
   if (clientIdleTimer) clearTimeout(clientIdleTimer);
+  if (activeClient && activeClientPeriod !== period) await releaseClient();
   if (!activeClient) {
     setStatus('Logging in...');
     render();
-    activeClient = await launchNewClient();
+    activeClient = await launchNewClient(period);
+    activeClientPeriod = period;
   }
   clientIdleTimer = setTimeout(releaseClient, CLIENT_IDLE_TIMEOUT);
   return activeClient;
@@ -59,15 +77,15 @@ function isSessionError(e) {
          msg.includes('socket hang up') || msg.includes('onservletexception');
 }
 
-async function withClient(fn) {
+async function withClient(fn, period = 0) {
   try {
-    return await fn(await getClient());
+    return await fn(await getClient(period));
   } catch (e) {
     if (isSessionError(e)) {
       setStatus('Session expired, re-logging in...');
       render();
       await releaseClient();
-      return await fn(await getClient());
+      return await fn(await getClient(period));
     }
     throw e;
   }
@@ -84,11 +102,16 @@ function weekStartKey(weekData) {
   return weekData.dates[0].fullDate;
 }
 
-function storeWeekData(weekData) {
+// Store fetched week data into the cache without changing the active week
+function cacheWeek(weekData) {
   const key = weekStartKey(weekData);
-  if (!key) return;
-  cachedWeeks[key] = weekData;
-  activeWeekStart = key;
+  if (key) cachedWeeks[key] = weekData;
+  return key;
+}
+
+function storeWeekData(weekData) {
+  const key = cacheWeek(weekData);
+  if (key) activeWeekStart = key;
 }
 
 function loadCache() {
@@ -115,6 +138,11 @@ function getActiveWeekData() {
   return activeWeekStart ? cachedWeeks[activeWeekStart] : null;
 }
 
+function getPrevWeekData() {
+  if (!activeWeekStart) return null;
+  return cachedWeeks[moment(activeWeekStart).subtract(7, 'days').format('YYYY-MM-DD')] || null;
+}
+
 // Project codes that require a comment when hours are entered
 const COMMENT_REQUIRED_CODES = ['A09909.SUSP.OVH'];
 function isCommentRequired(code) { return COMMENT_REQUIRED_CODES.includes(code); }
@@ -122,6 +150,7 @@ function isCommentRequired(code) { return COMMENT_REQUIRED_CODES.includes(code);
 // ─── TUI state ─────────────────────────────────────────────────
 
 let data = null;
+let viewPrev = false;     // toggle: active week vs previous week
 let cursorRow = 0;
 let cursorCol = 0;
 let mode = 'navigate'; // navigate | edit | prompt | menu
@@ -152,6 +181,26 @@ function setStatus(msg, duration) {
 
 // ─── Data operations ───────────────────────────────────────────
 
+function viewPeriod() { return viewPrev ? 1 : 0; }
+
+function loadViewData() {
+  data = viewPrev ? getPrevWeekData() : getActiveWeekData();
+}
+
+// Cache a session's data under the week it belongs to
+function storeClientData(cp) {
+  if (viewPrev) cacheWeek(cp.getData());
+  else storeWeekData(cp.getData());
+}
+
+// Blocks active-week-only actions while the previous week is shown
+function requireActiveWeek(action) {
+  if (!viewPrev) return true;
+  setStatus(chalk.yellow(action + ' is only available on the active week ([w] to switch).'), 3000);
+  render();
+  return false;
+}
+
 async function fetchData() {
   if (isProcessing) return;
   isProcessing = true;
@@ -167,15 +216,12 @@ async function fetchData() {
     try {
       if (typeof cp.getPreviousPeriodData === 'function') {
         const other = cp.getPreviousPeriodData();
-        if (other) {
-          const key = weekStartKey(other);
-          if (key) cachedWeeks[key] = other;
-        }
+        if (other) cacheWeek(other);
       }
     } catch (e) { /* non-fatal */ }
 
     saveCache();
-    data = getActiveWeekData();
+    loadViewData();
     clampCursor();
     setStatus(chalk.green('Loaded.'), 3000);
   } catch (e) {
@@ -199,18 +245,15 @@ async function doSave() {
   render();
 
   const changes = Array.from(pendingChanges.values());
+  const period = viewPeriod();
   try {
     await withClient(async (cp) => {
-      if (changes.length === 1) {
-        await cp.set(changes[0].line, changes[0].day, changes[0].hours, changes[0].comment);
-      } else {
-        await cp.setm(changes);
-      }
+      await cp.setm(changes);
       await cp.save();
-      storeWeekData(cp.getData());
+      storeClientData(cp);
       saveCache();
-    });
-    data = getActiveWeekData();
+    }, period);
+    loadViewData();
     pendingChanges.clear();
     clampCursor();
     setStatus(chalk.green('Saved ' + changes.length + ' change' + (changes.length !== 1 ? 's' : '') + '.'), 3000);
@@ -234,10 +277,10 @@ async function doSave() {
         try {
           await withClient(async (cp) => {
             await cp.saveWithExplanation(explanation.trim());
-            storeWeekData(cp.getData());
+            storeClientData(cp);
             saveCache();
-          });
-          data = getActiveWeekData();
+          }, period);
+          loadViewData();
           pendingChanges.clear();
           clampCursor();
           setStatus(chalk.green('Saved with revision explanation.'), 3000);
@@ -276,7 +319,7 @@ async function doSign() {
       storeWeekData(cp.getData());
       saveCache();
     });
-    data = getActiveWeekData();
+    loadViewData();
     pendingChanges.clear();
     setStatus(chalk.green('Timesheet signed.'), 3000);
   } catch (e) {
@@ -302,7 +345,7 @@ async function doAddProject(code, payType) {
       storeWeekData(cp.getData());
       saveCache();
     });
-    data = getActiveWeekData();
+    loadViewData();
     clampCursor();
     setStatus(chalk.green('Added ' + code + '.'), 3000);
   } catch (e) {
@@ -441,7 +484,7 @@ function render() {
   const lines = [];
 
   // ── Header ──
-  const title = chalk.bold('Str8 Outta Deltek');
+  const title = chalk.bold('Str8 Outta Deltek') + (viewPrev ? ' ' + chalk.magenta.bold('PREVIOUS WEEK') : '');
   let badges = '';
   if (data) {
     const meta = normalizeTimesheetStatus(data.timesheetStatusCode || data.timesheetStatus);
@@ -629,8 +672,10 @@ function render() {
         lines.push(chalk.dim('[l]eave back  [r]efresh  [q]uit'));
       } else if (showFavorites) {
         lines.push(chalk.dim('[1-' + (favoritesData && favoritesData.length > 0 ? favoritesData.length : 'N') + '] add  [f]avorites back  [q]uit'));
+      } else if (viewPrev) {
+        lines.push(chalk.dim('[s]ave  [r]efresh  [C]omment  [w]eek  [l]eave  [q]uit'));
       } else {
-        lines.push(chalk.dim('[s]ave  [S]ign  [r]efresh  [a]dd  [C]omment  [c]opy Thu\u2192Fri  [l]eave  [f]av  [q]uit'));
+        lines.push(chalk.dim('[s]ave  [S]ign  [r]efresh  [a]dd  [C]omment  [c]opy Thu\u2192Fri  [w]eek  [l]eave  [f]av  [q]uit'));
       }
     }
   }
@@ -672,6 +717,7 @@ function handleNavigateKey(str, key) {
     if (str === 'q') { shutdown(); return; }
     const n = parseInt(str, 10);
     if (n >= 1 && favoritesData && n <= favoritesData.length) {
+      if (!requireActiveWeek('Adding a project')) return;
       showFavorites = false;
       const fav = favoritesData[n - 1];
       doAddProject(fav.code, fav.payType || 'REG');
@@ -679,6 +725,8 @@ function handleNavigateKey(str, key) {
     }
     return;
   }
+
+  if (str === 'w') { toggleWeek(); return; }
 
   if (!data || !data.projects || data.projects.length === 0) {
     if (str === 'r') { fetchData(); return; }
@@ -702,16 +750,19 @@ function handleNavigateKey(str, key) {
       }
       break;
     case 'return':
+      if (!canEditView()) return;
       mode = 'edit';
       editBuffer = getCellValue(cursorRow, cursorCol);
       break;
     case 'backspace':
     case 'delete':
+      if (!canEditView()) return;
       commitEdit('');
       break;
     default:
       if (str === 's' && !key.shift) { doSave(); return; }
       if (str === 'S' || (str === 's' && key.shift)) {
+        if (!requireActiveWeek('Signing')) return;
         if (pendingChanges.size > 0) {
           setStatus(chalk.yellow('Save changes before signing.'), 3000);
           render();
@@ -724,12 +775,14 @@ function handleNavigateKey(str, key) {
       }
       if (str === 'r') { fetchData(); return; }
       if (str === 'a') {
+        if (!requireActiveWeek('Adding a project')) return;
         enterMenu();
         return;
       }
       if (str === 'C' || (str === 'c' && key.shift)) {
         // Edit comment on current cell
         if (!data || !data.projects || data.projects.length === 0) return;
+        if (!canEditView()) return;
         const currentComment = getCellComment(cursorRow, cursorCol);
         enterPrompt('Comment' + (currentComment ? ' [' + currentComment + ']' : '') + ': ', function(text) {
           commitComment(text);
@@ -737,7 +790,10 @@ function handleNavigateKey(str, key) {
         });
         return;
       }
-      if (str === 'c' && !key.shift) { doCopyThuFri(); return; }
+      if (str === 'c' && !key.shift) {
+        if (requireActiveWeek('Copy Thu\u2192Fri')) doCopyThuFri();
+        return;
+      }
       if (str === 'l') {
         if (showLeave) { showLeave = false; render(); }
         else { doLeaveBalances(); }
@@ -759,6 +815,7 @@ function handleNavigateKey(str, key) {
         return;
       }
       if (str && /^[0-9.]$/.test(str)) {
+        if (!canEditView()) return;
         mode = 'edit';
         editBuffer = str;
         render();
@@ -767,6 +824,33 @@ function handleNavigateKey(str, key) {
       break;
   }
   render();
+}
+
+function toggleWeek() {
+  if (pendingChanges.size > 0) {
+    setStatus(chalk.yellow('Save your changes before switching weeks.'), 3000);
+    render();
+    return;
+  }
+  if (!viewPrev && !getPrevWeekData()) {
+    setStatus(chalk.yellow('Previous week is not loaded. [r]efresh first.'), 3000);
+    render();
+    return;
+  }
+  viewPrev = !viewPrev;
+  loadViewData();
+  clampCursor();
+  setStatus(viewPrev ? 'Showing the previous week.' : 'Showing the active week.', 2000);
+  render();
+}
+
+function canEditView() {
+  if (data && data.editable === false) {
+    setStatus(chalk.yellow('This week is closed and cannot be corrected.'), 3000);
+    render();
+    return false;
+  }
+  return true;
 }
 
 function handleEditKey(str, key) {
@@ -953,7 +1037,7 @@ function main() {
   process.on('SIGTERM', shutdown);
 
   loadCache();
-  data = getActiveWeekData();
+  loadViewData();
   render();
   fetchData();
 }

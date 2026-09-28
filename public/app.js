@@ -271,7 +271,8 @@
     const input = e.target;
     const line = parseInt(input.dataset.line);
     const day = parseInt(input.dataset.day);
-    const activeLine = input.dataset.activeLine;
+    const week = input.dataset.week;
+    const periodLine = input.dataset.periodLine;
     const key = `${line}-${day}`;
     const newValue = input.value.trim();
     const originalValue = originalValues.get(key);
@@ -280,7 +281,7 @@
     // Check if value differs from original
     if (newValue !== originalStr) {
       input.classList.add("modified");
-      pendingChanges.set(key, { line, day, hours: newValue, activeLine });
+      pendingChanges.set(key, { line, day, hours: newValue, week, periodLine });
     } else {
       input.classList.remove("modified");
       pendingChanges.delete(key);
@@ -307,7 +308,6 @@
     if (newValue !== "" && data) {
       var line = parseInt(input.dataset.line);
       var day = parseInt(input.dataset.day);
-      var activeLine = input.dataset.activeLine;
       var project = data.projects.find(function(p) { return p.line === line; });
       if (project && isCommentRequired(project.code)) {
         // Only prompt if no comment already exists for this cell
@@ -316,7 +316,7 @@
         if (!existingComment) {
           // Defer so blur completes first
           setTimeout(function() {
-            showCommentModal(line, day, activeLine, "", input);
+            showCommentModal(line, day, "", input);
           }, 50);
         }
       }
@@ -374,7 +374,8 @@
             line: change.line,
             day: change.day,
             hours: change.hours === "" ? "" : parseFloat(change.hours),
-            activeLine: change.activeLine
+            week: change.week,
+            periodLine: change.periodLine
           })
         });
 
@@ -392,7 +393,8 @@
           body: JSON.stringify({
             day: change.day,
             comment: change.comment,
-            activeLine: change.activeLine
+            week: change.week,
+            periodLine: change.periodLine
           })
         });
 
@@ -531,6 +533,13 @@
         const result = await resp.json();
         if (!resp.ok) throw new Error(result.error || "Failed to save");
 
+        // The other week's changes were saved next and need their own explanation
+        if (result.revisionRequired) {
+          overlay.remove();
+          showRevisionModal(result.auditDetails || []);
+          return;
+        }
+
         // Clear pending changes
         pendingChanges.forEach((change, key) => {
           const [line, day] = key.split("-").map(Number);
@@ -560,8 +569,7 @@
 
     var line = parseInt(input.dataset.line);
     var day = parseInt(input.dataset.day);
-    var activeLine = input.dataset.activeLine;
-    if (activeLine === undefined || activeLine === "") return;
+    if (input.dataset.periodLine === undefined || input.dataset.periodLine === "") return;
 
     var currentComment = input.dataset.comment || "";
     // Check for pending comment
@@ -569,10 +577,10 @@
     var pending = pendingComments.get(pendingKey);
     if (pending) currentComment = pending.comment || "";
 
-    showCommentModal(line, day, activeLine, currentComment, input);
+    showCommentModal(line, day, currentComment, input);
   }
 
-  function showCommentModal(line, day, activeLine, currentComment, inputEl) {
+  function showCommentModal(line, day, currentComment, inputEl) {
     // Find project info for display
     var project = null;
     var dateInfo = null;
@@ -615,7 +623,10 @@
       var orig = originalComments.get(key) || "";
 
       if (text !== orig) {
-        pendingComments.set(key, { line: line, day: day, comment: text, activeLine: activeLine });
+        pendingComments.set(key, {
+          line: line, day: day, comment: text,
+          week: inputEl.dataset.week, periodLine: inputEl.dataset.periodLine
+        });
         inputEl.classList.add("comment-modified");
       } else {
         pendingComments.delete(key);

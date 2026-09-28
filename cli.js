@@ -67,16 +67,32 @@ function launchClient() {
   return Costpoint.launch(url, username, password, system);
 }
 
-async function connect() {
+// options.prev selects the previous week (parent row 1) right after launch,
+// before anything else runs on the session
+async function connect(options = {}) {
+  if (options.prev && !requireCredentials().useDirect) {
+    throw new Error("--prev is only supported in direct mode (COSTPOINT_DIRECT=true).");
+  }
   const s = spin("Authenticating...");
+  let cp;
   try {
-    const cp = await launchClient();
+    cp = await launchClient();
     s.succeed("Authenticated");
-    return cp;
   } catch (e) {
     s.fail("Authentication failed");
     throw e;
   }
+  if (options.prev) {
+    const p = spin("Loading previous week...");
+    try {
+      await cp.selectPeriod(1);
+      p.succeed("Previous week loaded");
+    } catch (e) {
+      p.fail("Could not load previous week");
+      throw e;
+    }
+  }
+  return cp;
 }
 
 async function saveWithSpinner(cp) {
@@ -141,9 +157,10 @@ program
 program
   .command("show")
   .description("show timesheet")
-  .action(async () => {
+  .option("-p, --prev", "show the previous week")
+  .action(async (options) => {
     try {
-      const cp = await connect();
+      const cp = await connect(options);
       showStatus(cp);
       console.log();
       cp.display();
@@ -205,6 +222,7 @@ program
   .command("set <line> <day> <hours>")
   .description("set hours for given project line and day")
   .option("-c, --comment <text>", "comment for the cell (direct mode only)")
+  .option("-p, --prev", "edit the previous week (direct mode only)")
   .action(async (line, day, hours, options) => {
     const lineNum = parseInt(line, 10);
     const dayNum = parseInt(day, 10);
@@ -224,10 +242,15 @@ program
       process.exit(1);
     }
     try {
-      const cp = await connect();
+      const cp = await connect(options);
 
       const s = spin(`Setting line ${lineNum}, day ${dayNum} → ${hrs}h...`);
-      await cp.set(lineNum, dayNum, hrs, options.comment);
+      try {
+        await cp.set(lineNum, dayNum, hrs, options.comment);
+      } catch (e) {
+        s.fail(`Could not set line ${lineNum}, day ${dayNum}`);
+        throw e;
+      }
       s.succeed(`Line ${lineNum}, day ${dayNum} → ${hrs}h`);
 
       await saveWithSpinner(cp);
@@ -244,8 +267,9 @@ program
 program
   .command("setm <values...>")
   .description("set hours for multiple project lines and days")
-  .usage("<line> <day> <hours>, <line> <day> <hours>, ...")
-  .action(async (xs) => {
+  .usage("[--prev] <line> <day> <hours>, <line> <day> <hours>, ...")
+  .option("-p, --prev", "edit the previous week (direct mode only)")
+  .action(async (xs, options) => {
     xs = xs.map((x) => x.replace(/,/g, "")).filter(Boolean);
 
     if (xs.length % 3 !== 0) {
@@ -272,16 +296,21 @@ program
     }
 
     try {
-      const cp = await connect();
+      const cp = await connect(options);
 
       const count = xs.length / 3;
       const s = spin(`Updating ${count} cell${count > 1 ? "s" : ""}...`);
-      for (let i = 0; i < xs.length; i += 3) {
-        const line = parseInt(xs[i], 10);
-        const day = parseInt(xs[i + 1], 10);
-        const hours = Number(xs[i + 2]);
-        await cp.set(line, day, hours);
-        s.text = `Updating cells... (${i / 3 + 1}/${count})`;
+      try {
+        for (let i = 0; i < xs.length; i += 3) {
+          const line = parseInt(xs[i], 10);
+          const day = parseInt(xs[i + 1], 10);
+          const hours = Number(xs[i + 2]);
+          await cp.set(line, day, hours);
+          s.text = `Updating cells... (${i / 3 + 1}/${count})`;
+        }
+      } catch (e) {
+        s.fail("Update failed");
+        throw e;
       }
       s.succeed(`${count} cell${count > 1 ? "s" : ""} updated`);
 

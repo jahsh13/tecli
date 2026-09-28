@@ -31,24 +31,49 @@ if (!creds.useDirect && !creds.system) {
 
 const { url, username, password, system, useDirect } = creds;
 
-async function launchClient() {
+// Periods: 0 = active week, 1 = previous week (parent K0 row index)
+const WEEK_PERIOD = { active: 0, prev: 1 };
+
+// A previous-week session is launched fresh and moved to its period before
+// anything else runs on it (same rule as signing, see signTimesheet()).
+async function launchClient(period = 0) {
   if (useDirect) {
-    return DirectClient.launch(url, username, password, { loadPreviousPeriod: true });
+    if (period === 0) {
+      return DirectClient.launch(url, username, password, { loadPreviousPeriod: true });
+    }
+    const cp = await DirectClient.launch(url, username, password);
+    try {
+      await cp.selectPeriod(period);
+    } catch (e) {
+      try { await cp.close(); } catch (e2) { /* ignore */ }
+      throw e;
+    }
+    return cp;
+  }
+  if (period !== 0) {
+    throw new Error("Editing the previous week requires direct mode (COSTPOINT_DIRECT=true)");
   }
   return Costpoint.launch(url, username, password, system);
 }
 
-// Persistent session management — reuse one client across operations
+// Persistent session management — reuse one client across operations.
+// The session is bound to one period; asking for another relaunches it.
 let activeClient = null;
+let activeClientPeriod = 0;
 let clientIdleTimer = null;
 const CLIENT_IDLE_TIMEOUT = 5 * 60 * 1000; // 5 minutes
 
-async function getClient() {
+async function getClient(period = 0) {
   if (clientIdleTimer) clearTimeout(clientIdleTimer);
 
+  if (activeClient && activeClientPeriod !== period) {
+    await releaseClient();
+  }
+
   if (!activeClient) {
-    console.log('Creating new Costpoint session...');
-    activeClient = await launchClient();
+    console.log(`Creating new Costpoint session (period ${period})...`);
+    activeClient = await launchClient(period);
+    activeClientPeriod = period;
     console.log('Session established.');
   } else {
     console.log('Reusing existing Costpoint session.');
@@ -77,14 +102,14 @@ function isSessionError(e) {
          msg.includes('socket hang up') || msg.includes('onservletexception');
 }
 
-async function withClient(fn) {
+async function withClient(fn, period = 0) {
   try {
-    return await fn(await getClient());
+    return await fn(await getClient(period));
   } catch (e) {
     if (isSessionError(e)) {
       console.log('Session error, retrying with fresh login:', e.message);
       await releaseClient();
-      return await fn(await getClient());
+      return await fn(await getClient(period));
     }
     throw e;
   }
@@ -96,7 +121,8 @@ const CACHE_FILE = path.join(os.homedir(), ".costpoint-cache.json");
 // In-memory state
 let cachedWeeks = {}; // { "2026-04-06": weekData, ... }
 let activeWeekStart = null; // fullDate of the most recently fetched week
-let pendingChanges = new Map(); // key: "line-day", value: { line, day, hours }
+let pendingChanges = new Map(); // key: "week-line-day", value: { week, line, day, hours, comment }
+let pendingRevisionWeek = null; // week whose save is waiting on a revision explanation
 let isProcessing = false;
 let lastError = null;
 let syncStatus = "idle"; // idle, loading, syncing, error
@@ -109,54 +135,45 @@ function weekStartKey(weekData) {
   return weekData.dates[0].fullDate;
 }
 
-// Store fetched week data into the cache
-function storeWeekData(weekData) {
+// Store fetched week data into the cache without changing the active week
+function cacheWeek(weekData) {
   const key = weekStartKey(weekData);
-  if (!key) return;
-  cachedWeeks[key] = weekData;
-  activeWeekStart = key;
+  if (key) cachedWeeks[key] = weekData;
+  return key;
 }
 
-// Build the merged 2-week view from cached data
-function getMergedData() {
-  const activeWeek = activeWeekStart ? cachedWeeks[activeWeekStart] : null;
+// Store the active week's data into the cache
+function storeWeekData(weekData) {
+  const key = cacheWeek(weekData);
+  if (key) activeWeekStart = key;
+}
+
+// Cache a session's data under the week it belongs to
+function storeClientData(cp, week) {
+  if (week === 'active') storeWeekData(cp.getData());
+  else cacheWeek(cp.getData());
+}
+
+function getPrevWeekData() {
+  const activeWeek = getActiveWeekData();
   if (!activeWeek) return null;
+  const prevKey = moment(activeWeek.dates[0].fullDate).subtract(7, 'days').format('YYYY-MM-DD');
+  return cachedWeeks[prevKey] || null;
+}
 
-  const activeStart = moment(activeWeek.dates[0].fullDate);
+function getWeekData(week) {
+  return week === 'prev' ? getPrevWeekData() : getActiveWeekData();
+}
 
-  // Look for the adjacent week in cache (check both directions)
-  const prevStart = activeStart.clone().subtract(7, 'days');
-  const nextStart = activeStart.clone().add(7, 'days');
-  const prevWeek = cachedWeeks[prevStart.format('YYYY-MM-DD')] || null;
-  const nextWeek = cachedWeeks[nextStart.format('YYYY-MM-DD')] || null;
+// Build the merged 2-week view from cached data: week1 = previous week
+// (parent row 1), week2 = active week (parent row 0)
+function getMergedData() {
+  const activeWeek = getActiveWeekData();
+  if (!activeWeek) return null;
+  const prevWeek = getPrevWeekData();
 
-  // Determine week1 (earlier) and week2 (later).
-  // Use payPeriodWeek to place the active week in the correct position
-  // within the biweekly view — otherwise a cached week from a different
-  // pay period can push the active week into the wrong slot.
-  let week1Data, week2Data;
-  const ppWeek = activeWeek.payPeriodWeek;
-  if (ppWeek === 1) {
-    // Active is Wk 1 of 2 — show as week1, pair with next week only
-    week1Data = activeWeek;
-    week2Data = nextWeek;
-  } else if (ppWeek === 2) {
-    // Active is Wk 2 of 2 — show as week2, pair with prev week only
-    week1Data = prevWeek;
-    week2Data = activeWeek;
-  } else if (prevWeek) {
-    week1Data = prevWeek;
-    week2Data = activeWeek;
-  } else if (nextWeek) {
-    week1Data = activeWeek;
-    week2Data = nextWeek;
-  } else {
-    week1Data = null;
-    week2Data = activeWeek;
-  }
-
-  // Build 14-day date array: week1 + week2
-  const week1Start = week1Data ? moment(week1Data.dates[0].fullDate) : activeStart.clone().subtract(7, 'days');
+  // Build 14-day date array: prev week + active week
+  const week1Start = moment(activeWeek.dates[0].fullDate).subtract(7, 'days');
   const allDates = [];
   for (let i = 0; i < 14; i++) {
     const d = week1Start.clone().add(i, 'days');
@@ -167,13 +184,10 @@ function getMergedData() {
     });
   }
 
-  // Set of active (editable) fullDates
-  const activeDates = new Set(activeWeek.dates.map(d => d.fullDate));
-
   // Merge projects from both weeks by code+payType
   const projectMap = new Map();
 
-  function addProjects(weekData, weekLabel) {
+  function addProjects(weekData, week) {
     if (!weekData) return;
     for (const p of weekData.projects) {
       const key = `${p.code || ''}|${p.payType || ''}`;
@@ -194,12 +208,12 @@ function getMergedData() {
       }
       Object.assign(merged.hours, p.hours);
       if (p.comments) Object.assign(merged.comments, p.comments);
-      merged.lines[weekLabel] = p.line;
+      merged.lines[week] = p.line;
     }
   }
 
-  addProjects(week1Data, week1Data === activeWeek ? 'active' : 'other');
-  addProjects(week2Data, week2Data === activeWeek ? 'active' : 'other');
+  addProjects(prevWeek, 'prev');
+  addProjects(activeWeek, 'active');
 
   // Assign sequential line numbers for the merged view
   const projects = Array.from(projectMap.values()).map((p, i) => ({
@@ -210,37 +224,34 @@ function getMergedData() {
     hours: p.hours,
     comments: p.comments,
     activeLine: p.lines.active,
+    prevLine: p.lines.prev,
   }));
 
-  // Per-week metadata for UI
-  const week1StatusMeta = week1Data
-    ? normalizeTimesheetStatus(week1Data.timesheetStatusCode || week1Data.timesheetStatus)
-    : null;
-  const week2StatusMeta = week2Data
-    ? normalizeTimesheetStatus(week2Data.timesheetStatusCode || week2Data.timesheetStatus)
-    : null;
+  function weekInfo(weekData, week, dates) {
+    const statusMeta = weekData
+      ? normalizeTimesheetStatus(weekData.timesheetStatusCode || weekData.timesheetStatus)
+      : null;
+    return {
+      week,
+      startDate: dates[0].fullDate,
+      endDate: dates[6].fullDate,
+      isActive: week === 'active',
+      // Previous-week edits need the direct client (selectPeriod)
+      isEditable: !!weekData && weekData.editable !== false && (week === 'active' || useDirect),
+      statusLabel: statusMeta ? statusMeta.label : null,
+      statusTone: statusMeta ? statusMeta.tone : null,
+    };
+  }
 
   return {
     dates: allDates,
     projects,
-    activeDates: Array.from(activeDates),
+    activeDates: activeWeek.dates.map(d => d.fullDate),
     timesheetStatus: activeWeek.timesheetStatus,
     timesheetStatusCode: activeWeek.timesheetStatusCode,
     weeks: [
-      {
-        startDate: allDates[0].fullDate,
-        endDate: allDates[6].fullDate,
-        isActive: week1Data === activeWeek,
-        statusLabel: week1StatusMeta ? week1StatusMeta.label : null,
-        statusTone: week1StatusMeta ? week1StatusMeta.tone : null,
-      },
-      {
-        startDate: allDates[7].fullDate,
-        endDate: allDates[13].fullDate,
-        isActive: week2Data === activeWeek,
-        statusLabel: week2StatusMeta ? week2StatusMeta.label : null,
-        statusTone: week2StatusMeta ? week2StatusMeta.tone : null,
-      },
+      weekInfo(prevWeek, 'prev', allDates.slice(0, 7)),
+      weekInfo(activeWeek, 'active', allDates.slice(7)),
     ],
   };
 }
@@ -293,38 +304,43 @@ function saveCache() {
   }
 }
 
-// Save all pending changes to Costpoint
+// Save all pending changes to Costpoint, one session per week: active week
+// first, then the previous week. Each week's changes leave pendingChanges
+// once saved. A week that needs a revision explanation stops the run;
+// saveWithExplanation() finishes it and resumes with the rest.
 async function saveAllChanges() {
   if (isProcessing || pendingChanges.size === 0) return { success: true, message: "No changes to save" };
 
   isProcessing = true;
   syncStatus = "syncing";
-
-  const changesToSave = Array.from(pendingChanges.values());
+  const total = pendingChanges.size;
 
   try {
-    await withClient(async (cp) => {
-      if (changesToSave.length === 1) {
-        const change = changesToSave[0];
-        await cp.set(change.line, change.day, change.hours, change.comment);
-      } else {
-        await cp.setm(changesToSave);
+    for (const week of Object.keys(WEEK_PERIOD)) {
+      const changes = Array.from(pendingChanges.values()).filter(c => c.week === week);
+      if (changes.length === 0) continue;
+      try {
+        await withClient(async (cp) => {
+          await cp.setm(changes);
+          await cp.save();
+          storeClientData(cp, week);
+          saveCache();
+        }, WEEK_PERIOD[week]);
+      } catch (e) {
+        if (e.name === 'RevisionRequiredError') {
+          pendingRevisionWeek = week;
+          syncStatus = "idle";
+          return { revisionRequired: true, week, auditDetails: e.auditDetails };
+        }
+        throw e;
       }
-      await cp.save();
-      storeWeekData(cp.getData());
-      saveCache();
-    });
+      clearPendingWeek(week);
+    }
 
-    pendingChanges.clear();
     lastError = null;
     syncStatus = "idle";
-    return { success: true, message: `Saved ${changesToSave.length} changes` };
+    return { success: true, message: `Saved ${total} changes` };
   } catch (e) {
-    if (e.name === 'RevisionRequiredError') {
-      syncStatus = "idle";
-      isProcessing = false;
-      return { revisionRequired: true, auditDetails: e.auditDetails };
-    }
     console.error("Save failed:", e.message);
     lastError = e.message;
     syncStatus = "error";
@@ -334,23 +350,32 @@ async function saveAllChanges() {
   }
 }
 
+function clearPendingWeek(week) {
+  for (const [key, change] of pendingChanges) {
+    if (change.week === week) pendingChanges.delete(key);
+  }
+}
+
 async function saveWithExplanation(explanation) {
   if (isProcessing) throw new Error("Another operation is in progress");
+  if (!pendingRevisionWeek) throw new Error("No save is waiting on a revision explanation");
 
   isProcessing = true;
   syncStatus = "syncing";
+  const week = pendingRevisionWeek;
 
   try {
+    // Same period as the save that asked for it, so this reuses that session
     await withClient(async (cp) => {
       await cp.saveWithExplanation(explanation);
-      storeWeekData(cp.getData());
+      storeClientData(cp, week);
       saveCache();
-    });
+    }, WEEK_PERIOD[week]);
 
-    pendingChanges.clear();
+    clearPendingWeek(week);
+    pendingRevisionWeek = null;
     lastError = null;
     syncStatus = "idle";
-    return { success: true, message: "Saved with revision explanation" };
   } catch (e) {
     console.error("Save with explanation failed:", e.message);
     lastError = e.message;
@@ -359,6 +384,11 @@ async function saveWithExplanation(explanation) {
   } finally {
     isProcessing = false;
   }
+
+  // Save the other week's changes, if any are still pending
+  const rest = await saveAllChanges();
+  if (rest.revisionRequired) return rest;
+  return { success: true, message: "Saved with revision explanation" };
 }
 
 // Add a project to the timesheet
@@ -391,14 +421,11 @@ async function addProject(code, payType) {
 
 // Sign the timesheet
 //
-// Signing requires a session that has NOT gone through the
-// loadPreviousPeriod init flow — the extra OPEN_RS / getHistoryData calls
-// it performs leave the server-side session in a state where the
-// ACTION_CD='S' transition is silently ignored on save (the request
-// round-trips cleanly but the timesheet stays unsigned). The CLI works
-// because it launches without loadPreviousPeriod. Mirror that here by
-// releasing the persistent client and launching a fresh single-period
-// session just for the sign.
+// Signing requires a fresh session (launch → sign, nothing between). On a
+// session that has done other work the server silently ignores the
+// ACTION_CD='S' transition (the request round-trips cleanly but the
+// timesheet stays unsigned; see CLAUDE.md). Release the persistent client
+// and launch a fresh single-period session just for the sign.
 async function signTimesheet() {
   if (isProcessing) throw new Error("Another operation is in progress");
 
@@ -441,6 +468,7 @@ async function fetchFreshData() {
   try {
     // Release existing session — we want fresh data from server
     await releaseClient();
+    pendingRevisionWeek = null;
 
     const cp = await getClient();
 
@@ -453,16 +481,11 @@ async function fetchFreshData() {
     try {
       if (typeof cp.getPreviousPeriodData === 'function') {
         const otherWeek = cp.getPreviousPeriodData();
-        if (otherWeek) {
-          const otherKey = weekStartKey(otherWeek);
-          if (otherKey) cachedWeeks[otherKey] = otherWeek;
-        }
+        if (otherWeek) cacheWeek(otherWeek);
       } else {
         // Fallback for Puppeteer client — uses navigateToPreviousPeriod
         await cp.navigateToPreviousPeriod();
-        const otherWeek = cp.getData();
-        const otherKey = weekStartKey(otherWeek);
-        if (otherKey) cachedWeeks[otherKey] = otherWeek;
+        cacheWeek(cp.getData());
       }
     } catch (navErr) {
       console.error("Failed to fetch other period (non-fatal):", navErr.message);
@@ -513,7 +536,6 @@ function renderHTML(data, isLoading = false) {
   const periodStart = hasData ? data.dates[0] : null;
   const periodEnd = hasData ? data.dates[data.dates.length - 1] : null;
   const currentStatus = isLoading ? "loading" : syncStatus;
-  const activeDatesSet = hasData ? new Set(data.activeDates || []) : new Set();
   const timesheetStatusMeta = hasData
     ? normalizeTimesheetStatus(data.timesheetStatusCode || data.timesheetStatus)
     : null;
@@ -587,7 +609,7 @@ function renderHTML(data, isLoading = false) {
             <th colspan="4" class="week-header-spacer"></th>
             ${weeksInfo.map(w => {
               const canSign = w.isActive && (w.statusTone === 'open' || w.statusTone === 'missing');
-              return `<th colspan="7" class="week-header ${w.isActive ? 'week-active' : 'week-inactive'}">
+              return `<th colspan="7" class="week-header ${w.isEditable ? 'week-active' : 'week-inactive'}">
                 <div class="week-header-content">
                   <span class="week-dates">${w.label}</span>
                   ${w.statusLabel ? `<span class="week-status-badge timesheet-status-${w.statusTone}">${w.statusLabel}</span>` : ''}
@@ -622,9 +644,11 @@ function renderHTML(data, isLoading = false) {
               const comment = (project.comments && project.comments[d.date]) || "";
               const escapedComment = comment.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;');
               const isWeekend = d.dayOfWeek === 'Sat' || d.dayOfWeek === 'Sun';
-              const isActive = activeDatesSet.has(d.fullDate);
-              const disabled = !isActive ? 'disabled' : '';
-              return `<td class="col-day ${isWeekend ? 'col-weekend' : 'col-weekday'} ${!isActive ? 'col-inactive' : ''}${i === 6 ? ' week-divider' : ''}"><div class="cell-wrap${comment ? ' has-comment' : ''}"${comment ? ` title="${escapedComment}"` : ''}><input type="text" class="hours-input ${!isActive ? 'inactive' : ''}" data-line="${project.line}" data-active-line="${isActive ? (project.activeLine != null ? project.activeLine : '') : ''}" data-day="${d.date}" data-fulldate="${d.fullDate}" data-comment="${escapedComment}" value="${displayValue}" ${disabled} /></div></td>`;
+              const w = data.weeks[i < 7 ? 0 : 1];
+              const periodLine = w.week === 'active' ? project.activeLine : project.prevLine;
+              const isEditable = w.isEditable && periodLine != null;
+              const disabled = !isEditable ? 'disabled' : '';
+              return `<td class="col-day ${isWeekend ? 'col-weekend' : 'col-weekday'} ${!isEditable ? 'col-inactive' : ''}${i === 6 ? ' week-divider' : ''}"><div class="cell-wrap${comment ? ' has-comment' : ''}"${comment ? ` title="${escapedComment}"` : ''}><input type="text" class="hours-input ${!isEditable ? 'inactive' : ''}" data-line="${project.line}" data-week="${w.week}" data-period-line="${isEditable ? periodLine : ''}" data-day="${d.date}" data-fulldate="${d.fullDate}" data-comment="${escapedComment}" value="${displayValue}" ${disabled} /></div></td>`;
             }).join("")}
             <td class="col-total row-total">0</td>
           </tr>
@@ -826,69 +850,73 @@ app.get("/api/data", (req, res) => {
   res.json(data);
 });
 
-app.put("/api/hours", (req, res) => {
-  const { line, day, hours, activeLine } = req.body;
-
-  if (activeLine === undefined || activeLine === '' || activeLine === null) {
-    return res.status(400).json({ error: "Cannot edit hours for the previous week" });
+// Resolve a cell edit request to { week, line } (week-local Costpoint line)
+// or an error message
+function resolveEditTarget(body) {
+  const week = body.week || 'active';
+  if (!(week in WEEK_PERIOD)) return { error: "Invalid week" };
+  const merged = getMergedData();
+  const weekInfo = merged && merged.weeks.find(w => w.week === week);
+  if (!weekInfo || !weekInfo.isEditable) return { error: `The ${week === 'prev' ? 'previous' : 'active'} week is not editable` };
+  if (body.periodLine === undefined || body.periodLine === '' || body.periodLine === null) {
+    return { error: "This line does not exist in that week" };
   }
+  return { week, line: parseInt(body.periodLine, 10) };
+}
+
+app.put("/api/hours", (req, res) => {
+  const { day, hours } = req.body;
+  const target = resolveEditTarget(req.body);
+  if (target.error) return res.status(400).json({ error: target.error });
 
   if (day === undefined || hours === undefined) {
     return res.status(400).json({ error: "Missing required fields: day, hours" });
   }
 
-  // Use the activeLine (Costpoint line number) for the save, not the merged line
-  const realLine = parseInt(activeLine, 10);
-  const key = `${realLine}-${day}`;
+  const { week, line } = target;
+  const key = `${week}-${line}-${day}`;
   const hoursValue = hours === "" ? 0 : parseFloat(hours);
-  pendingChanges.set(key, { line: realLine, day, hours: hoursValue });
+  const existing = pendingChanges.get(key);
+  pendingChanges.set(key, { week, line, day, hours: hoursValue, comment: existing ? existing.comment : undefined });
 
-  // Update active week cache optimistically
-  const activeWeek = getActiveWeekData();
-  if (activeWeek) {
-    const project = activeWeek.projects.find(p => p.line === realLine);
-    if (project) {
-      project.hours[day] = hours === "" ? null : parseFloat(hours);
-    }
+  // Update the week's cache optimistically
+  const weekData = getWeekData(week);
+  const project = weekData && weekData.projects.find(p => p.line === line);
+  if (project) {
+    project.hours[day] = hours === "" ? null : parseFloat(hours);
   }
 
   res.json({ success: true, pendingCount: pendingChanges.size });
 });
 
 app.put("/api/comment", (req, res) => {
-  const { day, comment, activeLine } = req.body;
-
-  if (activeLine === undefined || activeLine === '' || activeLine === null) {
-    return res.status(400).json({ error: "Cannot edit comments for the previous week" });
-  }
+  const { day, comment } = req.body;
+  const target = resolveEditTarget(req.body);
+  if (target.error) return res.status(400).json({ error: target.error });
 
   if (day === undefined) {
     return res.status(400).json({ error: "Missing required field: day" });
   }
 
-  const realLine = parseInt(activeLine, 10);
-  const key = `${realLine}-${day}`;
+  const { week, line } = target;
+  const key = `${week}-${line}-${day}`;
   const existing = pendingChanges.get(key);
+  const weekData = getWeekData(week);
+  const project = weekData && weekData.projects ? weekData.projects.find(p => p.line === line) : null;
 
   if (existing) {
     // Merge comment into existing hours change
     existing.comment = comment || undefined;
   } else {
     // Comment-only change — use current hours from cache
-    const activeWeek = getActiveWeekData();
-    const project = activeWeek && activeWeek.projects ? activeWeek.projects.find(p => p.line === realLine) : null;
     const currentHours = project && project.hours ? (project.hours[day] || 0) : 0;
-    pendingChanges.set(key, { line: realLine, day, hours: currentHours, comment: comment || undefined });
+    pendingChanges.set(key, { week, line, day, hours: currentHours, comment: comment || undefined });
   }
 
   // Update cache optimistically
-  const activeWeek = getActiveWeekData();
-  if (activeWeek) {
-    const project = activeWeek.projects.find(p => p.line === realLine);
-    if (project) {
-      if (!project.comments) project.comments = {};
-      project.comments[day] = comment || null;
-    }
+  if (project) {
+    if (!project.comments) project.comments = {};
+    project.comments[day] = comment || null;
   }
 
   res.json({ success: true, pendingCount: pendingChanges.size });

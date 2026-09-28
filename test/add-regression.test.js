@@ -15,6 +15,7 @@ function makeStubClient() {
   client.sid = 'TESTSESSION';
   client.baseUrl = 'https://example.com';
   client.lastPutId = 0;
+  client.periodIdx = 0;
   // Template row with enough columns for _validateUdt02 (reads col 6) and
   // _stagePendingLine (reads cols up to ~400)
   const row = new Array(420).fill('');

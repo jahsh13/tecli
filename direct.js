@@ -22,11 +22,16 @@ const PARENT_COL = {
   SCHEDULE_DESC: 2,
   END_DT: 3,
   S_STATUS_CD: 4,
-  ENABLE_SIGN_FL: 565,
   // Column the browser sets to 'S' when signing (verified byte-for-byte
   // against captured/sign-capture/017+018; col 667 was wrong — the server
   // silently ignores it)
   ACTION_CD: 23,
+  // Indices from the K0 maObjId column list (captured/prev-period-edit/006),
+  // cross-checked against row values before/after a correction
+  ENABLE_SIGN_FL: 573,
+  ENABLE_CORRECT_FL: 676,
+  // 'Y' on a processed (closed) period; edits require TMMTS_CORRECT_TIMESHEET
+  TS_CLOSED_FL: 685,
 };
 
 // Child column indices
@@ -53,16 +58,6 @@ class RevisionRequiredError extends Error {
   }
 }
 
-// Java String.hashCode() — used by Costpoint framework for checkCache values
-function javaHashCode(str) {
-  let hash = 0;
-  for (let i = 0; i < str.length; i++) {
-    hash = ((hash << 5) - hash) + str.charCodeAt(i);
-    hash |= 0; // Convert to 32-bit integer
-  }
-  return hash;
-}
-
 class DirectClient {
   constructor() {
     this.baseUrl = '';
@@ -70,10 +65,11 @@ class DirectClient {
     this.cookieJar = {};  // domain → { name → value }
     this.parentData = null;
     this.childData = null;
+    // Parent (K0) row the client edits: 0 = active week, 1 = previous week.
+    // Sent as X on K1 commands and as the K0 cursor C.
+    this.periodIdx = 0;
     this.lastPutId = 0;
     this.dates = null;
-    this._openAppResponse = '';
-    this._openRsParentResponse = '';
     this.table = null;
     this.timesheetStatus = 'Unknown';
     this.timesheetStatusCode = '';
@@ -167,6 +163,7 @@ class DirectClient {
     return {
       timesheetStatus: statusMeta.label,
       timesheetStatusCode: statusMeta.code,
+      editable: this._isRowEditable(this.parentData.rows[this.periodIdx]),
       payPeriodWeek: ppWeek.week,
       payPeriodWeekCount: ppWeek.of,
       dates: this.dates.map(d => ({
@@ -213,7 +210,7 @@ class DirectClient {
    * Returns { week: N, of: M } or { week: null, of: null } if not found.
    */
   getPayPeriodWeek() {
-    const parentRow = this.parentData && this.parentData.rows && this.parentData.rows[0];
+    const parentRow = this.parentData && this.parentData.rows && this.parentData.rows[this.periodIdx];
     const desc = parentRow ? parentRow[PARENT_COL.SCHEDULE_DESC] : '';
     const match = desc && desc.match(/Wk\s+(\d+)\s+of\s+(\d+)/i);
     if (match) {
@@ -223,7 +220,7 @@ class DirectClient {
   }
 
   _getTimesheetStatusMeta() {
-    const parentRow = this.parentData && this.parentData.rows && this.parentData.rows[0];
+    const parentRow = this.parentData && this.parentData.rows && this.parentData.rows[this.periodIdx];
     const rawStatus = parentRow ? parentRow[PARENT_COL.S_STATUS_CD] : '';
     return normalizeTimesheetStatus(rawStatus);
   }
@@ -237,8 +234,9 @@ class DirectClient {
       return null;
     }
 
-    const endDateStr = this.parentData.rows[1][PARENT_COL.END_DT];
-    const endDate = moment(endDateStr);
+    // Full row from the init fetch; parentData.rows[1] lacks the flags
+    const parentRow = this._prevParentRow || this.parentData.rows[1];
+    const endDate = moment(parentRow[PARENT_COL.END_DT]);
     if (!endDate.isValid()) return null;
 
     const startDate = endDate.clone().subtract(NUM_DAYS - 1, 'days');
@@ -247,8 +245,7 @@ class DirectClient {
       dates.push(startDate.clone().add(i, 'days'));
     }
 
-    const statusCode = this.parentData.rows[1][PARENT_COL.S_STATUS_CD] || '';
-    const statusMeta = normalizeTimesheetStatus(statusCode);
+    const statusMeta = normalizeTimesheetStatus(parentRow[PARENT_COL.S_STATUS_CD] || '');
 
     const projects = [];
     for (let i = 0; i < this.prevChildData.rows.length; i++) {
@@ -277,6 +274,7 @@ class DirectClient {
     return {
       timesheetStatus: statusMeta.label,
       timesheetStatusCode: statusMeta.code,
+      editable: this._isRowEditable(parentRow),
       dates: dates.map(d => ({
         date: d.date(),
         fullDate: d.format('YYYY-MM-DD'),
@@ -287,9 +285,16 @@ class DirectClient {
   }
 
   async set(line, day, hours, comment) {
-    const start = this.dates[0].date();
-    const dayOffset = day - start;
-    const dayNum = dayOffset + 1;
+    const dayIdx = this.dates.findIndex(d => d.date() === day);
+    if (dayIdx < 0) {
+      throw new Error('Day ' + day + ' is not in this week (' + this.dates.map(d => d.date()).join(', ') + ')');
+    }
+    if (!this.childData.rows[line]) {
+      throw new Error('No line ' + line + ' on this timesheet');
+    }
+    if (this._isPeriodClosed()) await this._correctTimesheet();
+
+    const dayNum = dayIdx + 1;
     const childCol = CHILD_DAY_COL[dayNum];
     const rowNum = parseInt(this.childData.rowNums[line], 10);
 
@@ -329,6 +334,7 @@ class DirectClient {
   }
 
   async add(code, payType) {
+    this._requireActivePeriod('Adding a project');
     debug('Adding project code: ' + code + (payType ? ' (payType=' + payType + ')' : ''));
 
     // Reuse an existing pending line (e.g. from getFavorites) if present; otherwise
@@ -391,6 +397,7 @@ class DirectClient {
   }
 
   async getFavorites() {
+    this._requireActivePeriod('Favorites lookup');
     // Favorites require a pending row at -59999 — the lookup is scoped to it
     // via HLKP's X=-59999. Matches the browser flow: user clicks "add row"
     // before the magnifier is clickable.
@@ -903,6 +910,8 @@ class DirectClient {
    *      confirms the sign dialog) — reuses save().
    */
   async sign() {
+    // The sign flow is byte-exact to a capture of the active week only
+    this._requireActivePeriod('Signing');
     debug('Signing timesheet...');
 
     // Step 1: fire the sign action event
@@ -979,7 +988,7 @@ class DirectClient {
     parentRow[PARENT_COL.ACTION_CD] = 'S';
     const encodedParentSigned = protocol.encodePutRow(parentRow);
 
-    this._signActionSeq = (this._signActionSeq || 0) + 1;
+    this._actionSeq = (this._actionSeq || 0) + 1;
 
     const cmds = [
       // PUT K0 selected row flag only (editFlag 64)
@@ -1066,7 +1075,7 @@ class DirectClient {
         { name: 'restartFl', value: 'false' },
         { code: 'C', value: '0' },
         { name: 'longRunActionFl', value: '0' },
-        { name: 'procUniqueId', value: APP_ID + ':A:' + this.sid + ':' + this._signActionSeq },
+        { name: 'procUniqueId', value: APP_ID + ':A:' + this.sid + ':' + this._actionSeq },
         { name: 'psSchWorkflowNotifyFl', value: 'false' },
         { code: 'K', value: '0' },
         { code: 'V', value: 'true' },
@@ -1128,58 +1137,111 @@ class DirectClient {
     return protocol.buildRequestBody(this.sid, cmds);
   }
 
-  /**
-   * Navigate to the previous timesheet period.
-   *
-   * The parent RS (K0) already contains multiple rows — one per period
-   * (up to 14, newest first). Row 0 is the current, row 1 is previous, etc.
-   * To get child data for the other period, we re-run OPEN_APP + OPEN_RS +
-   * data-fetch, which advances the server's internal cursor.
-   */
-  /**
-   * Navigate to the previous timesheet period.
-   *
-   * The parent RS (K0) already has all available periods (up to 14 rows,
-   * newest first). Child data is fetched for a specific parent row via the
-   * X parameter in CMD 204. We fetch child data with X=1 (parent row 1 =
-   * the previous period) and rebuild using that parent row's END_DT.
-   */
   async navigateToPreviousPeriod() {
-    if (!this.parentData || this.parentData.rows.length < 2) {
-      throw new Error('No previous period available in parent data');
-    }
-    const currentEnd = this.parentData.rows[0][PARENT_COL.END_DT];
-    const prevEnd = this.parentData.rows[1][PARENT_COL.END_DT];
-    debug('Fetching previous period (current: ' + currentEnd + ', previous: ' + prevEnd + ')...');
+    await this.selectPeriod(1);
+  }
 
-    // Use the prevChildData that was already fetched during init.
-    if (!this.prevChildData) {
-      throw new Error('No previous period child data available');
+  /**
+   * Point the client at another period (parent K0 row: 0 = active week,
+   * 1 = previous week). Later cell edits, saves and revision explanations
+   * target that period. Mirrors the browser's previous-week arrow
+   * (captured/prev-period-edit/013).
+   *
+   * Run this right after launch, before any edit: a session is meant to
+   * work on one period only.
+   */
+  async selectPeriod(idx) {
+    if (!this.parentData || idx < 0 || idx >= this.parentData.rows.length) {
+      throw new Error('Period ' + idx + ' is not available');
     }
-    this.childData = this.prevChildData;
-    const row0 = this.childData.rows[0];
-    const code0 = row0 ? row0[CHILD_UDT02_ID] || '?' : '?';
-    const days0 = [];
-    if (row0) {
-      for (let d = 1; d <= NUM_DAYS; d++) days0.push(row0[CHILD_DAY_COL[d]] || '.');
+    const { parentData, childData } = await this._fetchPeriod(idx);
+    if (!parentData.rows[idx][PARENT_COL.TS_CLOSED_FL]) {
+      throw new Error('Period ' + idx + ' parent row came back without its detail columns');
     }
-    debug('  Using cached X=1 data: child[0] %s: days=[%s] total=%s', code0, days0.join(','), row0 ? row0[96] || '.' : '.');
-
-    // Use parent row 1's END_DT to rebuild dates
-    const endDateStr = this.parentData.rows[1][PARENT_COL.END_DT];
-    const endDate = moment(endDateStr);
-    if (!endDate.isValid()) {
-      throw new Error('Invalid END_DT for previous period: ' + endDateStr);
-    }
-    const startDate = endDate.clone().subtract(NUM_DAYS - 1, 'days');
-    this.dates = [];
-    for (let i = 0; i < NUM_DAYS; i++) {
-      this.dates.push(startDate.clone().add(i, 'days'));
-    }
-
+    this.parentData = parentData;
+    this.childData = childData;
+    this.periodIdx = idx;
+    this._buildDates();
     this._initTable();
     this._buildTableRows();
-    debug('Loaded previous period: ' + this.dates[0].format('YYYY-MM-DD') + ' - ' + this.dates[6].format('YYYY-MM-DD'));
+    debug('Selected period ' + idx + ': ' + this.dates[0].format('YYYY-MM-DD') + ' - ' + this.dates[6].format('YYYY-MM-DD'));
+  }
+
+  /**
+   * Fetch parent + child data for a period without changing client state.
+   * The R=AUTO parent fetch must come first: without it the server answers
+   * X=1 with the wrong lines, and parent rows other than row 0 come back
+   * missing their non-DB columns (verified live, captured/probe-prev-fetch.js).
+   */
+  async _fetchPeriod(idx) {
+    await this._postServlet(this._buildAutoParentFetch());
+    const parsed = protocol.parseResponse(await this._postServlet(this._buildPeriodFetch(idx)));
+    const err = protocol.checkErrors(parsed);
+    if (err) throw new Error('Period ' + idx + ' fetch error: ' + err);
+    const parentData = protocol.extract204(parsed, 0);
+    if (!parentData) throw new Error('Failed to decode parent data for period ' + idx);
+    const childData = protocol.extract204(parsed, 1) || { rowNums: [], rowFlags: [], rows: [] };
+    return { parentData, childData };
+  }
+
+  _requireActivePeriod(action) {
+    if (this.periodIdx !== 0) {
+      throw new Error(action + ' is only supported on the active week');
+    }
+  }
+
+  _isPeriodClosed() {
+    return this.parentData.rows[this.periodIdx][PARENT_COL.TS_CLOSED_FL] === 'Y';
+  }
+
+  // A closed period can still be edited through a correction
+  _isRowEditable(parentRow) {
+    return parentRow[PARENT_COL.TS_CLOSED_FL] !== 'Y' || parentRow[PARENT_COL.ENABLE_CORRECT_FL] === 'Y';
+  }
+
+  /**
+   * Reopen a processed period for edits, like the browser's Correct button
+   * (captured/prev-period-edit/014+015): CMD 300 TMMTS_CORRECT_TIMESHEET,
+   * then a parent PUT + CMD 206 that commits the new revision. The period
+   * comes back Open; the next save asks for a revision explanation.
+   */
+  async _correctTimesheet() {
+    if (this.parentData.rows[this.periodIdx][PARENT_COL.ENABLE_CORRECT_FL] !== 'Y') {
+      throw new Error('This timesheet is closed and Costpoint does not allow correcting it');
+    }
+    debug('Correcting closed period ' + this.periodIdx + '...');
+
+    const eventParsed = this._parseActionResponse(
+      await this._postServlet(this._buildCorrectEvent()), 'Correct timesheet');
+    this._refreshFrom(eventParsed);
+
+    const saveParsed = this._parseActionResponse(
+      await this._postServlet(this._buildCorrectSaveBatch()), 'Correct timesheet save');
+    this._refreshFrom(saveParsed);
+    this._buildTableRows();
+
+    if (this._isPeriodClosed()) {
+      throw new Error('Correct did not take effect (timesheet is still closed)');
+    }
+  }
+
+  _parseActionResponse(respText, label) {
+    if (respText.includes('onServletException')) {
+      throw new Error(label + ' caused a server error. Session may be invalid.');
+    }
+    const parsed = protocol.parseResponse(respText);
+    const err = protocol.checkErrors(parsed);
+    if (protocol.checkRescds(parsed) || err) {
+      throw new Error(label + ' error: ' + (err || 'server rejected the request'));
+    }
+    return parsed;
+  }
+
+  _refreshFrom(parsed) {
+    const k0Data = protocol.extract204(parsed, 0);
+    const k1Data = protocol.extract204(parsed, 1);
+    if (k0Data) this.parentData = k0Data;
+    if (k1Data) this.childData = k1Data;
   }
 
   /**
@@ -1572,11 +1634,11 @@ class DirectClient {
       throw new Error('LOGININFO failed: ' + loginInfoResp.body.substring(0, 300));
     }
 
-    // OPEN_APP (507+101+507) — save response for checkCache hash on re-init
-    this._openAppResponse = await this._postServlet(this._buildOpenApp());
+    // OPEN_APP (507+101+507)
+    await this._postServlet(this._buildOpenApp());
 
     // OPEN_RS parent K0 (201+507) — must open before fetching data
-    this._openRsParentResponse = await this._postServlet(this._buildOpenRsParent());
+    await this._postServlet(this._buildOpenRsParent());
 
     // Parent data + OPEN_RS child (204+204+201+507)
     const parentResp = await this._postServlet(this._buildInitParent());
@@ -1590,100 +1652,16 @@ class DirectClient {
     this.childData = protocol.extract204(childParsed, 1);
     if (!this.childData) throw new Error('Failed to decode child data');
 
-    // Fetch previous period child data (X=1) — only when requested (web UI)
-    // and the active week is week 2 of the pay period (week 1 data is the
-    // previous period). Skipped for CLI and week-1 sessions.
+    // Previous period lines (X=1) for read-only display — only when
+    // requested (web UI, TUI). getPreviousPeriodData() reads them.
     this.prevChildData = null;
-    const ppWeek = this.getPayPeriodWeek();
-    if (opts.loadPreviousPeriod && ppWeek.week === 2 && this.parentData.rows.length > 1) {
+    this._prevParentRow = null;
+    if (opts.loadPreviousPeriod && this.parentData.rows.length > 1) {
       try {
-        // Re-open app with correct checkCache hash (mirrors browser revisit)
-        const appHash = String(javaHashCode(this._openAppResponse));
-        const rsHash = String(javaHashCode(this._openRsParentResponse));
-        debug('Re-opening with checkCache: app=%s rs=%s', appHash, rsHash);
-
-        await this._postServlet(protocol.buildRequestBody(this.sid, [
-          this._keepalive(),
-          this._wrap(this._cmd(101, [
-            { code: 'V', value: 'true' },
-            { name: 'mobileMode', value: 'N' },
-            { name: 'checkCache', value: appHash },
-          ])),
-          this._keepalive(),
-        ]));
-
-        // JSON: getHistoryData for TMMTS (like browser req-870)
-        await this._http('POST', '/cpweb/MasterServlet.cps',
-          JSON.stringify({ ProcIdSeed: this.sid, requests: [{ getHistoryData: { appId: 'TMMTIMESHEET', rsId: 'TMMTS', rsKeyLkpHist: -1 } }] }),
-          'application/json', { headers: this._servletHeaders() });
-
-        // Re-open parent RS with hash
-        await this._postServlet(protocol.buildRequestBody(this.sid, [
-          this._wrap(this._cmd(201, [
-            { code: 'K', value: '0' }, { code: 'I', value: 'TMMTS' },
-            { code: 'N', value: '17028' }, { code: 'T', value: 'H' },
-            { name: 'checkCache', value: rsHash },
-            { code: 'C', value: '-60000' }, { code: 'V', value: 'true' },
-          ])),
-          this._keepalive(),
-        ]));
-
-        // JSON: getHistoryData for TMMTS_TS_LINE (like browser req-873)
-        await this._http('POST', '/cpweb/MasterServlet.cps',
-          JSON.stringify({ ProcIdSeed: this.sid, requests: [{ getHistoryData: { appId: 'TMMTIMESHEET', rsId: 'TMMTS_TS_LINE', rsKeyLkpHist: -1 } }] }),
-          'application/json', { headers: this._servletHeaders() });
-
-        // Re-fetch parent data + open child RS
-        await this._postServlet(this._buildInitParent());
-
-        // Autocomplete fetch (like browser req-906)
-        await this._postServlet(
-          'sid=' + this.sid + '&cmd=204ATMMTIMESHEETC%05D%24rsType%24N%08MP%07RAUTOP%07X0P%07W%24N%24%7C1%3A20%7C0%7CP%07K0P%07C0P%07VtrueP%07C%05K%01' +
-          '&objId=K%01&editFlag=K%01&rowNumber=K%01&data=K%01&autocompletefl=Y'
-        );
-
-        // Fetch X=0 child data (re-prime)
-        await this._postServlet(this._buildInitChild());
-
-        // CMD 221 message fetch (like browser req-912)
-        await this._postServlet(protocol.buildRequestBody(this.sid, [
-          this._wrap(this._cmd(221, [
-            { name: 'metaData', value: 'TC_UNSAVED_DATA,#TM_APPROVE_TEXT,TMMTIMESHEET_CORRECT_UNDO_CONT,TM_TS_DYN_TEXT,TM_MUST_SAVE_BEFORE_APPROVE,TM_MUST_SAVE_BEFORE_SIGN' },
-            { code: 'V', value: 'true' },
-          ])),
-          this._keepalive(),
-        ]));
-
-        // NOW fetch X=1 child data
-        const prevChildBody = protocol.buildRequestBody(this.sid, [
-          this._wrap(this._cmd(204, [
-            { name: 'rsType', value: 'M' }, { code: 'R', value: 'ABS' },
-            { code: 'S', value: '0' }, { code: 'E', value: '40' },
-            { code: 'X', value: '1' }, { code: 'K', value: '1' },
-            { code: 'C', value: '-60000' }, { code: 'P', value: '0' },
-            { code: 'V', value: 'true' },
-            { name: 'nonDBSize', value: '9' }, { name: 'nonDBStart', value: '0' },
-          ])),
-          this._wrap(this._cmd(204, [
-            { name: 'rsType', value: 'M' }, { code: 'R', value: 'ABS' },
-            { code: 'S', value: '-59999' }, { code: 'E', value: '-59959' },
-            { code: 'X', value: '1' }, { code: 'K', value: '1' },
-            { code: 'C', value: '-60000' }, { code: 'P', value: '0' },
-            { code: 'V', value: 'true' },
-          ])),
-          this._keepalive(),
-        ]);
-        const prevResp = await this._postServlet(prevChildBody);
-        debug('X=1 response after re-open: %d bytes', prevResp.length);
-        const prevParsed = protocol.parseResponse(prevResp);
-        this.prevChildData = protocol.extract204(prevParsed, 1);
-        if (this.prevChildData) {
-          const r0 = this.prevChildData.rows[0];
-          const d0 = [];
-          for (let d = 1; d <= NUM_DAYS; d++) d0.push(r0[CHILD_DAY_COL[d]] || '.');
-          debug('Previous period: %d rows, child[0] %s: days=[%s]',
-            this.prevChildData.rows.length, r0[CHILD_UDT02_ID], d0.join(','));
-        }
+        const prev = await this._fetchPeriod(1);
+        this.prevChildData = prev.childData;
+        this._prevParentRow = prev.parentData.rows[1];
+        debug('Previous period: %d rows', this.prevChildData.rows.length);
       } catch (e) {
         debug('Previous period child data fetch failed (non-fatal): ' + e.message);
       }
@@ -1971,7 +1949,7 @@ class DirectClient {
   // =========================================================================
 
   _buildDates() {
-    const endDateStr = this.parentData.rows[0][PARENT_COL.END_DT];
+    const endDateStr = this.parentData.rows[this.periodIdx][PARENT_COL.END_DT];
     const endDate = moment(endDateStr);
     if (!endDate.isValid()) {
       throw new Error('Could not parse END_DT from parent data: ' + endDateStr);
@@ -2048,11 +2026,12 @@ class DirectClient {
     const posE = isChild ? Math.max(childRowCount + 5, 40) : 20;
     const negE = -59999 + posE;
 
+    const period = String(this.periodIdx);
     const baseParams = isChild
-      ? [{ code: 'X', value: '0' }, { code: 'K', value: '1' },
+      ? [{ code: 'X', value: period }, { code: 'K', value: '1' },
          { code: 'C', value: '0' }, { code: 'P', value: '0' },
          { code: 'V', value: 'true' }]
-      : [{ code: 'K', value: '0' }, { code: 'C', value: '0' },
+      : [{ code: 'K', value: '0' }, { code: 'C', value: period },
          { code: 'V', value: 'true' }];
 
     const posParams = [
@@ -2158,6 +2137,51 @@ class DirectClient {
     ]);
   }
 
+  /**
+   * R=AUTO parent fetch (browser init, captured/prev-period-edit/009). Loads
+   * parent rows 1-20 in full on the server; X>0 child fetches depend on it.
+   */
+  _buildAutoParentFetch() {
+    return protocol.buildRequestBody(this.sid, [
+      this._wrap(this._cmd(204, [
+        { name: 'rsType', value: 'M' }, { code: 'R', value: 'AUTO' },
+        { code: 'X', value: '0' }, { code: 'W', value: '$N$|1:20|0|' },
+        { code: 'K', value: '0' }, { code: 'C', value: '0' },
+        { code: 'V', value: 'true' },
+      ])),
+    ]) + '&autocompletefl=Y';
+  }
+
+  /** Parent rows (cursor on idx) + child lines of period idx (capture 013) */
+  _buildPeriodFetch(idx) {
+    const x = String(idx);
+    return protocol.buildRequestBody(this.sid, [
+      this._wrap(this._cmd(204, [
+        { name: 'rsType', value: 'M' }, { code: 'R', value: 'ABS' },
+        { code: 'S', value: '0' }, { code: 'E', value: '20' },
+        { code: 'K', value: '0' }, { code: 'C', value: x },
+        { code: 'V', value: 'true' },
+        { name: 'nonDBSize', value: '1' }, { name: 'nonDBStart', value: '0' },
+      ])),
+      this._wrap(this._cmd(204, [
+        { name: 'rsType', value: 'M' }, { code: 'R', value: 'ABS' },
+        { code: 'S', value: '0' }, { code: 'E', value: '40' },
+        { code: 'X', value: x }, { code: 'K', value: '1' },
+        { code: 'C', value: '-60000' }, { code: 'P', value: '0' },
+        { code: 'V', value: 'true' },
+        { name: 'nonDBSize', value: '9' }, { name: 'nonDBStart', value: '0' },
+      ])),
+      this._wrap(this._cmd(204, [
+        { name: 'rsType', value: 'M' }, { code: 'R', value: 'ABS' },
+        { code: 'S', value: '-59999' }, { code: 'E', value: '-59959' },
+        { code: 'X', value: x }, { code: 'K', value: '1' },
+        { code: 'C', value: '-60000' }, { code: 'P', value: '0' },
+        { code: 'V', value: 'true' },
+      ])),
+      this._keepalive(),
+    ]);
+  }
+
   // =========================================================================
   // Command builders — revision explanation
   // =========================================================================
@@ -2171,7 +2195,7 @@ class DirectClient {
         { code: 'N', value: '22410' },
         { code: 'P', value: '0' },
         { code: 'T', value: 'D' },
-        { code: 'X', value: '0' },
+        { code: 'X', value: String(this.periodIdx) },
         { name: 'checkCache', value: '0' },
         { code: 'C', value: '-60000' },
         { code: 'V', value: 'true' },
@@ -2188,7 +2212,7 @@ class DirectClient {
       this._wrap(this._cmd(204, [
         { name: 'rsType', value: 'SR' }, { code: 'R', value: 'ABS' },
         { code: 'S', value: '0' }, { code: 'E', value: '100' },
-        { code: 'X', value: '0' }, { code: 'K', value: '2' },
+        { code: 'X', value: String(this.periodIdx) }, { code: 'K', value: '2' },
         { code: 'C', value: '-60000' }, { code: 'P', value: '0' },
         { code: 'V', value: 'true' },
         { name: 'nonDBSize', value: '1' }, { name: 'nonDBStart', value: '0' },
@@ -2197,7 +2221,7 @@ class DirectClient {
       this._wrap(this._cmd(204, [
         { name: 'rsType', value: 'SR' }, { code: 'R', value: 'ABS' },
         { code: 'S', value: '-59999' }, { code: 'E', value: '-59899' },
-        { code: 'X', value: '0' }, { code: 'K', value: '2' },
+        { code: 'X', value: String(this.periodIdx) }, { code: 'K', value: '2' },
         { code: 'C', value: '-60000' }, { code: 'P', value: '0' },
         { code: 'V', value: 'true' },
       ])),
@@ -2333,6 +2357,7 @@ class DirectClient {
   _buildRevisionSaveBatch(explanation) {
     const meta = this._revisionMeta;
     const rowNum = this._revisionRowNum || '-59999';
+    const period = String(this.periodIdx);
     const revRow = [
       explanation,
       String(this._revisionNumber),
@@ -2349,27 +2374,27 @@ class DirectClient {
       // 205 PUT K2: select revision row
       this._wrap(this._cmd(205, [
         { name: 'rsRowSelectedFlOnly', value: 'true' },
-        { code: 'X', value: '0' }, { code: 'K', value: '2' },
+        { code: 'X', value: period }, { code: 'K', value: '2' },
         { code: 'C', value: rowNum }, { code: 'P', value: '0' },
         { code: 'V', value: 'true' },
       ]), { data: encodedRow, editFlag: '65619,', rowNumber: rowNum + ',' }),
       // 205 PUT K2: write explanation data
       this._wrap(this._cmd(205, [
-        { code: 'X', value: '0' }, { code: 'K', value: '2' },
+        { code: 'X', value: period }, { code: 'K', value: '2' },
         { code: 'C', value: rowNum }, { code: 'P', value: '0' },
         { code: 'V', value: 'true' },
         { name: 'lastPutId', value: String(this.lastPutId++) },
       ]), { data: encodedRow, editFlag: '65619,', rowNumber: rowNum + ',' }),
       // 205 PUT K2: second data write (replicates browser behavior)
       this._wrap(this._cmd(205, [
-        { code: 'X', value: '0' }, { code: 'K', value: '2' },
+        { code: 'X', value: period }, { code: 'K', value: '2' },
         { code: 'C', value: rowNum }, { code: 'P', value: '0' },
         { code: 'V', value: 'true' },
         { name: 'lastPutId', value: String(this.lastPutId++) },
       ]), { data: encodedRow, editFlag: '65619,', rowNumber: rowNum + ',' }),
       // 206 SAVE
       this._wrap(this._cmd(206, [
-        { code: 'G', value: 'false' }, { code: 'C', value: '0' },
+        { code: 'G', value: 'false' }, { code: 'C', value: period },
         { code: 'U', value: 'true' }, { code: 'K', value: '0' },
         { code: 'V', value: 'true' },
       ])),
@@ -2393,7 +2418,7 @@ class DirectClient {
     const cmds = [
       // 205 PUT K1
       this._wrap(this._cmd(205, [
-        { code: 'X', value: '0' }, { code: 'K', value: '1' },
+        { code: 'X', value: String(this.periodIdx) }, { code: 'K', value: '1' },
         { code: 'C', value: '0' }, { code: 'P', value: '0' },
         { code: 'V', value: 'true' },
         { name: 'lastPutId', value: String(putId) },
@@ -2422,9 +2447,15 @@ class DirectClient {
   // =========================================================================
 
   _buildSaveBatch() {
-    const parentRow = this.parentData.rows[0];
-    const parentRowNum = parseInt(this.parentData.rowNums[0], 10);
+    const idx = this.periodIdx;
+    const period = String(idx);
+    const parentRow = this.parentData.rows[idx];
+    const parentRowNum = parseInt(this.parentData.rowNums[idx], 10);
     const encodedParent = protocol.encodePutRow(parentRow);
+    // The previous-week save matches the browser (captured/prev-period-edit/
+    // 017: editFlag 18). The active week keeps 65562 until the sign bisect
+    // (CLAUDE.md) shows whether 18 is safe there too.
+    const parentEditFlag = idx === 0 ? '65562,' : '18,';
 
     // Encode all child rows
     let childDataStr = '';
@@ -2440,17 +2471,17 @@ class DirectClient {
     const cmds = [
       // 205 PUT K0 (parent)
       this._wrap(this._cmd(205, [
-        { code: 'K', value: '0' }, { code: 'C', value: '0' },
+        { code: 'K', value: '0' }, { code: 'C', value: period },
         { code: 'V', value: 'true' },
         { name: 'lastPutId', value: String(this.lastPutId++) },
       ]), {
         data: encodedParent + protocol.DLM_ROW,
-        editFlag: '65562,',
+        editFlag: parentEditFlag,
         rowNumber: parentRowNum + ',',
       }),
       // 205 PUT K1 (all child rows)
       this._wrap(this._cmd(205, [
-        { code: 'X', value: '0' }, { code: 'K', value: '1' },
+        { code: 'X', value: period }, { code: 'K', value: '1' },
         { code: 'C', value: '0' }, { code: 'P', value: '0' },
         { code: 'V', value: 'true' },
         { name: 'lastPutId', value: String(this.lastPutId++) },
@@ -2461,13 +2492,107 @@ class DirectClient {
       }),
       // 206 SAVE
       this._wrap(this._cmd(206, [
-        { code: 'G', value: 'false' }, { code: 'C', value: '0' },
+        { code: 'G', value: 'false' }, { code: 'C', value: period },
         { code: 'U', value: 'true' }, { code: 'K', value: '0' },
         { code: 'V', value: 'true' },
       ])),
       // 204 K0 positive + negative
       ...this._get204(0),
       // 204 K1 positive + negative
+      ...this._get204(1),
+      this._keepalive(),
+    ];
+    return protocol.buildRequestBody(this.sid, cmds);
+  }
+
+  // =========================================================================
+  // Command builders — correct (reopen a processed period)
+  // =========================================================================
+
+  /**
+   * CMD 300 TMMTS_CORRECT_TIMESHEET batch (captured/prev-period-edit/014):
+   * PUT K0 selected-flag and context (editFlag 64), PUT K1 row 0 context
+   * (editFlag 0), the 300 action, then the 204 refresh.
+   */
+  _buildCorrectEvent() {
+    const idx = this.periodIdx;
+    const period = String(idx);
+    const encodedParent = protocol.encodePutRow(this.parentData.rows[idx]) + protocol.DLM_ROW;
+    const parentRowNum = this.parentData.rowNums[idx] + ',';
+    this._actionSeq = (this._actionSeq || 0) + 1;
+
+    const cmds = [
+      this._wrap(this._cmd(205, [
+        { name: 'rsRowSelectedFlOnly', value: 'true' },
+        { code: 'K', value: '0' }, { code: 'C', value: period },
+        { code: 'V', value: 'true' },
+      ]), { data: encodedParent, editFlag: '64,', rowNumber: parentRowNum }),
+      this._wrap(this._cmd(205, [
+        { name: 'rsContextOnly', value: 'Y' },
+        { code: 'K', value: '0' }, { code: 'C', value: period },
+        { code: 'V', value: 'true' },
+        { name: 'lastPutId', value: String(this.lastPutId++) },
+      ]), { data: encodedParent, editFlag: '64,', rowNumber: parentRowNum }),
+    ];
+
+    if (this.childData.rows.length > 0) {
+      cmds.push(this._wrap(this._cmd(205, [
+        { code: 'X', value: period },
+        { name: 'rsContextOnly', value: 'Y' },
+        { code: 'K', value: '1' }, { code: 'C', value: '0' },
+        { code: 'P', value: '0' }, { code: 'V', value: 'true' },
+        { name: 'lastPutId', value: String(this.lastPutId++) },
+      ]), {
+        data: protocol.encodePutRow(this.childData.rows[0]) + protocol.DLM_ROW,
+        editFlag: '0,',
+        rowNumber: this.childData.rowNums[0] + ',',
+      }));
+    }
+
+    cmds.push(
+      this._wrap(this._cmd(300, [
+        ...this._actionBoilerplate(),
+        { name: 'actionId', value: 'TMMTS_CORRECT_TIMESHEET' },
+        { name: 'restartFl', value: 'false' },
+        { code: 'C', value: period },
+        { name: 'longRunActionFl', value: '0' },
+        { name: 'procUniqueId', value: APP_ID + ':A:' + this.sid + ':' + this._actionSeq },
+        { name: 'psSchWorkflowNotifyFl', value: 'false' },
+        { code: 'K', value: '0' },
+        { code: 'V', value: 'true' },
+      ])),
+      ...this._get204(0),
+      ...this._get204(1),
+      this._keepalive(),
+    );
+
+    // reqIdx=1 accompanies CMD 300 action requests (matches browser capture)
+    return protocol.buildRequestBody(this.sid, cmds) + '&reqIdx=1';
+  }
+
+  /**
+   * Commit the correction (captured/prev-period-edit/015): PUT K0 with
+   * editFlag 82 + CMD 206, then the 204 refresh.
+   */
+  _buildCorrectSaveBatch() {
+    const idx = this.periodIdx;
+    const period = String(idx);
+    const cmds = [
+      this._wrap(this._cmd(205, [
+        { code: 'K', value: '0' }, { code: 'C', value: period },
+        { code: 'V', value: 'true' },
+        { name: 'lastPutId', value: String(this.lastPutId++) },
+      ]), {
+        data: protocol.encodePutRow(this.parentData.rows[idx]) + protocol.DLM_ROW,
+        editFlag: '82,',
+        rowNumber: this.parentData.rowNums[idx] + ',',
+      }),
+      this._wrap(this._cmd(206, [
+        { code: 'G', value: 'false' }, { code: 'C', value: period },
+        { code: 'U', value: 'true' }, { code: 'K', value: '0' },
+        { code: 'V', value: 'true' },
+      ])),
+      ...this._get204(0),
       ...this._get204(1),
       this._keepalive(),
     ];

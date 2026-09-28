@@ -29,17 +29,19 @@ Key files:
 Single-page app with server-rendered HTML (no framework, no template engine). All HTML is constructed in `renderHTML()` inside `server.js`. Client-side state managed in `public/app.js`.
 
 ### Two-week timecard
-- Merges two weekly periods into a 14-day view via `getMergedData()`
-- Only the "active week" (from Costpoint's current cursor) is editable
-- Other week is displayed read-only (grayed out)
-- Per-week headers show date range, status badge, and Sign/Copy buttons when unsigned
+- Merges two weekly periods into a 14-day view via `getMergedData()`: week 1 = previous week (parent K0 row 1), week 2 = active week (row 0)
+- Both weeks are editable (`weeks[].isEditable`) unless the week is closed and Costpoint offers no Correct. Previous-week edits need direct mode.
+- Cells carry `data-week` (`prev`/`active`) and `data-period-line` (the line index within that week). Cells for a line that only exists in the other week are read-only.
+- `saveAllChanges()` saves the active week's changes, then the previous week's, each on its own period session. A week that needs a revision explanation stops the run. `saveWithExplanation()` finishes that week (`pendingRevisionWeek`) and then saves the rest.
+- Per-week headers show date range, status badge, and Sign/Copy buttons on the active week when unsigned
 
 ### Session management
 - `server.js` keeps a persistent `DirectClient` session (`activeClient`) across operations
-- `getClient()` creates or reuses the session; `releaseClient()` tears it down
+- The session is bound to one period (`activeClientPeriod`: 0 = active week, 1 = previous week). `getClient(period)` reuses it for the same period and relaunches for the other one. `releaseClient()` tears it down.
+- Period rule: a previous-week session is launched fresh and moved with `selectPeriod(1)` before anything else runs (launch → select → set → save), the same fresh-session rule as signing
 - 5-minute idle timeout auto-releases the session
-- `withClient(fn)` wraps operations with auto-retry on session errors (re-login once)
-- `fetchFreshData()` always releases + re-creates (wants fresh data); save/sign/add reuse
+- `withClient(fn, period)` wraps operations with auto-retry on session errors (re-login once)
+- `fetchFreshData()` always releases + re-creates (wants fresh data); save/add reuse; sign launches its own fresh session
 
 ### Thursday workflow
 - Per-week Sign buttons in the week header row (replaces old global "Sign Timesheet" button)
@@ -51,11 +53,12 @@ Single-page app with server-rendered HTML (no framework, no template engine). Al
 Interactive terminal UI (`node tui.js` or `npm run tui`). Zero extra dependencies — uses raw ANSI escape codes, readline in raw mode, and chalk for colors. Runs in alternate screen buffer.
 
 - Arrow keys navigate cells, digits start editing, Enter confirms + advances right
-- `[s]ave`, `[S]ign`, `[r]efresh`, `[a]dd project`, `[c]opy Thu->Fri`, `[q]uit`
+- `[s]ave`, `[S]ign`, `[r]efresh`, `[a]dd project`, `[c]opy Thu->Fri`, `[w]eek`, `[q]uit`
+- `[w]` toggles between the active week and the previous week (header shows "PREVIOUS WEEK"). Edits and `[s]ave` target the displayed week. `[S]ign`, `[a]dd`, favorites add and `[c]opy` only work on the active week. Switching is blocked while there are unsaved changes.
 - Prompt mode for text input (sign confirmation, project code)
-- Same persistent session pattern as web UI (`getClient`/`withClient`/`releaseClient`)
+- Same period-bound session pattern as web UI (`getClient(period)`/`withClient(fn, period)`/`releaseClient`)
 - Shares cache file (`~/.costpoint-cache.json`) with the web UI
-- Shows single active week (7 columns) — fits in 80-col terminals
+- Shows one week at a time (7 columns) — fits in 80-col terminals
 
 ## Direct Protocol
 
@@ -67,7 +70,10 @@ See memory file `direct-protocol.md` for the full binary protocol reference.
 - Signing MUST run on a fresh session (launch → sign, nothing between). On a session that has done the init/edit/save flow, the server silently ignores the sign — all commands return success but the timesheet stays Open. Verified 2026-07-31: the browser-exact sign flow fails on a worked-in TUI session and succeeds on a fresh one. All three interfaces now sign on a fresh session (`signTimesheet()` in server.js, `doSign()` in tui.js, CLI is fresh by nature).
 - Prime suspects for the session poison (not yet proven): `_buildSaveBatch` diverges from the browser's save — parent editFlag 65562 vs the browser's 18 (65562 = 18|8|0x10000, cargo-culted from a charge-lookup capture per docs/binary-protocol.md), and we PUT ALL K1 rows where the browser PUTs only dirty ones. Cell-edit batches match the browser. To isolate: run `node captured/sign-bisect.js --go` on the next week that's ready to be signed — failed arms are free (sheet stays unsigned), the first successful arm signs it for real. On an already-signed timesheet CMD 300 fails loudly ("You do not have rights to execute this process") — the poison instead makes the whole flow round-trip as success.
 - `sign()` mirrors the browser byte-for-byte (see `captured/sign-capture/` requests 017+018): CMD 300 `TMMTS_SIGN_TIMESHEET` action event, then ACTION_CD='S' + CMD 206 save. ACTION_CD is parent col 23 (not 667). The sign-confirm save returns no 204 data, so `sign()` does an explicit re-fetch afterward and THROWS if status didn't become 'S' — sign can no longer fail silently.
-- `getPreviousPeriodData()` returns other week's data without mutating client state (no `navigateToPreviousPeriod()` state swap)
+- `getPreviousPeriodData()` returns the previous week's data without mutating client state. It needs `launch(..., { loadPreviousPeriod: true })`.
+- `selectPeriod(idx)` points the client at another parent K0 row (1 = previous week). The period index goes in `X` on K1/K2 commands and in the K0 cursor `C` (205 K0, 206, 204 K0). `sign()`, `add()` and `getFavorites()` throw unless `periodIdx` is 0. See `docs/binary-protocol.md` "Previous Period Edit".
+- X=1 child fetches return the wrong lines unless the `R=AUTO` parent fetch ran first in the session (`_fetchPeriod()` does both). Verified live 2026-09-28.
+- Editing a processed (closed, `TS_CLOSED_FL`=Y) week first runs the browser's Correct flow (`_correctTimesheet()`: CMD 300 TMMTS_CORRECT_TIMESHEET + 206). The week comes back Open and must be signed again, which this tool does not do for the previous week yet.
 
 ## Environment
 

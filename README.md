@@ -22,6 +22,8 @@ te login
 te show                        # show timesheet
 te set <line> <day> <hours>    # set hours (e.g. te set 1 4 8)
 te setm 1 1 8, 1 2 8, 1 3 8   # set multiple cells
+te show --prev                 # show the previous week
+te set --prev 0 25 8           # set hours on the previous week
 te add ZLEAVE.HOL              # add a project line
 te add ZLEAVE.FTB RHB          # add a multi-charge project line
 te sign                        # sign timesheet
@@ -30,6 +32,8 @@ te server                      # start the web UI (port 3000)
 te tui                         # start the interactive terminal UI
 te logout                      # remove stored credentials
 ```
+
+`<day>` is the day of the month. `--prev` (direct mode only) works on `show`, `set` and `setm`. Editing a processed previous week reopens it through Costpoint's Correct action and asks for a revision explanation. The week is Open afterwards and still has to be signed in Costpoint. The web UI edits both weeks of its two-week view, and the TUI switches weeks with `[w]`.
 
 ## MCP Server
 

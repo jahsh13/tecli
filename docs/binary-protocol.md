@@ -33,6 +33,7 @@ A complete reverse-engineered specification of the Deltek Costpoint web framewor
     - [Revision Explanation](#revision-explanation)
     - [Leave Balances](#leave-balances)
     - [Previous Period Fetch](#previous-period-fetch)
+    - [Previous Period Edit](#previous-period-edit)
 19. [Password Encoding](#password-encoding)
 20. [SSO / SAML Authentication](#sso--saml-authentication)
 21. [Production Gotchas](#production-gotchas)
@@ -472,8 +473,16 @@ The parent record set contains timesheet header information. One row per availab
 | 2 | SCHEDULE_DESC | Pay schedule description (contains "Wk N of M") |
 | 3 | END_DT | Period end date (used to compute day columns) |
 | 4 | S_STATUS_CD | Timesheet status code (A/M/O/P/R/S) |
-| 565 | ENABLE_SIGN_FL | Whether signing is enabled for this period |
-| 667 | ACTION_CD | Set to "S" to trigger sign on save |
+| 5 | REVISION_NO | Timesheet revision; a correction bumps it |
+| 23 | ACTION_CD | Set to "S" to trigger sign on save |
+| 34 | CORRECTION_STATE | `NA`, or `INP` while a correction is in progress |
+| 573 | ENABLE_SIGN_FL | Whether signing is enabled for this period |
+| 676 | ENABLE_CORRECT_FL | Whether the Correct action is available |
+| 685 | TS_CLOSED_FL | `Y` on a processed (closed) period; edits need a correction first |
+
+Indices 5-685 come from the K0 `maObjId` column list in the OPEN_RS response (`captured/prev-period-edit/006`), cross-checked against row values before and after a correction.
+
+Only row 0 comes back with its non-DB columns (everything past the first ~45 filled) from a plain `204 K0` fetch. The `R=AUTO` fetch fills rows 1-20 (see [Previous Period Fetch](#previous-period-fetch)).
 
 ---
 
@@ -683,10 +692,10 @@ The full init sequence from cold start:
    → Login info handshake
 
 8. POST MasterServlet.cps  [507 + 101 OPEN_APP + 507]
-   → Open application, save response for checkCache
+   → Open application
 
 9. POST MasterServlet.cps  [201 OPEN_RS K0 + 507]
-   → Open parent record set (TMMTS), save response for checkCache
+   → Open parent record set (TMMTS)
 
 10. POST MasterServlet.cps  [204 K0+ + 204 K0- + 201 OPEN_RS K1 + 507]
     → Fetch parent data + open child record set (TMMTS_TS_LINE)
@@ -924,45 +933,57 @@ CMD 206 SAVE returns result code `-1` in rescds. `checkErrors()` may or may not 
 
 ### Previous Period Fetch
 
-For biweekly pay periods, fetching the other week requires re-establishing the app state to avoid server cache conflicts:
+Parent K0 holds one row per period (newest first): row 0 is the active week, row 1 the previous week. Child lines for a period are fetched with `X` = that parent row index. The browser's previous-week arrow sends just the X=1 fetch (`captured/prev-period-edit/013`), but it relies on the `R=AUTO` parent fetch the browser makes during init (`009`):
 
 ```
-1. Re-open app with checkCache (Java String.hashCode() of previous OPEN_APP response)
-   → [507 + 101 OPEN_APP (checkCache=hash) + 507]
+1. [204 K0 (rsType=M, R=AUTO, X=0, W=$N$|1:20|0|, K=0, C=0)] + &autocompletefl=Y
+   → Response slot 5 carries parent rows 1-20 in full
+   → Loads those rows server-side; without it, step 2 answers X=1 with the
+     wrong (empty) lines and K0 rows past 0 stay sparse
 
-2. JSON POST: getHistoryData for TMMTS
-   → {"ProcIdSeed": sid, "requests": [{"getHistoryData": {"appId": "TMMTIMESHEET", "rsId": "TMMTS", "rsKeyLkpHist": -1}}]}
-
-3. Re-open parent RS with checkCache (hash of previous OPEN_RS response)
-   → [201 OPEN_RS K0 (checkCache=hash) + 507]
-
-4. JSON POST: getHistoryData for TMMTS_TS_LINE
-
-5. Re-fetch parent data + open child RS (same as init step 10)
-
-6. Autocomplete fetch (rsType=M, R=AUTO, W=$N$|1:20|0|)
-
-7. Fetch X=0 child data (re-prime)
-
-8. CMD 221 message fetch (metaData=TC_UNSAVED_DATA,#TM_APPROVE_TEXT,...)
-
-9. Finally: Fetch X=1 child data
-   → [204 K1+ (X=1) + 204 K1- (X=1) + 507]
-   → nonDBSize=9, nonDBStart=0 on positive range
+2. [204 K0+ (C=1, nonDBSize=1) + 204 K1+ (X=1, C=-60000, nonDBSize=9)
+    + 204 K1- (X=1) + 507]
+   → K0 row 1 now has its detail columns; K1 is the previous week's lines
 ```
 
-The `checkCache` parameter uses Java's `String.hashCode()`:
+Verified live 2026-09-28 (`captured/probe-prev-fetch.js`): step 2 without step 1 returned the active week's empty line; with step 1 it returned the previous week's hours. An older implementation re-ran OPEN_APP/OPEN_RS with `checkCache` hashes, getHistoryData and CMD 221 before the X=1 fetch; the AUTO fetch was the step that mattered.
 
-```javascript
-function javaHashCode(str) {
-  let hash = 0;
-  for (let i = 0; i < str.length; i++) {
-    hash = ((hash << 5) - hash) + str.charCodeAt(i);
-    hash |= 0;
-  }
-  return hash;
-}
+### Previous Period Edit
+
+Browser capture `captured/prev-period-edit/013-024`: previous week (processed), Correct, edit Friday, save, revision explanation.
+
+The period index goes in two places on every command that touches the period:
+
+| Command | Parameter | Active week | Previous week |
+|---------|-----------|-------------|---------------|
+| 205 PUT K0, 206 SAVE, 204 K0 | `C` (K0 cursor) | 0 | 1 |
+| 205 PUT K0 | `rowNumber` | rowNums[0] | rowNums[1] |
+| 205/208/204 K1 | `X` (parent row) | 0 | 1 |
+| 201/204/205 K2 revision | `X` | 0 | 1 |
+
+K1 `C` stays the child row cursor (0). K3 audit `X` stays 0 (it indexes K2).
+
+**Correct** (only when `TS_CLOSED_FL`=Y; needs `ENABLE_CORRECT_FL`=Y):
+
 ```
+1. [205 PUT K0 (rsRowSelectedFlOnly, C=1, editFlag=64, rowNumber=1),
+    205 PUT K0 (rsContextOnly, C=1, editFlag=64),
+    205 PUT K1 row 0 (X=1, rsContextOnly, C=0, editFlag=0),
+    300 TMMTS_CORRECT_TIMESHEET (action boilerplate, C=1, K=0),
+    204 K0 (C=1) x2, 204 K1 (X=1) x2, 507] + &reqIdx=1
+
+2. [205 PUT K0 (C=1, editFlag=82, rowNumber=1), 206 SAVE (C=1),
+    204 refreshes, 507]
+   → Status becomes O, REVISION_NO +1, CORRECTION_STATE=INP, TS_CLOSED_FL=N
+```
+
+The corrected week is Open afterwards and has to be signed again.
+
+**Cell edit:** same as the active week with `X=1` on the 205/208 and the refreshes on `C=1` / `X=1`.
+
+**Save:** `[205 PUT K0 (C=1, editFlag=18, rowNumber=1), 205 PUT K1 (X=1), 206 SAVE (C=1), 204 refreshes, 507]`. The parent editFlag is 18, as in the browser; the active-week save still sends 65562. On a corrected week the 206 returns -1 "Explanation or Reject Reason is required."
+
+**Revision explanation:** the normal flow with `X=1` on OPEN_RS K2, the K2 query and the three K2 PUTs, and `C=1` on the 206.
 
 ---
 
@@ -1086,7 +1107,7 @@ Many batches include "context" PUTs (`rsContextOnly=Y`) in addition to regular P
 
 CMD 300 actions need `&reqIdx=N` appended to the POST body (not URL-encoded in the main fields). This tells the server which record set key is the action context:
 
-- `reqIdx=1` — K1 (child), used for TMMTS_NEW_TS_LINE
+- `reqIdx=1` — used for TMMTS_NEW_TS_LINE (K1), TMMTS_SIGN_TIMESHEET and TMMTS_CORRECT_TIMESHEET
 - `reqIdx=2` — K2 (lookup), used for TC_TS_CHARGE_LKP_OK
 
 Without this, the server ignores the K2 row selection in charge lookups.

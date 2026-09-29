@@ -1,8 +1,9 @@
 #!/usr/bin/env node
 'use strict';
 
-// Previous-week (parent K0 row 1) editing. Expected command shapes are
-// transcribed from the browser capture captured/prev-period-edit/ (013-024).
+// Previous-week (parent K0 row 1) editing and signing. Expected command
+// shapes are transcribed from the browser captures captured/prev-period-edit/
+// (013-024) and captured/prev-period-sign/ (014-015).
 
 const { test, describe } = require('node:test');
 const assert = require('node:assert/strict');
@@ -13,7 +14,13 @@ const DirectClient = require('../direct');
 
 const CAPTURE_DIR = path.join(__dirname, '../captured/prev-period-edit');
 const hasCapture = fs.existsSync(path.join(CAPTURE_DIR, '015-res.txt'));
+// Browser signing the previous week: 014 sign event, 015 sign confirm
+const SIGN_CAPTURE_DIR = path.join(__dirname, '../captured/prev-period-sign');
+const hasSignCapture = fs.existsSync(path.join(SIGN_CAPTURE_DIR, '015-res.txt'));
 
+const S_STATUS_CD = 4;
+const ACTION_CD = 23;
+const ENABLE_SIGN_FL = 573;
 const TS_CLOSED_FL = 685;
 const ENABLE_CORRECT_FL = 676;
 
@@ -67,8 +74,8 @@ function cmdStrings(body) {
   return commands(body).map(c => c.cmd);
 }
 
-function readCapture(name) {
-  return fs.readFileSync(path.join(CAPTURE_DIR, name), 'utf8');
+function readCapture(name, dir = CAPTURE_DIR) {
+  return fs.readFileSync(path.join(dir, name), 'utf8');
 }
 
 const OK_RESPONSE = 'var responses=[["TMMTIMESHEET|0|507|0|0|0|0"],null,[null],["<OK>"]];';
@@ -93,6 +100,12 @@ const REPORT_BOILERPLATE = [
   '$printSendEmail4$=N', '$printHomePage4$=N', '$printPopupAlert4$=N',
   '$rptEmailAttachmentCount$=0',
 ];
+
+function signAction(period) {
+  return ['300', ...REPORT_BOILERPLATE, '$actionId$=TMMTS_SIGN_TIMESHEET', '$restartFl$=false', 'C' + period,
+    '$longRunActionFl$=0', '$procUniqueId$=TMMTIMESHEET:A:SID:1', '$psSchWorkflowNotifyFl$=false',
+    'K0', 'Vtrue'].join(' ');
+}
 
 // ─── Batch shapes for the previous week (periodIdx = 1) ───────────────────
 
@@ -162,6 +175,48 @@ describe('previous-week batches match the browser capture', () => {
       ...K0_REFRESH_C1,
     ]);
     assert.equal(cmds[0].editFlag, '82,');
+    assert.equal(cmds[0].rowNumber, '1,');
+  });
+
+  test('sign event (prev-period-sign 014)', () => {
+    const client = makeStubClient(1);
+    const body = client._buildSignEvent();
+    assert.match(body, /&reqIdx=1$/);
+    const cmds = commands(body);
+    assert.deepEqual(cmds.map(c => c.cmd), [
+      '205 $rsRowSelectedFlOnly$=true K0 C1 Vtrue',
+      '205 K0 C1 Vtrue $lastPutId$',
+      '205 $rsContextOnly$=Y K0 C1 Vtrue $lastPutId$',
+      '205 X1 $rsContextOnly$=Y K1 C0 P0 Vtrue $lastPutId$',
+      signAction(1),
+      ...K0_REFRESH_C1,
+      ...K1_REFRESH_X1,
+      '507 Vtrue',
+    ]);
+    assert.deepEqual(cmds.slice(0, 4).map(c => [c.editFlag, c.rowNumber]),
+      [['64,', '1,'], ['82,', '1,'], ['82,', '1,'], ['0,', '0,']]);
+  });
+
+  test('sign event marks the previous week parent row, not the active one', () => {
+    const client = makeStubClient(1);
+    client._buildSignEvent();
+    assert.equal(client.parentData.rows[1][ACTION_CD], 'S');
+    assert.equal(client.parentData.rows[0][ACTION_CD], '');
+  });
+
+  test('sign confirm (prev-period-sign 015): K1 S&C keeps X=0 like the browser', () => {
+    const client = makeStubClient(1);
+    const cmds = commands(client._buildSignConfirmBatch());
+    assert.deepEqual(cmds.map(c => c.cmd), [
+      '205 K0 C1 Vtrue $lastPutId$',
+      '206 Gfalse C1 Utrue K0 Vtrue',
+      ...K0_REFRESH_C1,
+      '204 $rsType$=M RS&C S E W K0 C1 Vtrue',
+      ...K1_REFRESH_X1,
+      '204 $rsType$=M RS&C S E X0 W K1 C0 P0 Vtrue',
+      '507 Vtrue',
+    ]);
+    assert.equal(cmds[0].editFlag, '18,');
     assert.equal(cmds[0].rowNumber, '1,');
   });
 
@@ -237,6 +292,39 @@ describe('active-week batches are unchanged', () => {
     assert.equal(cmds[0].rowNumber, '0,');
   });
 
+  test('sign event keeps cursor 0, X=0 and parent row 0', () => {
+    const client = makeStubClient(0);
+    const body = client._buildSignEvent();
+    assert.match(body, /&reqIdx=1$/);
+    const cmds = commands(body);
+    assert.deepEqual(cmds.map(c => c.cmd), [
+      '205 $rsRowSelectedFlOnly$=true K0 C0 Vtrue',
+      '205 K0 C0 Vtrue $lastPutId$',
+      '205 $rsContextOnly$=Y K0 C0 Vtrue $lastPutId$',
+      '205 X0 $rsContextOnly$=Y K1 C0 P0 Vtrue $lastPutId$',
+      signAction(0),
+      '204 $rsType$=M RABS S E K0 C0 Vtrue $nonDBSize$=1 $nonDBStart$=0',
+      '204 $rsType$=M RABS S E K0 C0 Vtrue',
+      '204 $rsType$=M RABS S E X0 K1 C0 P0 Vtrue',
+      '204 $rsType$=M RABS S E X0 K1 C0 P0 Vtrue',
+      '507 Vtrue',
+    ]);
+    assert.deepEqual(cmds.slice(0, 4).map(c => [c.editFlag, c.rowNumber]),
+      [['64,', '0,'], ['82,', '0,'], ['82,', '0,'], ['0,', '0,']]);
+  });
+
+  test('sign confirm keeps cursor 0 and editFlag 18', () => {
+    const client = makeStubClient(0);
+    const cmds = commands(client._buildSignConfirmBatch());
+    assert.deepEqual(cmds.slice(0, 2).map(c => c.cmd), [
+      '205 K0 C0 Vtrue $lastPutId$',
+      '206 Gfalse C0 Utrue K0 Vtrue',
+    ]);
+    assert.equal(cmds[0].editFlag, '18,');
+    assert.equal(cmds[0].rowNumber, '0,');
+    assert.equal(cmds[4].cmd, '204 $rsType$=M RS&C S E W K0 C0 Vtrue');
+  });
+
   test('revision save keeps X=0 and cursor 0', () => {
     const client = makeStubClient(0);
     client._revisionMeta = { emplId: '1', periodNoCd: '039', scheduleCd: 'W', year: '2026' };
@@ -255,7 +343,6 @@ describe('active-week batches are unchanged', () => {
 
 describe('previous-week guards', () => {
   for (const [name, call] of [
-    ['sign()', c => c.sign()],
     ['add()', c => c.add('ZLEAVE.CMP', 'REG')],
     ['getFavorites()', c => c.getFavorites()],
   ]) {
@@ -265,6 +352,14 @@ describe('previous-week guards', () => {
       await assert.rejects(call(client), /only supported on the active week/);
     });
   }
+
+  test('sign() refuses a week Costpoint does not allow signing', async () => {
+    const client = makeStubClient(1);
+    client.parentData.rows[1][S_STATUS_CD] = 'S';
+    client.parentData.rows[1][ENABLE_SIGN_FL] = 'N';
+    client._postServlet = async () => { throw new Error('must not reach the server'); };
+    await assert.rejects(client.sign(), /does not allow signing this week \(status Signed\)/);
+  });
 
   test('set() rejects a day outside the selected week', async () => {
     const client = makeStubClient(1);
@@ -350,5 +445,24 @@ describe('previous-week flow against captured responses', { skip: !hasCapture &&
     assert.equal(commands(sent[1])[0].editFlag, '82,');
     assert.equal(client.parentData.rows[1][TS_CLOSED_FL], 'N');
     assert.equal(client.parentData.rows[1][4], 'O');
+  });
+});
+
+describe('previous-week sign against captured responses', { skip: !hasSignCapture && 'captured/prev-period-sign not present' }, () => {
+  test('sign() signs period 1 and sends the browser confirm row', async () => {
+    const client = makeStubClient(1);
+    client._buildTableRows = () => {};
+    const sent = [];
+    const responses = ['014-res.txt', '015-res.txt', '015-res.txt'].map(f => readCapture(f, SIGN_CAPTURE_DIR));
+    client._postServlet = async body => { sent.push(body); return responses.shift(); };
+
+    await client.sign();
+
+    assert.equal(sent.length, 3);
+    assert.equal(cmdStrings(sent[0])[4], signAction(1));
+    const confirmData = new URLSearchParams(sent[1]).get('data').split(protocol.DLM_RS)[0];
+    const browserData = new URLSearchParams(readCapture('015-req.txt', SIGN_CAPTURE_DIR)).get('data').split(protocol.DLM_RS)[0];
+    assert.equal(confirmData, browserData);
+    assert.equal(client.parentData.rows[1][S_STATUS_CD], 'S');
   });
 });

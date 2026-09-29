@@ -899,20 +899,28 @@ class DirectClient {
   }
 
   /**
-   * Sign the timesheet.
+   * Sign the selected period's timesheet.
    *
-   * Mirrors the browser's two-request flow (captured/sign-capture/017+018):
+   * Mirrors the browser's two-request flow (active week: captured/
+   * sign-capture/017+018; previous week: captured/prev-period-sign/014+015):
    *   1. CMD 300 TMMTS_SIGN_TIMESHEET action, batched with parent PUTs that
    *      carry ACTION_CD='S'. This primes the server-side sign transition —
    *      without it the server silently ignores ACTION_CD='S' on save (the
    *      request round-trips cleanly but the timesheet stays unsigned).
    *   2. PUT K0 + CMD 206 SAVE (what the browser sends after the user
-   *      confirms the sign dialog) — reuses save().
+   *      confirms the sign dialog).
+   *
+   * Run it on a fresh session (launch, optionally selectPeriod, then sign).
    */
   async sign() {
-    // The sign flow is byte-exact to a capture of the active week only
-    this._requireActivePeriod('Signing');
-    debug('Signing timesheet...');
+    const idx = this.periodIdx;
+    // A signed (or otherwise locked) week otherwise fails later with
+    // "You do not have rights to execute this process"
+    if (this.parentData.rows[idx][PARENT_COL.ENABLE_SIGN_FL] === 'N') {
+      throw new Error('Costpoint does not allow signing this week (status ' +
+        this._getTimesheetStatusMeta().label + ')');
+    }
+    debug('Signing period ' + idx + '...');
 
     // Step 1: fire the sign action event
     const respText = await this._postServlet(this._buildSignEvent());
@@ -936,7 +944,7 @@ class DirectClient {
     // editFlag 18 + CMD 206. Deliberately NOT save()/_buildSaveBatch, whose
     // shape diverges from the browser (editFlag 65562, all K1 rows PUT) and
     // is the prime suspect for the session state that gets signs ignored.
-    this.parentData.rows[0][PARENT_COL.ACTION_CD] = 'S';
+    this.parentData.rows[idx][PARENT_COL.ACTION_CD] = 'S';
     const confirmResp = await this._postServlet(this._buildSignConfirmBatch());
     if (confirmResp.includes('onServletException')) {
       throw new Error('Server error during sign confirm. Please try again.');
@@ -951,9 +959,10 @@ class DirectClient {
     if (ck0) this.parentData = ck0;
     if (ck1) this.childData = ck1;
 
-    // The sign-confirm save returns no 204 data (unlike normal saves), so
-    // save()'s refresh is a no-op and local state still shows unsigned.
-    // Re-fetch explicitly so callers (and the web UI cache) see the new status.
+    // The active-week sign-confirm save returns no 204 data (unlike normal
+    // saves; the previous-week one does), so local state can still show
+    // unsigned. Re-fetch explicitly so callers (and the web UI cache) see the
+    // new status.
     const refreshResp = await this._postServlet(protocol.buildRequestBody(this.sid, [
       ...this._get204(0),
       ...this._get204(1),
@@ -966,7 +975,7 @@ class DirectClient {
     if (freshK1) this.childData = freshK1;
     this._buildTableRows();
 
-    const status = this.parentData.rows[0][PARENT_COL.S_STATUS_CD];
+    const status = this.parentData.rows[idx][PARENT_COL.S_STATUS_CD];
     if (status !== 'S') {
       throw new Error('Sign did not take effect (status is still "' + status + '")');
     }
@@ -978,10 +987,13 @@ class DirectClient {
    * PUT K0 selected-flag (pre-sign state, editFlag 64), PUT K0 with
    * ACTION_CD='S' (editFlag 82), PUT K0 context-only (editFlag 82),
    * PUT K1 row 0 (editFlag 0), then the 300 action + 204 refresh + keepalive.
+   * The previous week (captured/prev-period-sign/014) is the same batch with
+   * the period in the K0 cursor, parent row, K1 X and the 300's C.
    */
   _buildSignEvent() {
-    const parentRow = this.parentData.rows[0];
-    const parentRowNum = this.parentData.rowNums[0];
+    const period = String(this.periodIdx);
+    const parentRow = this.parentData.rows[this.periodIdx];
+    const parentRowNum = this.parentData.rowNums[this.periodIdx];
 
     // Frame 1 sends the parent as-is; frames 2-3 send it with ACTION_CD='S'
     const encodedParentPlain = protocol.encodePutRow(parentRow);
@@ -994,7 +1006,7 @@ class DirectClient {
       // PUT K0 selected row flag only (editFlag 64)
       this._wrap(this._cmd(205, [
         { name: 'rsRowSelectedFlOnly', value: 'true' },
-        { code: 'K', value: '0' }, { code: 'C', value: '0' },
+        { code: 'K', value: '0' }, { code: 'C', value: period },
         { code: 'V', value: 'true' },
       ]), {
         data: encodedParentPlain + protocol.DLM_ROW,
@@ -1003,7 +1015,7 @@ class DirectClient {
       }),
       // PUT K0 with ACTION_CD='S' (editFlag 82)
       this._wrap(this._cmd(205, [
-        { code: 'K', value: '0' }, { code: 'C', value: '0' },
+        { code: 'K', value: '0' }, { code: 'C', value: period },
         { code: 'V', value: 'true' },
         { name: 'lastPutId', value: String(this.lastPutId++) },
       ]), {
@@ -1014,7 +1026,7 @@ class DirectClient {
       // PUT K0 context only (editFlag 82)
       this._wrap(this._cmd(205, [
         { name: 'rsContextOnly', value: 'Y' },
-        { code: 'K', value: '0' }, { code: 'C', value: '0' },
+        { code: 'K', value: '0' }, { code: 'C', value: period },
         { code: 'V', value: 'true' },
         { name: 'lastPutId', value: String(this.lastPutId++) },
       ]), {
@@ -1027,7 +1039,7 @@ class DirectClient {
     // PUT K1 row 0 context (editFlag 0) — skipped if there are no charge rows
     if (this.childData && this.childData.rows.length > 0) {
       cmds.push(this._wrap(this._cmd(205, [
-        { code: 'X', value: '0' },
+        { code: 'X', value: period },
         { name: 'rsContextOnly', value: 'Y' },
         { code: 'K', value: '1' }, { code: 'C', value: '0' },
         { code: 'P', value: '0' }, { code: 'V', value: 'true' },
@@ -1040,40 +1052,11 @@ class DirectClient {
     }
 
     cmds.push(
-      // CMD 300 TMMTS_SIGN_TIMESHEET (report params match the browser)
       this._wrap(this._cmd(300, [
-        { name: 'rptPrintAllPages', value: 'Y' },
-        { name: 'rptInclCoverPage', value: 'Y' },
-        { name: 'printRpt', value: 'N' },
-        { name: 'rptScalingFactor', value: 'DFLT' },
-        { name: 'rptPrnNofC', value: '1' },
-        { name: 'downloadRpt', value: 'Y' },
-        { name: 'emailRpt', value: 'N' },
-        { name: 'printToFileRpt', value: 'N' },
-        { name: 'rptLocale', value: 'VIEW_AS_BUILT' },
-        { name: 'runAfterRptFl', value: 'Y' },
-        { name: 'archiveRpt', value: 'N' },
-        { name: 'rptArchRelativeAbsDt', value: 'Y' },
-        { name: 'rptArchNeverDelete', value: 'Y' },
-        { name: 'syncRequest', value: 'true' },
-        { name: 'rptFormat', value: 'pdf' },
-        { name: 'printLocalRpt', value: 'N' },
-        { name: 'printSendEmail1', value: 'N' },
-        { name: 'printHomePage1', value: 'N' },
-        { name: 'printPopupAlert1', value: 'N' },
-        { name: 'printSendEmail2', value: 'N' },
-        { name: 'printHomePage2', value: 'N' },
-        { name: 'printPopupAlert2', value: 'N' },
-        { name: 'printSendEmail3', value: 'N' },
-        { name: 'printHomePage3', value: 'N' },
-        { name: 'printPopupAlert3', value: 'N' },
-        { name: 'printSendEmail4', value: 'N' },
-        { name: 'printHomePage4', value: 'N' },
-        { name: 'printPopupAlert4', value: 'N' },
-        { name: 'rptEmailAttachmentCount', value: '0' },
+        ...this._actionBoilerplate(),
         { name: 'actionId', value: 'TMMTS_SIGN_TIMESHEET' },
         { name: 'restartFl', value: 'false' },
-        { code: 'C', value: '0' },
+        { code: 'C', value: period },
         { name: 'longRunActionFl', value: '0' },
         { name: 'procUniqueId', value: APP_ID + ':A:' + this.sid + ':' + this._actionSeq },
         { name: 'psSchWorkflowNotifyFl', value: 'false' },
@@ -1094,16 +1077,19 @@ class DirectClient {
    * editFlag 18 (parent row carries ACTION_CD='S'), CMD 206 SAVE, then 204
    * refreshes including the R=S&C status/count fetches the browser sends
    * after saves. No K1 PUT — the browser does not send one here.
+   * The previous week (captured/prev-period-sign/015) puts the period in the
+   * K0 cursors; the browser keeps X=0 on the K1 S&C fetch even there.
    */
   _buildSignConfirmBatch() {
-    const parentRow = this.parentData.rows[0];
-    const parentRowNum = this.parentData.rowNums[0];
+    const period = String(this.periodIdx);
+    const parentRow = this.parentData.rows[this.periodIdx];
+    const parentRowNum = this.parentData.rowNums[this.periodIdx];
     const childRowCount = this.childData ? this.childData.rows.length : 40;
     const k1E = Math.max(childRowCount + 5, 40);
 
     const cmds = [
       this._wrap(this._cmd(205, [
-        { code: 'K', value: '0' }, { code: 'C', value: '0' },
+        { code: 'K', value: '0' }, { code: 'C', value: period },
         { code: 'V', value: 'true' },
         { name: 'lastPutId', value: String(this.lastPutId++) },
       ]), {
@@ -1112,7 +1098,7 @@ class DirectClient {
         rowNumber: parentRowNum + ',',
       }),
       this._wrap(this._cmd(206, [
-        { code: 'G', value: 'false' }, { code: 'C', value: '0' },
+        { code: 'G', value: 'false' }, { code: 'C', value: period },
         { code: 'U', value: 'true' }, { code: 'K', value: '0' },
         { code: 'V', value: 'true' },
       ])),
@@ -1121,7 +1107,7 @@ class DirectClient {
         { name: 'rsType', value: 'M' }, { code: 'R', value: 'S&C' },
         { code: 'S', value: '0' }, { code: 'E', value: '20' },
         { code: 'W', value: '' },
-        { code: 'K', value: '0' }, { code: 'C', value: '0' },
+        { code: 'K', value: '0' }, { code: 'C', value: period },
         { code: 'V', value: 'true' },
       ])),
       ...this._get204(1),

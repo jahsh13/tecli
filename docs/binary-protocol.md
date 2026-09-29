@@ -756,14 +756,26 @@ Batch: [205 PUT K0 + 205 PUT K1 + 206 SAVE + 204 K0+ + 204 K0- + 204 K1+ + 204 K
 
 ### Sign
 
-Signing is done by setting ACTION_CD and saving:
+Browser capture `captured/sign-capture/017+018` (active week). In the browser, Sign first shows a `confirm()` certification text; no request is sent until it is accepted.
 
 ```
-1. Set parentData.rows[0][667] = "S"  (ACTION_CD column)
-2. Execute normal save flow
+1. [205 PUT K0 (rsRowSelectedFlOnly, C=0, editFlag=64)        parent as-is
+    205 PUT K0 (C=0, editFlag=82)                              ACTION_CD (col 23) = "S"
+    205 PUT K0 (rsContextOnly, C=0, editFlag=82)               ACTION_CD = "S"
+    205 PUT K1 row 0 (X=0, rsContextOnly, C=0, editFlag=0)
+    300 TMMTS_SIGN_TIMESHEET (action boilerplate, C=0, K=0),
+    204 K0 x2, 204 K1 x2, 507] + &reqIdx=1
+   → Response parent row carries ACTION_CD="S"
+
+2. [205 PUT K0 (C=0, editFlag=18)                              row from step 1
+    206 SAVE (C=0),
+    204 K0 x2, 204 K0 (R=S&C, W=''), 204 K1 x2, 204 K1 (R=S&C, X=0, W=''), 507]
+   → No K1 PUT. Status becomes S.
 ```
 
-The server interprets ACTION_CD="S" as a sign request.
+Setting ACTION_CD and running a plain save is not enough: without the CMD 300 the server ignores ACTION_CD="S". The active-week confirm returns no 204 data, so the client re-fetches and checks the status. `ENABLE_SIGN_FL` (col 573) is N once a week is signed; CMD 300 on such a week fails with "You do not have rights to execute this process".
+
+Sign on a fresh session (launch → sign, or launch → select period → sign). On a session that has already edited and saved, the whole flow round-trips as success but the timesheet stays Open (see CLAUDE.md).
 
 ### Add Project Line
 
@@ -960,8 +972,9 @@ The period index goes in two places on every command that touches the period:
 | 205 PUT K0 | `rowNumber` | rowNums[0] | rowNums[1] |
 | 205/208/204 K1 | `X` (parent row) | 0 | 1 |
 | 201/204/205 K2 revision | `X` | 0 | 1 |
+| 300 Correct / Sign | `C` | 0 | 1 |
 
-K1 `C` stays the child row cursor (0). K3 audit `X` stays 0 (it indexes K2).
+K1 `C` stays the child row cursor (0). K3 audit `X` stays 0 (it indexes K2). The K1 `R=S&C` fetch in the sign confirm stays `X=0` as well.
 
 **Correct** (only when `TS_CLOSED_FL`=Y; needs `ENABLE_CORRECT_FL`=Y):
 
@@ -977,13 +990,15 @@ K1 `C` stays the child row cursor (0). K3 audit `X` stays 0 (it indexes K2).
    → Status becomes O, REVISION_NO +1, CORRECTION_STATE=INP, TS_CLOSED_FL=N
 ```
 
-The corrected week is Open afterwards and has to be signed again.
+The corrected week is Open afterwards and has to be signed again (**Sign** below).
 
 **Cell edit:** same as the active week with `X=1` on the 205/208 and the refreshes on `C=1` / `X=1`.
 
 **Save:** `[205 PUT K0 (C=1, editFlag=18, rowNumber=1), 205 PUT K1 (X=1), 206 SAVE (C=1), 204 refreshes, 507]`. The parent editFlag is 18, as in the browser; the active-week save still sends 65562. On a corrected week the 206 returns -1 "Explanation or Reject Reason is required."
 
 **Revision explanation:** the normal flow with `X=1` on OPEN_RS K2, the K2 query and the three K2 PUTs, and `C=1` on the 206.
+
+**Sign** (browser capture `captured/prev-period-sign/014+015`, previous week Open after a correction): the [Sign](#sign) flow with the period in every slot of the table above. Step 1 PUTs parent row 1 on `C=1` (editFlags 64/82/82) and K1 row 0 on `X=1`, and the 300 carries `C=1`. Step 2 PUTs parent row 1 with editFlag 18, saves on `C=1` and fetches K0 `R=S&C` on `C=1`, while the K1 `R=S&C` fetch keeps `X=0`. Unlike the active week, the confirm response carries 204 K0/K1 data with the new status S. After the sign, row 1 has `ENABLE_SIGN_FL`=N.
 
 ---
 

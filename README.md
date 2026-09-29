@@ -27,13 +27,14 @@ te set --prev 0 25 8           # set hours on the previous week
 te add ZLEAVE.HOL              # add a project line
 te add ZLEAVE.FTB RHB          # add a multi-charge project line
 te sign                        # sign timesheet
+te sign --prev                 # sign the previous week
 te leave                       # show leave balances
 te server                      # start the web UI (port 3000)
 te tui                         # start the interactive terminal UI
 te logout                      # remove stored credentials
 ```
 
-`<day>` is the day of the month. `--prev` (direct mode only) works on `show`, `set` and `setm`. Editing a processed previous week reopens it through Costpoint's Correct action and asks for a revision explanation. The week is Open afterwards and still has to be signed in Costpoint. The web UI edits both weeks of its two-week view, and the TUI switches weeks with `[w]`.
+`<day>` is the day of the month. `--prev` (direct mode only) works on `show`, `set`, `setm` and `sign`. Editing a processed previous week reopens it through Costpoint's Correct action and asks for a revision explanation. The week is Open afterwards and has to be signed again with `te sign --prev`. The web UI edits and signs both weeks of its two-week view (a banner shows while the previous week is Open), and the TUI switches weeks with `[w]` and signs the shown week with `[S]`.
 
 ## MCP Server
 

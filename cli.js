@@ -147,6 +147,13 @@ function showStatus(cp) {
   console.log(`\n  Status: ${statusBadge(data.timesheetStatus)}`);
 }
 
+// Editing a processed previous week reopens it, and it must be signed again
+function hintSignPrev(cp, options) {
+  if (!options.prev) return;
+  if (normalizeTimesheetStatus(cp.getData().timesheetStatusCode).tone !== "open") return;
+  console.log(chalk.yellow("\n  Previous week is Open again. Sign it with `te sign --prev`"));
+}
+
 // ── Commands ─────────────────────────────────────────────────────
 
 program
@@ -175,9 +182,12 @@ program
   .command("sign")
   .description("sign timesheet")
   .option("-y, --yes", "skip confirmation prompt")
+  .option("-p, --prev", "sign the previous week (direct mode only)")
   .action(async (options) => {
     try {
-      const cp = await connect();
+      // connect() runs nothing but the period select before the sign, which
+      // keeps the session fresh as signing requires
+      const cp = await connect(options);
       showStatus(cp);
       console.log();
       cp.display();
@@ -189,7 +199,8 @@ program
           output: process.stdout,
         });
         shouldSign = await new Promise((resolve) => {
-          rl.question("\n  Sign this timesheet? (y/n): ", (answer) => {
+          const which = options.prev ? "the previous week" : "this timesheet";
+          rl.question(`\n  Sign ${which}? (y/n): `, (answer) => {
             rl.close();
             resolve(
               answer.toLowerCase() === "y" || answer.toLowerCase() === "yes",
@@ -257,6 +268,7 @@ program
       showStatus(cp);
       console.log();
       cp.display();
+      hintSignPrev(cp, options);
       await cp.close();
     } catch (e) {
       console.error(chalk.red(`\n  ${e.message}`));
@@ -318,6 +330,7 @@ program
       showStatus(cp);
       console.log();
       cp.display();
+      hintSignPrev(cp, options);
       await cp.close();
     } catch (e) {
       console.error(chalk.red(`\n  ${e.message}`));

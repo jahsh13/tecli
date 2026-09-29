@@ -10,6 +10,7 @@
   let originalValues = new Map();
   let originalComments = new Map();
   let statusPollingInterval = null;
+  let signWeek = "active"; // week whose Sign button opened the sign modal
 
   // Project codes that require a comment when hours are entered
   var COMMENT_REQUIRED_CODES = ["A09909.SUSP.OVH"];
@@ -215,8 +216,13 @@
     // Per-week sign buttons
     const signModal = document.getElementById("sign-modal");
     const confirmSign = document.getElementById("confirm-sign");
+    const signModalText = document.getElementById("sign-modal-text");
     document.querySelectorAll(".btn-week-sign").forEach(btn => {
-      btn.addEventListener("click", () => showModal(signModal));
+      btn.addEventListener("click", () => {
+        signWeek = btn.dataset.week || "active";
+        if (signModalText) signModalText.textContent = "Sign " + btn.dataset.label + "?";
+        showModal(signModal);
+      });
     });
     if (confirmSign) {
       confirmSign.addEventListener("click", handleSign);
@@ -871,7 +877,9 @@
 
     try {
       const response = await fetch("/api/sign", {
-        method: "POST"
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ week: signWeek })
       });
 
       if (!response.ok) {

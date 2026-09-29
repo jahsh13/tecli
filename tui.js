@@ -193,6 +193,15 @@ function storeClientData(cp) {
   else storeWeekData(cp.getData());
 }
 
+// Editing a processed previous week reopens it, and it must be signed again
+function savedStatus(msg) {
+  if (viewPrev && data && normalizeTimesheetStatus(data.timesheetStatusCode).tone === 'open') {
+    setStatus(chalk.green(msg) + '  ' + chalk.yellow('Previous week is Open. Press [S] to sign.'), 8000);
+  } else {
+    setStatus(chalk.green(msg), 3000);
+  }
+}
+
 // Blocks active-week-only actions while the previous week is shown
 function requireActiveWeek(action) {
   if (!viewPrev) return true;
@@ -256,7 +265,7 @@ async function doSave() {
     loadViewData();
     pendingChanges.clear();
     clampCursor();
-    setStatus(chalk.green('Saved ' + changes.length + ' change' + (changes.length !== 1 ? 's' : '') + '.'), 3000);
+    savedStatus('Saved ' + changes.length + ' change' + (changes.length !== 1 ? 's' : '') + '.');
   } catch (e) {
     if (e.name === 'RevisionRequiredError') {
       stopSpinner();
@@ -283,7 +292,7 @@ async function doSave() {
           loadViewData();
           pendingChanges.clear();
           clampCursor();
-          setStatus(chalk.green('Saved with revision explanation.'), 3000);
+          savedStatus('Saved with revision explanation.');
         } catch (e2) {
           setStatus(chalk.red('Save failed: ' + e2.message), 5000);
         } finally {
@@ -312,13 +321,14 @@ async function doSign() {
   try {
     // Sign on a fresh dedicated session. Signing on a session that has been
     // through the init/edit flow is silently ignored by the server — same
-    // workaround as signTimesheet() in server.js.
+    // workaround as signTimesheet() in server.js. getClient() launches the
+    // previous week fresh and selects it before anything else runs.
     await releaseClient();
     await withClient(async (cp) => {
       await cp.sign();
-      storeWeekData(cp.getData());
+      storeClientData(cp);
       saveCache();
-    });
+    }, viewPeriod());
     loadViewData();
     pendingChanges.clear();
     setStatus(chalk.green('Timesheet signed.'), 3000);
@@ -673,7 +683,7 @@ function render() {
       } else if (showFavorites) {
         lines.push(chalk.dim('[1-' + (favoritesData && favoritesData.length > 0 ? favoritesData.length : 'N') + '] add  [f]avorites back  [q]uit'));
       } else if (viewPrev) {
-        lines.push(chalk.dim('[s]ave  [r]efresh  [C]omment  [w]eek  [l]eave  [q]uit'));
+        lines.push(chalk.dim('[s]ave  [S]ign  [r]efresh  [C]omment  [w]eek  [l]eave  [q]uit'));
       } else {
         lines.push(chalk.dim('[s]ave  [S]ign  [r]efresh  [a]dd  [C]omment  [c]opy Thu\u2192Fri  [w]eek  [l]eave  [f]av  [q]uit'));
       }
@@ -762,13 +772,12 @@ function handleNavigateKey(str, key) {
     default:
       if (str === 's' && !key.shift) { doSave(); return; }
       if (str === 'S' || (str === 's' && key.shift)) {
-        if (!requireActiveWeek('Signing')) return;
         if (pendingChanges.size > 0) {
           setStatus(chalk.yellow('Save changes before signing.'), 3000);
           render();
           return;
         }
-        enterPrompt('Sign timesheet? [y/n] ', function(ans) {
+        enterPrompt((viewPrev ? 'Sign the previous week?' : 'Sign timesheet?') + ' [y/n] ', function(ans) {
           if (ans.toLowerCase() === 'y') doSign();
         });
         return;

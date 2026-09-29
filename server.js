@@ -56,6 +56,15 @@ async function launchClient(period = 0) {
   return Costpoint.launch(url, username, password, system);
 }
 
+// Signing launches with nothing but the period select before the sign. The
+// active week skips the previous-period preload that launchClient(0) adds.
+async function launchSignClient(period) {
+  if (period !== 0) return launchClient(period);
+  return useDirect
+    ? DirectClient.launch(url, username, password)
+    : Costpoint.launch(url, username, password, system);
+}
+
 // Persistent session management — reuse one client across operations.
 // The session is bound to one period; asking for another relaunches it.
 let activeClient = null;
@@ -419,14 +428,15 @@ async function addProject(code, payType) {
   }
 }
 
-// Sign the timesheet
+// Sign one week's timesheet ('active' or 'prev')
 //
-// Signing requires a fresh session (launch → sign, nothing between). On a
-// session that has done other work the server silently ignores the
-// ACTION_CD='S' transition (the request round-trips cleanly but the
-// timesheet stays unsigned; see CLAUDE.md). Release the persistent client
-// and launch a fresh single-period session just for the sign.
-async function signTimesheet() {
+// Signing requires a fresh session (launch → sign, nothing between; for the
+// previous week launch → select period → sign). On a session that has done
+// other work the server silently ignores the ACTION_CD='S' transition (the
+// request round-trips cleanly but the timesheet stays unsigned; see
+// CLAUDE.md). Release the persistent client and launch a fresh session just
+// for the sign.
+async function signTimesheet(week) {
   if (isProcessing) throw new Error("Another operation is in progress");
 
   isProcessing = true;
@@ -434,12 +444,10 @@ async function signTimesheet() {
 
   try {
     await releaseClient();
-    const cp = useDirect
-      ? await DirectClient.launch(url, username, password)
-      : await Costpoint.launch(url, username, password, system);
+    const cp = await launchSignClient(WEEK_PERIOD[week]);
     try {
       await cp.sign();
-      storeWeekData(cp.getData());
+      storeClientData(cp, week);
       saveCache();
     } finally {
       try { await cp.close(); } catch (e) { /* ignore */ }
@@ -550,7 +558,9 @@ function renderHTML(data, isLoading = false) {
     const label = start.month() === end.month()
       ? start.format('MMM D') + '\u2013' + end.format('D')
       : start.format('MMM D') + ' \u2013 ' + end.format('MMM D');
-    return Object.assign({}, w, { label: label });
+    // isEditable already requires direct mode for the previous week
+    const canSign = w.isEditable && (w.statusTone === 'open' || w.statusTone === 'missing');
+    return Object.assign({}, w, { label: label, canSign: canSign });
   }) : [];
 
   return `<!DOCTYPE html>
@@ -597,6 +607,13 @@ function renderHTML(data, isLoading = false) {
       <span class="period-dates">${periodStart.dayOfWeek} ${periodStart.fullDate} - ${periodEnd.dayOfWeek} ${periodEnd.fullDate}</span>
     </div>
 
+    ${weeksInfo.filter(w => !w.isActive && w.canSign && w.statusTone === 'open').map(w => `
+    <div id="prev-sign-nudge" class="thursday-nudge">
+      <span class="nudge-message">Previous week is Open and needs to be signed</span>
+      <button class="btn-week-sign" data-week="${w.week}" data-label="${w.label}">Sign ${w.label}</button>
+    </div>
+    `).join("")}
+
     <div id="thursday-nudge" class="thursday-nudge" style="display: none;">
       <span class="nudge-message"></span>
       <button id="nudge-copy-btn" class="btn btn-secondary btn-sm">Copy Thu &rarr; Fri</button>
@@ -608,12 +625,12 @@ function renderHTML(data, isLoading = false) {
           <tr class="week-header-row">
             <th colspan="4" class="week-header-spacer"></th>
             ${weeksInfo.map(w => {
-              const canSign = w.isActive && (w.statusTone === 'open' || w.statusTone === 'missing');
               return `<th colspan="7" class="week-header ${w.isEditable ? 'week-active' : 'week-inactive'}">
                 <div class="week-header-content">
                   <span class="week-dates">${w.label}</span>
                   ${w.statusLabel ? `<span class="week-status-badge timesheet-status-${w.statusTone}">${w.statusLabel}</span>` : ''}
-                  ${canSign ? '<button class="btn-copy-thu" title="Copy Thursday hours to Friday">Thu &rarr; Fri</button><button class="btn-week-sign">Sign</button>' : ''}
+                  ${w.canSign && w.isActive ? '<button class="btn-copy-thu" title="Copy Thursday hours to Friday">Thu &rarr; Fri</button>' : ''}
+                  ${w.canSign ? `<button class="btn-week-sign" data-week="${w.week}" data-label="${w.label}">Sign</button>` : ''}
                 </div>
               </th>`;
             }).join("")}
@@ -775,7 +792,7 @@ function renderHTML(data, isLoading = false) {
         <button class="modal-close">&times;</button>
       </div>
       <div class="modal-body">
-        <p>Are you sure you want to sign this timesheet?</p>
+        <p id="sign-modal-text">Are you sure you want to sign this timesheet?</p>
         <p class="warning">This action cannot be undone.</p>
       </div>
       <div class="modal-footer">
@@ -968,8 +985,10 @@ app.post("/api/project", async (req, res) => {
 });
 
 app.post("/api/sign", async (req, res) => {
+  const week = (req.body && req.body.week) || "active";
+  if (!(week in WEEK_PERIOD)) return res.status(400).json({ error: "Invalid week" });
   try {
-    await signTimesheet();
+    await signTimesheet(week);
     res.json({ success: true });
   } catch (e) {
     res.status(500).json({ error: e.message });

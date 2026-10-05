@@ -660,7 +660,16 @@ class DirectClient {
       if (k1Data) this.childData = k1Data;
       this._buildTableRows();
 
-      const auditDetails = await this._fetchRevisionDetails();
+      // The server has already blocked the save on this definitive signal —
+      // if fetching the human-readable detail rows fails, still surface
+      // RevisionRequiredError (with no detail) rather than losing the signal
+      // under a generic save error that skips the explanation prompt
+      let auditDetails = [];
+      try {
+        auditDetails = await this._fetchRevisionDetails();
+      } catch (detailErr) {
+        debug('Failed to fetch revision audit details: ' + detailErr.message);
+      }
       throw new RevisionRequiredError(auditDetails);
     }
 

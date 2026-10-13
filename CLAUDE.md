@@ -57,6 +57,7 @@ Interactive terminal UI (`node tui.js` or `npm run tui`). Zero extra dependencie
 - `[s]ave`, `[S]ign`, `[r]efresh`, `[a]dd project`, `[c]opy Thu->Fri`, `[w]eek`, `[q]uit`
 - `[w]` toggles between the active week and the previous week (header shows "PREVIOUS WEEK"). Edits, `[s]ave` and `[S]ign` target the displayed week. `[a]dd`, favorites add and `[c]opy` only work on the active week. Switching is blocked while there are unsaved changes. A previous-week save that leaves the week Open says to press `[S]`.
 - Prompt mode for text input (sign confirmation, project code)
+- Numbered lists (favorites `[f]`, add menu `[a]`) take multi-digit picks via `number-pick.js`: a digit selects once no longer number can match, otherwise Enter confirms (with 13 favorites, `1` waits, `13` or `1`+Enter picks)
 - Same period-bound session pattern as web UI (`getClient(period)`/`withClient(fn, period)`/`releaseClient`)
 - Shares cache file (`~/.costpoint-cache.json`) with the web UI
 - Shows one week at a time (7 columns) — fits in 80-col terminals

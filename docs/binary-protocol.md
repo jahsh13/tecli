@@ -973,6 +973,9 @@ The period index goes in two places on every command that touches the period:
 | 205/208/204 K1 | `X` (parent row) | 0 | 1 |
 | 201/204/205 K2 revision | `X` | 0 | 1 |
 | 300 Correct / Sign | `C` | 0 | 1 |
+| 300 `TMMTS_NEW_TS_LINE` | `C` (pending row), K0 PUT `C`/`rowNumber` | -59999, 0 | -59999, 1 |
+| 205/208/204 K1 add, validate, lookup-OK | `X` | 0 | 1 |
+| 205 K0 context PUT in lookup-OK | `C` | 0 | 1 |
 
 K1 `C` stays the child row cursor (0). K3 audit `X` stays 0 (it indexes K2). The K1 `R=S&C` fetch in the sign confirm stays `X=0` as well.
 
@@ -1002,9 +1005,24 @@ The corrected week is Open afterwards and has to be signed again (**Sign** below
 
 **Sign** (browser capture `captured/prev-period-sign/014+015`, previous week Open after a correction): the [Sign](#sign) flow with the period in every slot of the table above. Step 1 PUTs parent row 1 on `C=1` (editFlags 64/82/82) and K1 row 0 on `X=1`, and the 300 carries `C=1`. Step 2 PUTs parent row 1 with editFlag 18, saves on `C=1` and fetches K0 `R=S&C` on `C=1`, while the K1 `R=S&C` fetch keeps `X=0`. Unlike the active week, the confirm response carries 204 K0/K1 data with the new status S. After the sign, row 1 has `ENABLE_SIGN_FL`=N.
 
-**Add / favorites** (browser capture `captured/past-week-add/014-023`, Signed and not closed past week, nothing saved): the active-week flows with the period in every slot of the table above. `TMMTS_NEW_TS_LINE` PUTs parent row 1 on `C=1` and the pending K1 row on `X=1`; the favorites primer, favorites HLKP and K2 PUTs keep their K2 cursors; the lookup-OK K1 PUTs and refreshes carry `X=1` and its K0 context PUT uses `C=1`. No request is needed before the add on a Signed week. A closed week is corrected first. The browser's typed-code path (RAUTO on `TC_UDT02_CHARGE_LKP`, K1 PUT, 208) skips the OPEN_RS K2 step that `add()` always runs. `add()` keeps its resolve-the-charge flow for every period, because it needs the K2 row to commit CHARGE_ID.
+**Add / favorites** (browser capture `captured/past-week-add/014-023`, Signed and not closed past week, nothing saved): the active-week flows with the period in every slot of the table above. `TMMTS_NEW_TS_LINE` PUTs parent row 1 on `C=1` and the pending K1 row on `X=1`; the favorites primer, favorites HLKP and K2 PUTs keep their K2 cursors; the lookup-OK K1 PUTs and refreshes carry `X=1` and its K0 context PUT uses `C=1`. No request is needed before the add on a Signed week. A closed week is corrected first. Discarding a pending line is CMD 209 on `K1 C-59999` (capture 020); the next pending row is numbered -59998.
 
-**Reach:** the browser arrows back to at least X=41 by paging K0 (`S20 E40 K0 C19`, then `S40 E60 K0 C39`) and sending only the K1 fetch pair for the older week. The client does not page K0, so `getPeriods()` and `selectPeriod()` stop at the rows the init fetch loads (about 20). Going further also needs every later K0 refresh to keep the older row loaded.
+**Favorites** (capture 015-018), identical on every period apart from the `X=1` PUTs in the pick:
+
+```
+1. [201 OPEN_RS K2 ITC_UDT02_CHARGE_LKP (C=-60000, P=1, objectId=UDT02_ID), 507]
+2. [204 HLKP K2 (X=-59999, C=-60000, W=LVL 1, ROW -1) + 204 HLKP newQry, 507]   categories primer
+3. [204 HLKP K2 (X=-59999, C=0, W=LVL 2, ROW 0), 507]                           favorites list
+4. pick: lookup-OK batch (TC_TS_CHARGE_LKP_OK, K2 C=<row>), see Add Project Line
+```
+
+Without step 2, step 3 returns `<NO DATA>`. The lookup needs a pending K1 row first, so `getFavorites()` stages one and runs `TMMTS_NEW_TS_LINE` when none exists.
+
+**Typed code** (capture 022-023): `204 RAUTO X=-59999` on `TC_UDT02_CHARGE_LKP` (K1 `C=-59999`), then a K1 PUT of the pending row (`X=1 C-59998`) with the code in the data, then `208 UDT02_ID`. There is no OPEN_RS K2 and no HLKP. `add()` does not follow this: it always runs the OPEN_RS K2 resolve flow so it has the K2 row to commit CHARGE_ID. The divergence is unverified live on a past week.
+
+**Fetch bounds:** the browser's arrow fetches and K1 refreshes send `E45` for K1 and `S-59999 E-59954` for its partner. `_buildPeriodFetch()` sends `E40` and `E-59959`, and also repeats the K0 fetch, which the browser's arrow does not. The current fetch is verified live, so it is unchanged (`test/prev-period.test.js` pins both shapes). The bounds only matter for weeks with more than 40 lines.
+
+**Reach:** the browser arrows back to at least X=41 by paging K0 (`S20 E40 K0 C19`, then `S40 E60 K0 C39`) and sending only the K1 fetch pair for the older week. The client does not page K0, so `getPeriods()` and `selectPeriod()` stop at the rows the init fetch loads (about 20). Going further also needs every later K0 refresh to keep the older row loaded. Fetches for X=2 and X=3 are the same pair as X=1 with the index swapped (capture 024, 025).
 
 ---
 

@@ -479,6 +479,44 @@ describe('getPeriods()', () => {
   });
 });
 
+// ─── Older weeks (captured/past-week-add 024, 025) ────────────────────────
+
+const PAST_ADD_DIR = path.join(__dirname, '../captured/past-week-add');
+const hasPastAddCapture = fs.existsSync(path.join(PAST_ADD_DIR, '025-req.txt'));
+
+function rangeBounds(body) {
+  const params = new URLSearchParams(body.replace(/&reqIdx=\d+$/, ''));
+  return params.get('cmd').split(protocol.DLM_RS).filter(Boolean).map(cmd => {
+    const tokens = cmd.split(protocol.DLM_CMD)[1].split(protocol.DLM_PARAM);
+    return tokens.filter(t => /^[SE]-?\d+$/.test(t));
+  }).filter(b => b.length);
+}
+
+describe('period fetch for older weeks (captured/past-week-add 024, 025)',
+  { skip: !hasPastAddCapture && 'captured/past-week-add not present' }, () => {
+    for (const [idx, file] of [[2, '024-req.txt'], [3, '025-req.txt']]) {
+      test(`X=${idx}: K1 commands match the browser arrow fetch`, () => {
+        const client = makeStubClient(0);
+        const browser = cmdStrings(readCapture(file, PAST_ADD_DIR));
+        assert.deepEqual(browser, [
+          `204 $rsType$=M RABS S E X${idx} K1 C-60000 P0 Vtrue`,
+          `204 $rsType$=M RABS S E X${idx} K1 C-60000 P0 Vtrue`,
+          '507 Vtrue',
+        ]);
+        const ours = cmdStrings(client._buildPeriodFetch(idx));
+        assert.deepEqual(ours.slice(2), [browser[1], browser[2]]);
+        assert.match(ours[1], new RegExp(`^204 \\$rsType\\$=M RABS S E X${idx} K1 C-60000 P0 Vtrue`));
+      });
+    }
+
+    test('known differences: browser sends no K0 fetch and wider E bounds', () => {
+      const browser = rangeBounds(readCapture('024-req.txt', PAST_ADD_DIR));
+      const ours = rangeBounds(makeStubClient(0)._buildPeriodFetch(2));
+      assert.deepEqual(browser, [['S0', 'E45'], ['S-59999', 'E-59954']]);
+      assert.deepEqual(ours, [['S0', 'E20'], ['S0', 'E40'], ['S-59999', 'E-59959']]);
+    });
+  });
+
 // ─── Guards and flow ──────────────────────────────────────────────────────
 
 describe('previous-week guards', () => {

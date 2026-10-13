@@ -13,6 +13,7 @@ const { normalizeTimesheetStatus } = require('./timesheet-status');
 const { getCredentials } = require('./credentials');
 const { COMMON_CODES } = require('./charge-codes');
 const numberPick = require('./number-pick');
+const { periodLabel, stepPeriod } = require('./tui-nav');
 
 require('dotenv').config();
 
@@ -26,9 +27,9 @@ const { url, username, password, system, useDirect } = creds;
 
 // ─── Session management ────────────────────────────────────────
 
-// One session at a time, bound to a period (0 = active week, 1 = previous
-// week). Asking for the other period relaunches it: a previous-week session
-// is launched fresh and moved to its period before anything else runs.
+// One session at a time, bound to a period (0 = active week, N = N weeks
+// back). Asking for another period relaunches it: a past-week session is
+// launched fresh and moved to its period before anything else runs.
 let activeClient = null;
 let activeClientPeriod = 0;
 let clientIdleTimer = null;
@@ -36,7 +37,7 @@ const CLIENT_IDLE_TIMEOUT = 5 * 60 * 1000;
 
 async function launchNewClient(period) {
   if (!useDirect) {
-    if (period !== 0) throw new Error('Editing the previous week requires direct mode (COSTPOINT_DIRECT=true)');
+    if (period !== 0) throw new Error('Editing a past week requires direct mode (COSTPOINT_DIRECT=true)');
     return Costpoint.launch(url, username, password, system);
   }
   if (period === 0) return DirectClient.launch(url, username, password, { loadPreviousPeriod: true });
@@ -139,9 +140,9 @@ function getActiveWeekData() {
   return activeWeekStart ? cachedWeeks[activeWeekStart] : null;
 }
 
-function getPrevWeekData() {
+function getPeriodData(period) {
   if (!activeWeekStart) return null;
-  return cachedWeeks[moment(activeWeekStart).subtract(7, 'days').format('YYYY-MM-DD')] || null;
+  return cachedWeeks[moment(activeWeekStart).subtract(7 * period, 'days').format('YYYY-MM-DD')] || null;
 }
 
 // Project codes that require a comment when hours are entered
@@ -151,7 +152,9 @@ function isCommentRequired(code) { return COMMENT_REQUIRED_CODES.includes(code);
 // ─── TUI state ─────────────────────────────────────────────────
 
 let data = null;
-let viewPrev = false;     // toggle: active week vs previous week
+let viewPeriod = 0;       // 0 = active week, N = N weeks back
+let lastPastPeriod = 1;   // week [w] returns to
+let periodCount = null;   // loaded periods, from getPeriods()
 let cursorRow = 0;
 let cursorCol = 0;
 let mode = 'navigate'; // navigate | edit | prompt | menu
@@ -183,30 +186,35 @@ function setStatus(msg, duration) {
 
 // ─── Data operations ───────────────────────────────────────────
 
-function viewPeriod() { return viewPrev ? 1 : 0; }
-
 function loadViewData() {
-  data = viewPrev ? getPrevWeekData() : getActiveWeekData();
+  data = viewPeriod > 0 ? getPeriodData(viewPeriod) : getActiveWeekData();
 }
 
 // Cache a session's data under the week it belongs to
 function storeClientData(cp) {
-  if (viewPrev) cacheWeek(cp.getData());
+  if (viewPeriod > 0) cacheWeek(cp.getData());
   else storeWeekData(cp.getData());
+  noteClientPeriods(cp);
+}
+
+function noteClientPeriods(cp) {
+  if (typeof cp.getPeriods !== 'function') return;
+  const periods = cp.getPeriods();
+  if (periods.length > 0) periodCount = periods.length;
 }
 
 // Editing a processed previous week reopens it, and it must be signed again
 function savedStatus(msg) {
-  if (viewPrev && data && normalizeTimesheetStatus(data.timesheetStatusCode).tone === 'open') {
-    setStatus(chalk.green(msg) + '  ' + chalk.yellow('Previous week is Open. Press [S] to sign.'), 8000);
+  if (viewPeriod > 0 && data && normalizeTimesheetStatus(data.timesheetStatusCode).tone === 'open') {
+    setStatus(chalk.green(msg) + '  ' + chalk.yellow('This week is Open. Press [S] to sign.'), 8000);
   } else {
     setStatus(chalk.green(msg), 3000);
   }
 }
 
-// Blocks active-week-only actions while the previous week is shown
+// Blocks active-week-only actions while a past week is shown
 function requireActiveWeek(action) {
-  if (!viewPrev) return true;
+  if (viewPeriod === 0) return true;
   setStatus(chalk.yellow(action + ' is only available on the active week ([w] to switch).'), 3000);
   render();
   return false;
@@ -223,6 +231,7 @@ async function fetchData() {
     await releaseClient();
     const cp = await getClient();
     storeWeekData(cp.getData());
+    noteClientPeriods(cp);
 
     try {
       if (typeof cp.getPreviousPeriodData === 'function') {
@@ -256,7 +265,7 @@ async function doSave() {
   render();
 
   const changes = Array.from(pendingChanges.values());
-  const period = viewPeriod();
+  const period = viewPeriod;
   try {
     await withClient(async (cp) => {
       await cp.setm(changes);
@@ -330,7 +339,7 @@ async function doSign() {
       await cp.sign();
       storeClientData(cp);
       saveCache();
-    }, viewPeriod());
+    }, viewPeriod);
     loadViewData();
     pendingChanges.clear();
     setStatus(chalk.green('Timesheet signed.'), 3000);
@@ -354,9 +363,9 @@ async function doAddProject(code, payType) {
     await withClient(async (cp) => {
       await cp.add(code, payType || 'REG');
       await cp.save();
-      storeWeekData(cp.getData());
+      storeClientData(cp);
       saveCache();
-    });
+    }, viewPeriod);
     loadViewData();
     clampCursor();
     setStatus(chalk.green('Added ' + code + '.'), 3000);
@@ -427,8 +436,7 @@ async function doFavorites() {
   render();
 
   try {
-    const cp = await getClient();
-    favoritesData = await cp.getFavorites();
+    favoritesData = await withClient(cp => cp.getFavorites(), viewPeriod);
     showFavorites = true;
     pickBuffer = '';
     setStatus(chalk.green('Favorites loaded.'), 3000);
@@ -497,7 +505,7 @@ function render() {
   const lines = [];
 
   // ── Header ──
-  const title = chalk.bold('Str8 Outta Deltek') + (viewPrev ? ' ' + chalk.magenta.bold('PREVIOUS WEEK') : '');
+  const title = chalk.bold('Str8 Outta Deltek') + (viewPeriod > 0 ? ' ' + chalk.magenta.bold(periodLabel(viewPeriod)) : '');
   let badges = '';
   if (data) {
     const meta = normalizeTimesheetStatus(data.timesheetStatusCode || data.timesheetStatus);
@@ -689,10 +697,10 @@ function render() {
         lines.push(pickBuffer
           ? chalk.cyan('Favorite #' + pickBuffer + '\u2588') + chalk.dim('  Enter to add, Backspace to edit, Esc to clear')
           : chalk.dim('[1-' + (favoritesData && favoritesData.length > 0 ? favoritesData.length : 'N') + '] add  [f]avorites back  [q]uit'));
-      } else if (viewPrev) {
-        lines.push(chalk.dim('[s]ave  [S]ign  [r]efresh  [C]omment  [w]eek  [l]eave  [q]uit'));
+      } else if (viewPeriod > 0) {
+        lines.push(chalk.dim('[s]ave  [S]ign  [r]efresh  [a]dd  [C]omment  [w]eek  < >  [l]eave  [f]av  [q]uit'));
       } else {
-        lines.push(chalk.dim('[s]ave  [S]ign  [r]efresh  [a]dd  [C]omment  [c]opy Thu\u2192Fri  [w]eek  [l]eave  [f]av  [q]uit'));
+        lines.push(chalk.dim('[s]ave  [S]ign  [r]efresh  [a]dd  [C]omment  [c]opy Thu\u2192Fri  [w]eek  < >  [l]eave  [f]av  [q]uit'));
       }
     }
   }
@@ -732,7 +740,6 @@ function handleNavigateKey(str, key) {
   if (showFavorites) {
     const count = favoritesData ? favoritesData.length : 0;
     if (handlePickKey(str, key, count, n => {
-      if (!requireActiveWeek('Adding a project')) return;
       showFavorites = false;
       const fav = favoritesData[n - 1];
       doAddProject(fav.code, fav.payType || 'REG');
@@ -743,6 +750,8 @@ function handleNavigateKey(str, key) {
   }
 
   if (str === 'w') { toggleWeek(); return; }
+  if (str === '<') { stepWeek(1); return; }
+  if (str === '>') { stepWeek(-1); return; }
 
   if (!data || !data.projects || data.projects.length === 0) {
     if (str === 'r') { fetchData(); return; }
@@ -783,14 +792,13 @@ function handleNavigateKey(str, key) {
           render();
           return;
         }
-        enterPrompt((viewPrev ? 'Sign the previous week?' : 'Sign timesheet?') + ' [y/n] ', function(ans) {
+        enterPrompt((viewPeriod > 0 ? 'Sign this past week?' : 'Sign timesheet?') + ' [y/n] ', function(ans) {
           if (ans.toLowerCase() === 'y') doSign();
         });
         return;
       }
       if (str === 'r') { fetchData(); return; }
       if (str === 'a') {
-        if (!requireActiveWeek('Adding a project')) return;
         enterMenu();
         return;
       }
@@ -841,22 +849,64 @@ function handleNavigateKey(str, key) {
   render();
 }
 
-function toggleWeek() {
+function goToPeriod(target) {
   if (pendingChanges.size > 0) {
     setStatus(chalk.yellow('Save your changes before switching weeks.'), 3000);
     render();
     return;
   }
-  if (!viewPrev && !getPrevWeekData()) {
-    setStatus(chalk.yellow('Previous week is not loaded. [r]efresh first.'), 3000);
+  if (target === viewPeriod) return;
+  if (target > 0) lastPastPeriod = target;
+  if (target === 0 || getPeriodData(target)) {
+    showPeriod(target);
+    return;
+  }
+  loadPeriod(target);
+}
+
+function showPeriod(target) {
+  viewPeriod = target;
+  loadViewData();
+  cursorRow = 0;
+  clampCursor();
+  setStatus(target === 0 ? 'Showing the active week.' : 'Showing ' + periodLabel(target).toLowerCase() + '.', 2000);
+  render();
+}
+
+async function loadPeriod(target) {
+  isProcessing = true;
+  startSpinner();
+  setStatus('Loading ' + periodLabel(target).toLowerCase() + '...');
+  render();
+  try {
+    await withClient(async (cp) => {
+      cacheWeek(cp.getData());
+      noteClientPeriods(cp);
+      saveCache();
+    }, target);
+    isProcessing = false;
+    showPeriod(target);
+  } catch (e) {
+    setStatus(chalk.red('Load failed: ' + e.message), 5000);
+  } finally {
+    isProcessing = false;
+    stopSpinner();
+    render();
+  }
+}
+
+function stepWeek(delta) {
+  const target = stepPeriod(viewPeriod, delta, periodCount);
+  if (target === null) {
+    setStatus(chalk.yellow(delta > 0 ? 'No older weeks are loaded.' : 'Already on the active week.'), 2000);
     render();
     return;
   }
-  viewPrev = !viewPrev;
-  loadViewData();
-  clampCursor();
-  setStatus(viewPrev ? 'Showing the previous week.' : 'Showing the active week.', 2000);
-  render();
+  goToPeriod(target);
+}
+
+function toggleWeek() {
+  goToPeriod(viewPeriod === 0 ? stepPeriod(0, lastPastPeriod, periodCount) || 1 : 0);
 }
 
 function canEditView() {

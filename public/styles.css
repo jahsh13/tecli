@@ -188,6 +188,22 @@ body {
   color: var(--color-text);
 }
 
+/* Week window navigation */
+.week-nav {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+
+.week-nav a {
+  text-decoration: none;
+}
+
+.week-nav .nav-disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
 /* Timesheet Table */
 .timesheet-wrapper {
   background: var(--color-surface);

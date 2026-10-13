@@ -10,7 +10,7 @@
   let originalValues = new Map();
   let originalComments = new Map();
   let statusPollingInterval = null;
-  let signWeek = "active"; // week whose Sign button opened the sign modal
+  let signPeriod = 0; // period of the week whose Sign button opened the sign modal
 
   // Project codes that require a comment when hours are entered
   var COMMENT_REQUIRED_CODES = ["A09909.SUSP.OVH"];
@@ -167,6 +167,15 @@
       refreshBtn.addEventListener("click", handleRefresh);
     }
 
+    // Week navigation drops unsaved edits
+    document.querySelectorAll(".week-nav a").forEach(link => {
+      link.addEventListener("click", (e) => {
+        if (hasUnsavedChanges() && !confirm("You have unsaved changes. Changing weeks will discard them. Continue?")) {
+          e.preventDefault();
+        }
+      });
+    });
+
     // Clear cache button
     const clearCacheBtn = document.getElementById("clear-cache-btn");
     if (clearCacheBtn) {
@@ -204,6 +213,8 @@
     const favoritesModal = document.getElementById("favorites-modal");
     if (favoritesBtn && favoritesModal) {
       favoritesBtn.addEventListener("click", handleFavorites);
+      const favPeriod = document.getElementById("fav-target-period");
+      if (favPeriod) favPeriod.addEventListener("change", handleFavorites);
     }
 
     // Leave balances
@@ -219,7 +230,7 @@
     const signModalText = document.getElementById("sign-modal-text");
     document.querySelectorAll(".btn-week-sign").forEach(btn => {
       btn.addEventListener("click", () => {
-        signWeek = btn.dataset.week || "active";
+        signPeriod = parseInt(btn.dataset.week, 10) || 0;
         if (signModalText) signModalText.textContent = "Sign " + btn.dataset.label + "?";
         showModal(signModal);
       });
@@ -347,11 +358,15 @@
     }
   }
 
+  function hasUnsavedChanges() {
+    return pendingChanges.size > 0 || pendingComments.size > 0;
+  }
+
   // Update Save button state
   function updateSaveButton() {
     const saveBtn = document.getElementById("save-btn");
     const unsavedIndicator = document.getElementById("unsaved-indicator");
-    const hasChanges = pendingChanges.size > 0 || pendingComments.size > 0;
+    const hasChanges = hasUnsavedChanges();
 
     if (saveBtn) {
       saveBtn.disabled = !hasChanges;
@@ -380,7 +395,7 @@
             line: change.line,
             day: change.day,
             hours: change.hours === "" ? "" : parseFloat(change.hours),
-            week: change.week,
+            period: parseInt(change.week, 10),
             periodLine: change.periodLine
           })
         });
@@ -399,7 +414,7 @@
           body: JSON.stringify({
             day: change.day,
             comment: change.comment,
-            week: change.week,
+            period: parseInt(change.week, 10),
             periodLine: change.periodLine
           })
         });
@@ -476,7 +491,7 @@
     }
   }
 
-  function showRevisionModal(auditDetails) {
+  function showRevisionModal(auditDetails, reloadAfter = false) {
     // Remove existing modal if any
     const existing = document.getElementById("revision-modal");
     if (existing) existing.remove();
@@ -542,7 +557,14 @@
         // The other week's changes were saved next and need their own explanation
         if (result.revisionRequired) {
           overlay.remove();
-          showRevisionModal(result.auditDetails || []);
+          showRevisionModal(result.auditDetails || [], reloadAfter);
+          return;
+        }
+
+        if (reloadAfter) {
+          overlay.remove();
+          showSuccess("Saved with revision explanation. Reloading...");
+          setTimeout(() => { window.location.reload(); }, 1000);
           return;
         }
 
@@ -677,7 +699,7 @@
 
   async function handleRefresh() {
     // Check for unsaved changes
-    if (pendingChanges.size > 0 || pendingComments.size > 0) {
+    if (hasUnsavedChanges()) {
       if (!confirm("You have unsaved changes. Refreshing will discard them. Continue?")) {
         return;
       }
@@ -734,11 +756,16 @@
   async function handleFavorites() {
     const modal = document.getElementById("favorites-modal");
     const body = document.getElementById("favorites-modal-body");
+    const period = selectedPeriod("fav-target-period");
     body.innerHTML = "<p>Loading favorites...</p>";
     showModal(modal);
+    if (period === null) {
+      body.innerHTML = '<p class="error">No editable week is shown.</p>';
+      return;
+    }
 
     try {
-      const response = await fetch("/api/favorites");
+      const response = await fetch("/api/favorites?period=" + period);
       if (!response.ok) {
         const errorData = await response.json();
         throw new Error(errorData.error || "Failed to fetch favorites");
@@ -765,7 +792,7 @@
           const code = btn.dataset.code;
           const payType = btn.dataset.paytype;
           hideAllModals();
-          await addProject(code, payType);
+          await addProject(code, payType, period);
         });
       });
     } catch (err) {
@@ -814,18 +841,34 @@
     }
   }
 
-  async function addProject(code, payType) {
+  function selectedPeriod(selectId) {
+    const select = document.getElementById(selectId);
+    const period = select ? parseInt(select.value, 10) : NaN;
+    return Number.isInteger(period) ? period : null;
+  }
+
+  async function addProject(code, payType, period) {
+    if (period === null) {
+      showError("No editable week is shown.");
+      return;
+    }
     updateSyncStatus("syncing");
     try {
       const response = await fetch("/api/project", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ code, payType })
+        body: JSON.stringify({ code, payType, period, offset: data ? data.offset : 0 })
       });
 
+      const result = await response.json().catch(() => ({}));
       if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.error || "Failed to add project");
+        throw new Error(result.error || "Failed to add project");
+      }
+
+      if (result.revisionRequired) {
+        updateSyncStatus("idle");
+        showRevisionModal(result.auditDetails || [], true);
+        return;
       }
 
       showSuccess("Project added successfully! Reloading...");
@@ -843,6 +886,7 @@
     const confirmAddProject = document.getElementById("confirm-add-project");
     const code = projectCodeInput.value.trim();
     const payType = projectPayTypeSelect ? projectPayTypeSelect.value : "REG";
+    const period = selectedPeriod("add-target-period");
     if (!code) {
       projectCodeInput.focus();
       return;
@@ -855,7 +899,7 @@
       hideAllModals();
       projectCodeInput.value = "";
       if (projectPayTypeSelect) projectPayTypeSelect.value = "REG";
-      await addProject(code, payType);
+      await addProject(code, payType, period);
     } finally {
       confirmAddProject.disabled = false;
       confirmAddProject.textContent = "Add";
@@ -879,7 +923,7 @@
       const response = await fetch("/api/sign", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ week: signWeek })
+        body: JSON.stringify({ period: signPeriod })
       });
 
       if (!response.ok) {

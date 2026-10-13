@@ -75,7 +75,7 @@ See memory file `direct-protocol.md` for the full binary protocol reference.
 - `getPreviousPeriodData()` returns the previous week's data without mutating client state. It needs `launch(..., { loadPreviousPeriod: true })`.
 - `selectPeriod(idx)` points the client at another parent K0 row (1 = previous week). The period index goes in `X` on K1/K2 commands and in the K0 cursor `C` (205 K0, 206, 204 K0). `add()` and `getFavorites()` throw unless `periodIdx` is 0. See `docs/binary-protocol.md` "Previous Period Edit".
 - X=1 child fetches return the wrong lines unless the `R=AUTO` parent fetch ran first in the session (`_fetchPeriod()` does both). Verified live 2026-09-28.
-- Editing a processed (closed, `TS_CLOSED_FL`=Y) week first runs the browser's Correct flow (`_correctTimesheet()`: CMD 300 TMMTS_CORRECT_TIMESHEET + 206). The week comes back Open and must be signed again (`te sign --prev`, web UI prev-week Sign, TUI `[S]`).
+- Editing a processed (closed, `TS_CLOSED_FL`=Y) week first runs the browser's Correct flow (`_correctTimesheet()`: CMD 300 TMMTS_CORRECT_TIMESHEET + 206). The week comes back Open and must be signed again (`te sign --prev`, web UI prev-week Sign, TUI `[S]`). If the save response still shows the week closed, `_correctTimesheet()` re-fetches the period before failing: one live correction committed while its response said closed.
 
 ## Environment
 

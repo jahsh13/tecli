@@ -1093,8 +1093,6 @@ class DirectClient {
     const period = String(this.periodIdx);
     const parentRow = this.parentData.rows[this.periodIdx];
     const parentRowNum = this.parentData.rowNums[this.periodIdx];
-    const childRowCount = this.childData ? this.childData.rows.length : 40;
-    const k1E = Math.max(childRowCount + 5, 40);
 
     const cmds = [
       this._wrap(this._cmd(205, [
@@ -1111,12 +1109,27 @@ class DirectClient {
         { code: 'U', value: 'true' }, { code: 'K', value: '0' },
         { code: 'V', value: 'true' },
       ])),
+      ...this._getActionSaveRefresh(),
+      this._keepalive(),
+    ];
+    return protocol.buildRequestBody(this.sid, cmds);
+  }
+
+  /**
+   * The 204 refreshes the browser sends after an action's save (sign
+   * confirm, correct save): K0 and K1 each as ABS plus an R=S&C fetch.
+   * The K1 S&C fetch keeps X=0 even for the previous week.
+   */
+  _getActionSaveRefresh() {
+    const childRowCount = this.childData ? this.childData.rows.length : 40;
+    const k1E = Math.max(childRowCount + 5, 40);
+    return [
       ...this._get204(0),
       this._wrap(this._cmd(204, [
         { name: 'rsType', value: 'M' }, { code: 'R', value: 'S&C' },
         { code: 'S', value: '0' }, { code: 'E', value: '20' },
         { code: 'W', value: '' },
-        { code: 'K', value: '0' }, { code: 'C', value: period },
+        { code: 'K', value: '0' }, { code: 'C', value: String(this.periodIdx) },
         { code: 'V', value: 'true' },
       ])),
       ...this._get204(1),
@@ -1127,9 +1140,7 @@ class DirectClient {
         { code: 'K', value: '1' }, { code: 'C', value: '0' },
         { code: 'P', value: '0' }, { code: 'V', value: 'true' },
       ])),
-      this._keepalive(),
     ];
-    return protocol.buildRequestBody(this.sid, cmds);
   }
 
   async navigateToPreviousPeriod() {
@@ -1213,6 +1224,16 @@ class DirectClient {
     const saveParsed = this._parseActionResponse(
       await this._postServlet(this._buildCorrectSaveBatch()), 'Correct timesheet save');
     this._refreshFrom(saveParsed);
+
+    // A live correction once committed while its save response still showed
+    // the week closed, so confirm with a fresh fetch before failing
+    // (2026-10-13)
+    if (this._isPeriodClosed()) {
+      debug('Correct save response still shows the period closed; re-fetching...');
+      const { parentData, childData } = await this._fetchPeriod(this.periodIdx);
+      this.parentData = parentData;
+      this.childData = childData;
+    }
     this._buildTableRows();
 
     if (this._isPeriodClosed()) {
@@ -2567,7 +2588,7 @@ class DirectClient {
 
   /**
    * Commit the correction (captured/prev-period-edit/015): PUT K0 with
-   * editFlag 82 + CMD 206, then the 204 refresh.
+   * editFlag 82 + CMD 206, then the browser's post-action refreshes.
    */
   _buildCorrectSaveBatch() {
     const idx = this.periodIdx;
@@ -2587,8 +2608,7 @@ class DirectClient {
         { code: 'U', value: 'true' }, { code: 'K', value: '0' },
         { code: 'V', value: 'true' },
       ])),
-      ...this._get204(0),
-      ...this._get204(1),
+      ...this._getActionSaveRefresh(),
       this._keepalive(),
     ];
     return protocol.buildRequestBody(this.sid, cmds);

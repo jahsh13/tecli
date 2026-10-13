@@ -986,9 +986,11 @@ K1 `C` stays the child row cursor (0). K3 audit `X` stays 0 (it indexes K2). The
     204 K0 (C=1) x2, 204 K1 (X=1) x2, 507] + &reqIdx=1
 
 2. [205 PUT K0 (C=1, editFlag=82, rowNumber=1), 206 SAVE (C=1),
-    204 refreshes, 507]
+    204 K0 x2, 204 K0 (R=S&C, C=1), 204 K1 x2, 204 K1 (R=S&C, X=0), 507]
    → Status becomes O, REVISION_NO +1, CORRECTION_STATE=INP, TS_CLOSED_FL=N
 ```
+
+A live correction (2026-10-13) committed while the save response still showed `TS_CLOSED_FL`=Y. That save lacked the two `R=S&C` fetches. The client now sends them and re-fetches the period before reporting the correction as failed.
 
 The corrected week is Open afterwards and has to be signed again (**Sign** below).
 

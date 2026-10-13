@@ -169,10 +169,14 @@ describe('previous-week batches match the browser capture', () => {
   test('correct save (capture 015)', () => {
     const client = makeStubClient(1);
     const cmds = commands(client._buildCorrectSaveBatch());
-    assert.deepEqual(cmds.slice(0, 4).map(c => c.cmd), [
+    assert.deepEqual(cmds.map(c => c.cmd), [
       '205 K0 C1 Vtrue $lastPutId$',
       '206 Gfalse C1 Utrue K0 Vtrue',
       ...K0_REFRESH_C1,
+      '204 $rsType$=M RS&C S E W K0 C1 Vtrue',
+      ...K1_REFRESH_X1,
+      '204 $rsType$=M RS&C S E X0 W K1 C0 P0 Vtrue',
+      '507 Vtrue',
     ]);
     assert.equal(cmds[0].editFlag, '82,');
     assert.equal(cmds[0].rowNumber, '1,');
@@ -445,6 +449,34 @@ describe('previous-week flow against captured responses', { skip: !hasCapture &&
     assert.equal(commands(sent[1])[0].editFlag, '82,');
     assert.equal(client.parentData.rows[1][TS_CLOSED_FL], 'N');
     assert.equal(client.parentData.rows[1][4], 'O');
+  });
+
+  // Replays the save with the event's response (week still closed) to stand
+  // in for a stale save response
+  function correctWithStaleSave(refetchResponse) {
+    const client = makeStubClient(1);
+    client.parentData = protocol.extract204(protocol.parseResponse(readCapture('014-res.txt')), 0);
+    client._buildTableRows = () => {};
+    const sent = [];
+    const responses = ['014-res.txt', '014-res.txt', '009-res.txt', refetchResponse].map(f => readCapture(f));
+    client._postServlet = async body => { sent.push(body); return responses.shift(); };
+    return { client, sent };
+  }
+
+  test('_correctTimesheet() re-fetches when the save response still shows the week closed', async () => {
+    const { client, sent } = correctWithStaleSave('015-res.txt');
+
+    await client._correctTimesheet();
+
+    assert.equal(sent.length, 4);
+    assert.equal(sent[2], client._buildAutoParentFetch());
+    assert.equal(client.parentData.rows[1][TS_CLOSED_FL], 'N');
+    assert.equal(client.childData.rows[0][6], 'G09118.A.3786.26B.200');
+  });
+
+  test('_correctTimesheet() still fails when the re-fetch shows the week closed', async () => {
+    const { client } = correctWithStaleSave('014-res.txt');
+    await assert.rejects(client._correctTimesheet(), /Correct did not take effect/);
   });
 });
 

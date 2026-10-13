@@ -28,13 +28,16 @@ te add ZLEAVE.HOL              # add a project line
 te add ZLEAVE.FTB RHB          # add a multi-charge project line
 te sign                        # sign timesheet
 te sign --prev                 # sign the previous week
+te show --back 3               # show the week 3 weeks back
+te add --back 2                # pick a favorite and add it to the week 2 weeks back
+te favorites --back 2          # list favorites as seen from that week
 te leave                       # show leave balances
 te server                      # start the web UI (port 3000)
 te tui                         # start the interactive terminal UI
 te logout                      # remove stored credentials
 ```
 
-`<day>` is the day of the month. `--prev` (direct mode only) works on `show`, `set`, `setm` and `sign`. Editing a processed previous week reopens it through Costpoint's Correct action and asks for a revision explanation. The week is Open afterwards and has to be signed again with `te sign --prev`. The web UI edits and signs both weeks of its two-week view (a banner shows while the previous week is Open), and the TUI switches weeks with `[w]` and signs the shown week with `[S]`.
+`<day>` is the day of the month. `--prev` and `-b, --back <n>` (direct mode only) work on `show`, `set`, `setm`, `sign`, `add` and `favorites`. `--prev` is `--back 1`, and the two cannot be combined. `<n>` is an integer of 1 or more, capped at the weeks Costpoint lists (about 20); `add` and `favorites` on a past week work the same way as on the current one. Editing a processed previous week reopens it through Costpoint's Correct action and asks for a revision explanation. The week is Open afterwards and has to be signed again with `te sign --prev` (or `te sign --back <n>`). The web UI edits and signs both weeks of its two-week view (a banner shows while the previous week is Open), and the TUI switches weeks with `[w]` and signs the shown week with `[S]`.
 
 ## MCP Server
 

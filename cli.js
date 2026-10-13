@@ -5,7 +5,7 @@ const chalk = require("chalk");
 const Table = require("cli-table");
 const Costpoint = require("./costpoint");
 const DirectClient = require("./direct");
-const { program } = require("commander");
+const { program, InvalidArgumentError } = require("commander");
 const readline = require("readline");
 const ora = require("ora");
 const { normalizeTimesheetStatus } = require("./timesheet-status");
@@ -67,11 +67,42 @@ function launchClient() {
   return Costpoint.launch(url, username, password, system);
 }
 
-// options.prev selects the previous week (parent row 1) right after launch,
-// before anything else runs on the session
+function parseBack(value) {
+  if (!/^\d+$/.test(value) || Number(value) < 1) {
+    throw new InvalidArgumentError("must be an integer >= 1.");
+  }
+  return Number(value);
+}
+
+// Weeks back from the current one: 0 = current, 1 = --prev or --back 1
+function resolveBack(options = {}) {
+  if (options.prev && options.back !== undefined) {
+    throw new Error("Use either --prev or --back <n>, not both.");
+  }
+  if (options.prev) return 1;
+  return options.back || 0;
+}
+
+function weekLabel(back) {
+  return back === 1 ? "previous week" : `${back} weeks back`;
+}
+
+function withWeekOptions(command, verb) {
+  return command
+    .option("-p, --prev", `${verb} the previous week (direct mode only)`)
+    .option(
+      "-b, --back <n>",
+      `${verb} the week <n> weeks back, n >= 1 (direct mode only)`,
+      parseBack,
+    );
+}
+
+// Selects the requested past week right after launch, before anything else
+// runs on the session
 async function connect(options = {}) {
-  if (options.prev && !requireCredentials().useDirect) {
-    throw new Error("--prev is only supported in direct mode (COSTPOINT_DIRECT=true).");
+  const back = resolveBack(options);
+  if (back && !requireCredentials().useDirect) {
+    throw new Error("--prev and --back are only supported in direct mode (COSTPOINT_DIRECT=true).");
   }
   const s = spin("Authenticating...");
   let cp;
@@ -82,13 +113,20 @@ async function connect(options = {}) {
     s.fail("Authentication failed");
     throw e;
   }
-  if (options.prev) {
-    const p = spin("Loading previous week...");
+  if (back) {
+    const p = spin(`Loading ${weekLabel(back)}...`);
     try {
-      await cp.selectPeriod(1);
-      p.succeed("Previous week loaded");
+      const reach = cp.getPeriods().length - 1;
+      if (back > reach) {
+        throw new Error(
+          `Cannot go back ${back} weeks. Costpoint offers ${reach} past week${reach === 1 ? "" : "s"}.`,
+        );
+      }
+      await cp.selectPeriod(back);
+      p.succeed(`${weekLabel(back)[0].toUpperCase()}${weekLabel(back).slice(1)} loaded`);
     } catch (e) {
-      p.fail("Could not load previous week");
+      p.fail(`Could not load ${weekLabel(back)}`);
+      await cp.close().catch(() => {});
       throw e;
     }
   }
@@ -149,9 +187,12 @@ function showStatus(cp) {
 
 // Editing a processed previous week reopens it, and it must be signed again
 function hintSignPrev(cp, options) {
-  if (!options.prev) return;
+  const back = resolveBack(options);
+  if (!back) return;
   if (normalizeTimesheetStatus(cp.getData().timesheetStatusCode).tone !== "open") return;
-  console.log(chalk.yellow("\n  Previous week is Open again. Sign it with `te sign --prev`"));
+  const flag = back === 1 ? "--prev" : `--back ${back}`;
+  const label = weekLabel(back);
+  console.log(chalk.yellow(`\n  ${label[0].toUpperCase()}${label.slice(1)} is Open again. Sign it with \`te sign ${flag}\``));
 }
 
 // ── Commands ─────────────────────────────────────────────────────
@@ -161,10 +202,9 @@ program
   .version(require("./package.json").version)
   .description("Time entry CLI for Costpoint.");
 
-program
+withWeekOptions(program
   .command("show")
-  .description("show timesheet")
-  .option("-p, --prev", "show the previous week")
+  .description("show timesheet"), "show")
   .action(async (options) => {
     try {
       const cp = await connect(options);
@@ -178,11 +218,10 @@ program
     }
   });
 
-program
+withWeekOptions(program
   .command("sign")
   .description("sign timesheet")
-  .option("-y, --yes", "skip confirmation prompt")
-  .option("-p, --prev", "sign the previous week (direct mode only)")
+  .option("-y, --yes", "skip confirmation prompt"), "sign")
   .action(async (options) => {
     try {
       // connect() runs nothing but the period select before the sign, which
@@ -199,7 +238,8 @@ program
           output: process.stdout,
         });
         shouldSign = await new Promise((resolve) => {
-          const which = options.prev ? "the previous week" : "this timesheet";
+          const back = resolveBack(options);
+          const which = back ? `the ${weekLabel(back)}` : "this timesheet";
           rl.question(`\n  Sign ${which}? (y/n): `, (answer) => {
             rl.close();
             resolve(
@@ -229,11 +269,10 @@ program
     }
   });
 
-program
+withWeekOptions(program
   .command("set <line> <day> <hours>")
   .description("set hours for given project line and day")
-  .option("-c, --comment <text>", "comment for the cell (direct mode only)")
-  .option("-p, --prev", "edit the previous week (direct mode only)")
+  .option("-c, --comment <text>", "comment for the cell (direct mode only)"), "edit")
   .action(async (line, day, hours, options) => {
     const lineNum = parseInt(line, 10);
     const dayNum = parseInt(day, 10);
@@ -276,11 +315,10 @@ program
     }
   });
 
-program
+withWeekOptions(program
   .command("setm <values...>")
   .description("set hours for multiple project lines and days")
-  .usage("[--prev] <line> <day> <hours>, <line> <day> <hours>, ...")
-  .option("-p, --prev", "edit the previous week (direct mode only)")
+  .usage("[--prev | --back <n>] <line> <day> <hours>, <line> <day> <hours>, ..."), "edit")
   .action(async (xs, options) => {
     xs = xs.map((x) => x.replace(/,/g, "")).filter(Boolean);
 
@@ -338,16 +376,16 @@ program
     }
   });
 
-program
+withWeekOptions(program
   .command("add [code] [payType]")
   .description(
     "add project code to timesheet (pick from favorites if no code given)\n" +
     "  Shortcuts: " + COMMON_CODES.map(c => c.alias).join(", ") + "\n" +
     "  e.g. 'te add pto' → ZLEAVE.CMP (REG)",
-  )
-  .action(async (code, payType) => {
+  ), "add to")
+  .action(async (code, payType, options) => {
     try {
-      const cp = await connect();
+      const cp = await connect(options);
 
       if (!code) {
         const picked = await pickFromFavorites(cp);
@@ -371,6 +409,7 @@ program
       showStatus(cp);
       console.log();
       cp.display();
+      hintSignPrev(cp, options);
       await cp.close();
     } catch (e) {
       console.error(chalk.red(`\n  ${e.message}`));
@@ -412,13 +451,13 @@ async function pickFromFavorites(cp) {
   return favs[n - 1];
 }
 
-program
+withWeekOptions(program
   .command("favorites")
   .alias("fav")
-  .description("list favorite charge codes saved in Costpoint")
-  .action(async () => {
+  .description("list favorite charge codes saved in Costpoint"), "list favorites for")
+  .action(async (options) => {
     try {
-      const cp = await connect();
+      const cp = await connect(options);
       const s = spin("Loading favorites...");
       const favs = await cp.getFavorites();
       s.succeed("Favorites loaded");
@@ -530,4 +569,8 @@ program
     console.log(chalk.green("  Credentials removed."));
   });
 
-program.parse(process.argv);
+if (require.main === module) {
+  program.parse(process.argv);
+}
+
+module.exports = { parseBack, resolveBack, weekLabel, program };

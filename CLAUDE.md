@@ -53,6 +53,7 @@ Interactive terminal UI (`node tui.js` or `npm run tui`). Zero extra dependencie
 - Arrow keys navigate cells, digits start editing, Enter confirms + advances right
 - `[s]ave`, `[S]ign`, `[r]efresh`, `[a]dd project`, `[c]opy Thu->Fri`, `[q]uit`
 - Prompt mode for text input (sign confirmation, project code)
+- Numbered lists (favorites `[f]`, add menu `[a]`) take multi-digit picks via `number-pick.js`: a digit selects once no longer number can match, otherwise Enter confirms (with 13 favorites, `1` waits, `13` or `1`+Enter picks)
 - Same persistent session pattern as web UI (`getClient`/`withClient`/`releaseClient`)
 - Shares cache file (`~/.costpoint-cache.json`) with the web UI
 - Shows single active week (7 columns) — fits in 80-col terminals

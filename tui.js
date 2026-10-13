@@ -11,6 +11,7 @@ const Costpoint = require('./costpoint');
 const { normalizeTimesheetStatus } = require('./timesheet-status');
 const { getCredentials } = require('./credentials');
 const { COMMON_CODES } = require('./charge-codes');
+const numberPick = require('./number-pick');
 
 require('dotenv').config();
 
@@ -137,6 +138,7 @@ let leaveData = null;     // { balances, details } from getLeaveBalances()
 let showLeave = false;    // toggle: timesheet vs leave view
 let favoritesData = null; // array of { code, description, payType }
 let showFavorites = false;
+let pickBuffer = '';      // digits typed so far in a numbered list (favorites, add menu)
 let isProcessing = false;
 let spinnerFrame = 0;
 const SPINNER = '\u28fe\u28fd\u28fb\u28bf\u28ff\u28df\u28ef\u28f7';
@@ -375,6 +377,7 @@ async function doFavorites() {
     const cp = await getClient();
     favoritesData = await cp.getFavorites();
     showFavorites = true;
+    pickBuffer = '';
     setStatus(chalk.green('Favorites loaded.'), 3000);
   } catch (e) {
     setStatus(chalk.red('Favorites failed: ' + e.message), 5000);
@@ -615,7 +618,9 @@ function render() {
       menuLines.push('  ' + chalk.yellow(String(i + 1)) + '  ' + c.label + chalk.dim(' — ' + c.code) + note);
     }
     menuLines.push('  ' + chalk.yellow('0') + '  Custom code...');
-    menuLines.push(chalk.dim('Press number to select, Esc to cancel'));
+    menuLines.push(pickBuffer
+      ? chalk.cyan('#' + pickBuffer + '\u2588') + chalk.dim('  Enter to select, Backspace to edit, Esc to clear')
+      : chalk.dim('Press number to select, Esc to cancel'));
     const footerHeight = menuLines.length + 1; // +1 for status line
     while (lines.length < H - footerHeight) lines.push('');
     lines.push(...menuLines);
@@ -628,7 +633,9 @@ function render() {
       if (showLeave) {
         lines.push(chalk.dim('[l]eave back  [r]efresh  [q]uit'));
       } else if (showFavorites) {
-        lines.push(chalk.dim('[1-' + (favoritesData && favoritesData.length > 0 ? favoritesData.length : 'N') + '] add  [f]avorites back  [q]uit'));
+        lines.push(pickBuffer
+          ? chalk.cyan('Favorite #' + pickBuffer + '\u2588') + chalk.dim('  Enter to add, Backspace to edit, Esc to clear')
+          : chalk.dim('[1-' + (favoritesData && favoritesData.length > 0 ? favoritesData.length : 'N') + '] add  [f]avorites back  [q]uit'));
       } else {
         lines.push(chalk.dim('[s]ave  [S]ign  [r]efresh  [a]dd  [C]omment  [c]opy Thu\u2192Fri  [l]eave  [f]av  [q]uit'));
       }
@@ -668,15 +675,14 @@ function handleNavigateKey(str, key) {
   }
 
   if (showFavorites) {
-    if (str === 'f' || key.name === 'escape') { showFavorites = false; render(); return; }
-    if (str === 'q') { shutdown(); return; }
-    const n = parseInt(str, 10);
-    if (n >= 1 && favoritesData && n <= favoritesData.length) {
+    const count = favoritesData ? favoritesData.length : 0;
+    if (handlePickKey(str, key, count, n => {
       showFavorites = false;
       const fav = favoritesData[n - 1];
       doAddProject(fav.code, fav.payType || 'REG');
-      return;
-    }
+    })) return;
+    if (str === 'f' || key.name === 'escape') { showFavorites = false; render(); return; }
+    if (str === 'q') { shutdown(); return; }
     return;
   }
 
@@ -855,13 +861,44 @@ function commitComment(text) {
   }
 }
 
+/**
+ * Digit entry for a numbered list. Returns true when the key was consumed.
+ * Esc and Backspace act on the typed number first, so Esc only leaves the
+ * list once nothing is pending.
+ */
+function handlePickKey(str, key, count, onPick) {
+  if (pickBuffer && key.name === 'escape') { pickBuffer = ''; render(); return true; }
+  if (pickBuffer && key.name === 'backspace') { pickBuffer = pickBuffer.slice(0, -1); render(); return true; }
+  if (pickBuffer && key.name === 'return') {
+    const n = numberPick.confirm(pickBuffer, count);
+    pickBuffer = '';
+    if (n) onPick(n);
+    else render();
+    return true;
+  }
+  if (!/^[0-9]$/.test(str || '') || (!pickBuffer && str === '0')) return false;
+  const res = numberPick.addDigit(pickBuffer, str, count);
+  pickBuffer = res.buffer;
+  if (res.pick) { onPick(res.pick); return true; }
+  if (res.invalid) setStatus(chalk.yellow('No entry #' + res.invalid + '.'), 2000);
+  render();
+  return true;
+}
+
 function enterMenu() {
   mode = 'menu';
   menuItems = COMMON_CODES;
+  pickBuffer = '';
   render();
 }
 
 function handleMenuKey(str, key) {
+  if (handlePickKey(str, key, COMMON_CODES.length, n => {
+    const pick = COMMON_CODES[n - 1];
+    mode = 'navigate';
+    menuItems = null;
+    doAddProject(pick.code, pick.payType);
+  })) return;
   if (key.name === 'escape') {
     mode = 'navigate';
     menuItems = null;
@@ -878,15 +915,6 @@ function handleMenuKey(str, key) {
         doAddProject(code.trim(), pt.trim() || 'REG');
       });
     });
-    return;
-  }
-  // Digit 1-N selects a common code
-  const n = parseInt(str, 10);
-  if (n >= 1 && n <= COMMON_CODES.length) {
-    const pick = COMMON_CODES[n - 1];
-    mode = 'navigate';
-    menuItems = null;
-    doAddProject(pick.code, pick.payType);
     return;
   }
 }

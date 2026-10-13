@@ -206,6 +206,23 @@ class DirectClient {
   }
 
   /**
+   * Periods this session can reach with selectPeriod(), newest first:
+   * [{ idx, endDate, statusCode, editable }]. The K0 list is loaded 20 rows at
+   * a time and not paged, so this stops there (about 20 weeks back). editable
+   * is null for rows the server returned without their detail columns (every
+   * row except the one the K0 cursor sits on).
+   */
+  getPeriods() {
+    if (!this.parentData || !this.parentData.rows) return [];
+    return this.parentData.rows.map((row, idx) => ({
+      idx,
+      endDate: row[PARENT_COL.END_DT],
+      statusCode: normalizeTimesheetStatus(row[PARENT_COL.S_STATUS_CD] || '').code,
+      editable: row[PARENT_COL.TS_CLOSED_FL] ? this._isRowEditable(row) : null,
+    }));
+  }
+
+  /**
    * Parse "Wk N of M" from the schedule description field.
    * Returns { week: N, of: M } or { week: null, of: null } if not found.
    */
@@ -334,7 +351,7 @@ class DirectClient {
   }
 
   async add(code, payType) {
-    this._requireActivePeriod('Adding a project');
+    if (this._isPeriodClosed()) await this._correctTimesheet();
     debug('Adding project code: ' + code + (payType ? ' (payType=' + payType + ')' : ''));
 
     // Reuse an existing pending line (e.g. from getFavorites) if present; otherwise
@@ -377,6 +394,9 @@ class DirectClient {
    * sending TMMTS_NEW_TS_LINE.
    */
   _stagePendingLine() {
+    if (this.childData.rows.length === 0) {
+      throw new Error('Cannot add a project to a week with no existing lines');
+    }
     const numCols = this.childData.rows[0].length;
     const newRow = new Array(numCols).fill('');
 
@@ -397,7 +417,7 @@ class DirectClient {
   }
 
   async getFavorites() {
-    this._requireActivePeriod('Favorites lookup');
+    if (this._isPeriodClosed()) await this._correctTimesheet();
     // Favorites require a pending row at -59999 — the lookup is scoped to it
     // via HLKP's X=-59999. Matches the browser flow: user clicks "add row"
     // before the magnifier is clickable.
@@ -467,11 +487,12 @@ class DirectClient {
     const newRow = this.childData.rows[newRowIdx];
     const rowNum = this.childData.rowNums[newRowIdx];
     const encodedRow = protocol.encodePutRow(newRow);
+    const period = String(this.periodIdx);
 
     const cmds = [
       // 205 PUT K1
       this._wrap(this._cmd(205, [
-        { code: 'X', value: '0' }, { code: 'K', value: '1' },
+        { code: 'X', value: period }, { code: 'K', value: '1' },
         { code: 'C', value: rowNum }, { code: 'P', value: '0' },
         { code: 'V', value: 'true' },
         { name: 'lastPutId', value: String(this.lastPutId++) },
@@ -482,7 +503,7 @@ class DirectClient {
       }),
       // 205 PUT K1 context
       this._wrap(this._cmd(205, [
-        { code: 'X', value: '0' },
+        { code: 'X', value: period },
         { name: 'rsContextOnly', value: 'Y' },
         { code: 'K', value: '1' }, { code: 'C', value: rowNum },
         { code: 'P', value: '0' }, { code: 'V', value: 'true' },
@@ -538,7 +559,9 @@ class DirectClient {
     const newRowIdx = this.childData.rowNums.findIndex(n => parseInt(n, 10) < 0);
     const newRow = this.childData.rows[newRowIdx];
     const rowNum = this.childData.rowNums[newRowIdx];
-    const parentRow = this.parentData.rows[0];
+    const period = String(this.periodIdx);
+    const parentRow = this.parentData.rows[this.periodIdx];
+    const parentRowNum = this.parentData.rowNums[this.periodIdx];
 
     const encodedChild = protocol.encodePutRow(newRow);
     const encodedParent = protocol.encodePutRow(parentRow);
@@ -546,17 +569,17 @@ class DirectClient {
     const cmds = [
       // 1. PUT K0 parent (editFlag=18)
       this._wrap(this._cmd(205, [
-        { code: 'K', value: '0' }, { code: 'C', value: '0' },
+        { code: 'K', value: '0' }, { code: 'C', value: period },
         { code: 'V', value: 'true' },
         { name: 'lastPutId', value: String(this.lastPutId++) },
       ]), {
         data: encodedParent + protocol.DLM_ROW,
         editFlag: '18,',
-        rowNumber: '0,',
+        rowNumber: parentRowNum + ',',
       }),
       // 2. PUT K1 new child (editFlag=19)
       this._wrap(this._cmd(205, [
-        { code: 'X', value: '0' }, { code: 'K', value: '1' },
+        { code: 'X', value: period }, { code: 'K', value: '1' },
         { code: 'C', value: rowNum }, { code: 'P', value: '0' },
         { code: 'V', value: 'true' },
         { name: 'lastPutId', value: String(this.lastPutId++) },
@@ -568,17 +591,17 @@ class DirectClient {
       // 3. PUT K0 context ($rsContextOnly$=Y)
       this._wrap(this._cmd(205, [
         { name: 'rsContextOnly', value: 'Y' },
-        { code: 'K', value: '0' }, { code: 'C', value: '0' },
+        { code: 'K', value: '0' }, { code: 'C', value: period },
         { code: 'V', value: 'true' },
         { name: 'lastPutId', value: String(this.lastPutId++) },
       ]), {
         data: encodedParent + protocol.DLM_ROW,
         editFlag: '18,',
-        rowNumber: '0,',
+        rowNumber: parentRowNum + ',',
       }),
       // 4. PUT K1 child context ($rsContextOnly$=Y)
       this._wrap(this._cmd(205, [
-        { code: 'X', value: '0' },
+        { code: 'X', value: period },
         { name: 'rsContextOnly', value: 'Y' },
         { code: 'K', value: '1' }, { code: 'C', value: rowNum },
         { code: 'P', value: '0' }, { code: 'V', value: 'true' },
@@ -1188,12 +1211,6 @@ class DirectClient {
     if (!parentData) throw new Error('Failed to decode parent data for period ' + idx);
     const childData = protocol.extract204(parsed, 1) || { rowNums: [], rowFlags: [], rows: [] };
     return { parentData, childData };
-  }
-
-  _requireActivePeriod(action) {
-    if (this.periodIdx !== 0) {
-      throw new Error(action + ' is only supported on the active week');
-    }
   }
 
   _isPeriodClosed() {
@@ -2646,7 +2663,7 @@ class DirectClient {
     const cmds = [
       // PUT K1 (current child row state)
       this._wrap(this._cmd(205, [
-        { code: 'X', value: '0' }, { code: 'K', value: '1' },
+        { code: 'X', value: String(this.periodIdx) }, { code: 'K', value: '1' },
         { code: 'C', value: rowNum }, { code: 'P', value: '0' },
         { code: 'V', value: 'true' },
         { name: 'lastPutId', value: String(this.lastPutId++) },
@@ -2832,7 +2849,9 @@ class DirectClient {
   _buildChargeLkpOk(selectedK2Row, k2RowNum) {
     const newRowIdx = this.childData.rowNums.findIndex(n => parseInt(n, 10) < 0);
     const childRow = this.childData.rows[newRowIdx];
-    const parentRow = this.parentData.rows[0];
+    const period = String(this.periodIdx);
+    const parentRow = this.parentData.rows[this.periodIdx];
+    const parentRowNum = this.parentData.rowNums[this.periodIdx];
 
     const encodedK2 = protocol.encodePutRow(selectedK2Row);
     const encodedChild = protocol.encodePutRow(childRow);
@@ -2856,7 +2875,7 @@ class DirectClient {
       }),
       // 2. PUT K1 child (editFlag=19)
       this._wrap(this._cmd(205, [
-        { code: 'X', value: '0' }, { code: 'K', value: '1' },
+        { code: 'X', value: period }, { code: 'K', value: '1' },
         { code: 'C', value: '-59999' }, { code: 'P', value: '0' },
         { code: 'V', value: 'true' },
         { name: 'lastPutId', value: String(this.lastPutId++) },
@@ -2878,7 +2897,7 @@ class DirectClient {
       }),
       // 4. PUT K1 child context ($rsContextOnly$=Y)
       this._wrap(this._cmd(205, [
-        { code: 'X', value: '0' },
+        { code: 'X', value: period },
         { name: 'rsContextOnly', value: 'Y' },
         { code: 'K', value: '1' }, { code: 'C', value: '-59999' },
         { code: 'P', value: '0' }, { code: 'V', value: 'true' },
@@ -2891,13 +2910,13 @@ class DirectClient {
       // 5. PUT K0 parent context ($rsContextOnly$=Y, editFlag=65562)
       this._wrap(this._cmd(205, [
         { name: 'rsContextOnly', value: 'Y' },
-        { code: 'K', value: '0' }, { code: 'C', value: '0' },
+        { code: 'K', value: '0' }, { code: 'C', value: period },
         { code: 'V', value: 'true' },
         { name: 'lastPutId', value: String(this.lastPutId++) },
       ]), {
         data: encodedParent + protocol.DLM_ROW,
         editFlag: '65562,',
-        rowNumber: '0,',
+        rowNumber: parentRowNum + ',',
       }),
       // 6. PUT K2 selected context ($rsContextOnly$=Y)
       this._wrap(this._cmd(205, [
@@ -2930,14 +2949,14 @@ class DirectClient {
       this._wrap(this._cmd(204, [
         { name: 'rsType', value: 'M' }, { code: 'R', value: 'ABS' },
         { code: 'S', value: '0' }, { code: 'E', value: String(k1PosE) },
-        { code: 'X', value: '0' }, { code: 'K', value: '1' },
+        { code: 'X', value: period }, { code: 'K', value: '1' },
         { code: 'C', value: '-59999' }, { code: 'P', value: '0' },
         { code: 'V', value: 'true' },
       ])),
       this._wrap(this._cmd(204, [
         { name: 'rsType', value: 'M' }, { code: 'R', value: 'ABS' },
         { code: 'S', value: '-59999' }, { code: 'E', value: String(k1NegE) },
-        { code: 'X', value: '0' }, { code: 'K', value: '1' },
+        { code: 'X', value: period }, { code: 'K', value: '1' },
         { code: 'C', value: '-59999' }, { code: 'P', value: '0' },
         { code: 'V', value: 'true' },
       ])),

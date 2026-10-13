@@ -219,3 +219,48 @@ describe('_resolveChargeOnServer charge selection', () => {
     // But we copy from K2, so it's 'RHB' (what the server returned for this code)
   });
 });
+
+// ─── period index in the add builders ─────────────────────────────────────
+
+describe('add builders take the period from periodIdx', () => {
+  function stagedClient(periodIdx) {
+    const client = makeStubClient();
+    client.periodIdx = periodIdx;
+    client.parentData = {
+      rowNums: ['0', '1'],
+      rowFlags: ['0', '0'],
+      rows: [new Array(100).fill(''), new Array(100).fill('')],
+    };
+    client._stagePendingLine();
+    return client;
+  }
+
+  async function allBodies(client) {
+    const bodies = [];
+    client._postServlet = async b => { bodies.push(b); return OK_RESPONSE; };
+    await client._newTimesheetLine();
+    await client._validateUdt02();
+    bodies.push(client._buildOpenRsChargeLookup(), client._buildChargeLkpOk(new Array(40).fill(''), '10'));
+    return bodies;
+  }
+
+  function paramTokens(bodies) {
+    return bodies.flatMap(b => new URLSearchParams(b.replace(/&reqIdx=\d+$/, '')).get('cmd')
+      .split(protocol.DLM_RS).filter(Boolean)
+      .flatMap(cmd => cmd.split(protocol.DLM_CMD)[1].split(protocol.DLM_PARAM)));
+  }
+
+  test('period 1 sends no X0 and no K0 cursor 0', async () => {
+    const tokens = paramTokens(await allBodies(stagedClient(1)));
+    assert.ok(tokens.includes('X1'));
+    assert.ok(!tokens.includes('DX0') && !tokens.includes('X0'), 'X0 left in a K1 command');
+    assert.ok(!tokens.some((t, i) => t === 'K0' && tokens[i + 1] === 'C0'), 'K0 C0 left in a command');
+  });
+
+  test('period 0 keeps X0 and K0 cursor 0', async () => {
+    const tokens = paramTokens(await allBodies(stagedClient(0)));
+    assert.ok(tokens.includes('X0'));
+    assert.ok(tokens.some((t, i) => t === 'K0' && tokens[i + 1] === 'C0'));
+    assert.ok(!tokens.includes('X1'));
+  });
+});

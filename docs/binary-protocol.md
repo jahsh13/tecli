@@ -1002,6 +1002,10 @@ The corrected week is Open afterwards and has to be signed again (**Sign** below
 
 **Sign** (browser capture `captured/prev-period-sign/014+015`, previous week Open after a correction): the [Sign](#sign) flow with the period in every slot of the table above. Step 1 PUTs parent row 1 on `C=1` (editFlags 64/82/82) and K1 row 0 on `X=1`, and the 300 carries `C=1`. Step 2 PUTs parent row 1 with editFlag 18, saves on `C=1` and fetches K0 `R=S&C` on `C=1`, while the K1 `R=S&C` fetch keeps `X=0`. Unlike the active week, the confirm response carries 204 K0/K1 data with the new status S. After the sign, row 1 has `ENABLE_SIGN_FL`=N.
 
+**Add / favorites** (browser capture `captured/past-week-add/014-023`, Signed and not closed past week, nothing saved): the active-week flows with the period in every slot of the table above. `TMMTS_NEW_TS_LINE` PUTs parent row 1 on `C=1` and the pending K1 row on `X=1`; the favorites primer, favorites HLKP and K2 PUTs keep their K2 cursors; the lookup-OK K1 PUTs and refreshes carry `X=1` and its K0 context PUT uses `C=1`. No request is needed before the add on a Signed week. A closed week is corrected first. The browser's typed-code path (RAUTO on `TC_UDT02_CHARGE_LKP`, K1 PUT, 208) skips the OPEN_RS K2 step that `add()` always runs. `add()` keeps its resolve-the-charge flow for every period, because it needs the K2 row to commit CHARGE_ID.
+
+**Reach:** the browser arrows back to at least X=41 by paging K0 (`S20 E40 K0 C19`, then `S40 E60 K0 C39`) and sending only the K1 fetch pair for the older week. The client does not page K0, so `getPeriods()` and `selectPeriod()` stop at the rows the init fetch loads (about 20). Going further also needs every later K0 refresh to keep the older row loaded.
+
 ---
 
 ## Password Encoding

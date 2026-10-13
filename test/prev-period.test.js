@@ -343,6 +343,142 @@ describe('active-week batches are unchanged', () => {
   });
 });
 
+// ─── Add and favorites on the previous week (captured/past-week-add) ──────
+
+const K1_REFRESH_X1_PENDING = [
+  '204 $rsType$=M RABS S E X1 K1 C0 P0 Vtrue',
+  '204 $rsType$=M RABS S E X1 K1 C0 P0 Vtrue',
+];
+
+function withPendingLine(client) {
+  client._stagePendingLine();
+  return client;
+}
+
+describe('past-week add and favorites batches (captured/past-week-add 014-019)', () => {
+  test('TMMTS_NEW_TS_LINE (capture 014)', () => {
+    const client = withPendingLine(makeStubClient(1));
+    let body;
+    client._postServlet = async b => { body = b; return OK_RESPONSE; };
+    return client._newTimesheetLine().then(() => {
+      assert.match(body, /&reqIdx=1$/);
+      const cmds = commands(body);
+      assert.deepEqual(cmds.map(c => c.cmd), [
+        '205 K0 C1 Vtrue $lastPutId$',
+        '205 X1 K1 C-59999 P0 Vtrue $lastPutId$',
+        '205 $rsContextOnly$=Y K0 C1 Vtrue $lastPutId$',
+        '205 X1 $rsContextOnly$=Y K1 C-59999 P0 Vtrue $lastPutId$',
+        ['300', ...REPORT_BOILERPLATE, '$actionId$=TMMTS_NEW_TS_LINE', '$restartFl$=false', 'C-59999',
+          '$longRunActionFl$=0', '$procUniqueId$=TMMTIMESHEET:A:SID:1', '$psSchWorkflowNotifyFl$=false',
+          'K1', 'P0', 'Vtrue'].join(' '),
+        ...K0_REFRESH_C1,
+        ...K1_REFRESH_X1_PENDING,
+        '507 Vtrue',
+      ]);
+      assert.deepEqual(cmds.slice(0, 4).map(c => [c.editFlag, c.rowNumber]),
+        [['18,', '1,'], ['19,', '-59999,'], ['18,', '1,'], ['19,', '-59999,']]);
+    });
+  });
+
+  test('NEW_TS_LINE puts the previous week parent row, not the active one', () => {
+    const client = withPendingLine(makeStubClient(1));
+    client.parentData.rows[1][0] = 'PREV';
+    let body;
+    client._postServlet = async b => { body = b; return OK_RESPONSE; };
+    return client._newTimesheetLine().then(() => {
+      const parentData = new URLSearchParams(body).get('data').split(protocol.DLM_RS)[0];
+      assert.equal(parentData, protocol.encodePutRow(client.parentData.rows[1]) + protocol.DLM_ROW);
+    });
+  });
+
+  test('UDT02 validate (capture 019)', () => {
+    const client = withPendingLine(makeStubClient(1));
+    let body;
+    client._postServlet = async b => { body = b; return OK_RESPONSE; };
+    return client._validateUdt02().then(() => {
+      const cmds = commands(body);
+      assert.deepEqual(cmds.map(c => c.cmd), [
+        '205 X1 K1 C-59999 P0 Vtrue $lastPutId$',
+        '205 X1 $rsContextOnly$=Y K1 C-59999 P0 Vtrue $lastPutId$',
+        '208 $objectId$=UDT02_ID K1 C-59999 P0 Vtrue',
+        ...K0_REFRESH_C1,
+        ...K1_REFRESH_X1_PENDING,
+        '507 Vtrue',
+      ]);
+    });
+  });
+
+  test('charge lookup OPEN_RS PUTs the pending row on X=1', () => {
+    const client = withPendingLine(makeStubClient(1));
+    assert.deepEqual(cmdStrings(client._buildOpenRsChargeLookup()).slice(0, 1),
+      ['205 X1 K1 C-59999 P0 Vtrue $lastPutId$']);
+  });
+
+  test('TC_TS_CHARGE_LKP_OK (capture 018)', () => {
+    const client = withPendingLine(makeStubClient(1));
+    const k2Row = new Array(40).fill('');
+    const cmds = commands(client._buildChargeLkpOk(k2Row, '10'));
+    assert.deepEqual(cmds.map(c => c.cmd), [
+      '205 $rsRowSelectedFlOnly$=true X-59999 K2 C0 P1 Vtrue',
+      '205 X1 K1 C-59999 P0 Vtrue $lastPutId$',
+      '205 X-59999 K2 C0 P1 Vtrue $lastPutId$',
+      '205 X1 $rsContextOnly$=Y K1 C-59999 P0 Vtrue $lastPutId$',
+      '205 $rsContextOnly$=Y K0 C1 Vtrue $lastPutId$',
+      '205 X-59999 $rsContextOnly$=Y K2 C0 P1 Vtrue $lastPutId$',
+      ['300', ...REPORT_BOILERPLATE, '$actionId$=TC_TS_CHARGE_LKP_OK', '$restartFl$=false', 'C0',
+        '$longRunActionFl$=0', '$procUniqueId$=TMMTIMESHEET:A:SID:2', '$psSchWorkflowNotifyFl$=false',
+        'K2', 'P1', 'Vtrue'].join(' '),
+      ...K0_REFRESH_C1,
+      '204 $rsType$=M RABS S E X1 K1 C-59999 P0 Vtrue',
+      '204 $rsType$=M RABS S E X1 K1 C-59999 P0 Vtrue',
+      '204 $rsType$=L RABS S E X-59999 $objectId$=UDT02_ID K2 C0 P1 Vtrue',
+      '204 $rsType$=L RABS S E X-59999 K2 C0 P1 Vtrue',
+      '507 Vtrue',
+    ]);
+    assert.equal(cmds[4].editFlag, '65562,');
+    assert.equal(cmds[4].rowNumber, '1,');
+    assert.equal(cmds[0].rowNumber, '10,');
+  });
+
+  test('getFavorites() registers the line on period 1, then runs the K2 lookups', async () => {
+    const client = makeStubClient(1);
+    const bodies = [];
+    client._postServlet = async b => { bodies.push(b); return OK_RESPONSE; };
+    assert.deepEqual(await client.getFavorites(), []);
+    assert.equal(bodies.length, 4);
+    assert.equal(cmdStrings(bodies[0])[0], '205 K0 C1 Vtrue $lastPutId$');
+    assert.match(cmdStrings(bodies[1])[0], /^201 K2 ITC_UDT02_CHARGE_LKP /);
+    assert.match(cmdStrings(bodies[2])[0], /^204 \$rsType\$=L RHLKP S E X-59999 W.*K2 C-60000 P1 Vtrue$/);
+    assert.match(cmdStrings(bodies[3])[0], /^204 \$rsType\$=L RHLKP S E X-59999 W.*K2 C0 P1 Vtrue$/);
+  });
+
+  test('stage refuses a week with no lines', () => {
+    const client = makeStubClient(1);
+    client.childData = { rowNums: [], rowFlags: [], rows: [] };
+    assert.throws(() => client._stagePendingLine(), /no existing lines/);
+  });
+});
+
+describe('getPeriods()', () => {
+  test('lists the loaded K0 rows', () => {
+    const client = makeStubClient(0);
+    client.parentData.rows[0][TS_CLOSED_FL] = 'N';
+    client.parentData.rows[1][TS_CLOSED_FL] = 'Y';
+    client.parentData.rows[1][ENABLE_CORRECT_FL] = 'N';
+    client.parentData.rows[1][S_STATUS_CD] = 'P';
+    assert.deepEqual(client.getPeriods(), [
+      { idx: 0, endDate: '2026-10-04', statusCode: 'O', editable: true },
+      { idx: 1, endDate: '2026-09-27', statusCode: 'P', editable: false },
+    ]);
+  });
+
+  test('editable is null for rows without detail columns', () => {
+    const client = makeStubClient(0);
+    client.parentData.rows[1][TS_CLOSED_FL] = '';
+    assert.equal(client.getPeriods()[1].editable, null);
+  });
+});
+
 // ─── Guards and flow ──────────────────────────────────────────────────────
 
 describe('previous-week guards', () => {
@@ -350,10 +486,42 @@ describe('previous-week guards', () => {
     ['add()', c => c.add('ZLEAVE.CMP', 'REG')],
     ['getFavorites()', c => c.getFavorites()],
   ]) {
-    test(`${name} throws on the previous week`, async () => {
+    test(`${name} on a closed past week corrects first`, async () => {
       const client = makeStubClient(1);
+      client.parentData.rows[1][TS_CLOSED_FL] = 'Y';
+      const order = [];
+      client._correctTimesheet = async () => {
+        order.push('correct');
+        client.parentData.rows[1][TS_CLOSED_FL] = 'N';
+      };
+      client._newTimesheetLine = async () => { order.push('newLine'); };
+      client._validateUdt02 = async () => { order.push('validate'); };
+      client._resolveChargeOnServer = async () => { order.push('resolve'); };
+      client._buildTableRows = () => {};
+      client._postServlet = async () => OK_RESPONSE;
+      await call(client);
+      assert.equal(order.filter(s => s === 'correct').length, 1);
+      assert.equal(order[0], 'correct');
+      assert.equal(order[1], 'newLine');
+    });
+
+    test(`${name} does not correct an open past week`, async () => {
+      const client = makeStubClient(1);
+      client._correctTimesheet = async () => { throw new Error('must not correct'); };
+      client._newTimesheetLine = async () => {};
+      client._validateUdt02 = async () => {};
+      client._resolveChargeOnServer = async () => {};
+      client._buildTableRows = () => {};
+      client._postServlet = async () => OK_RESPONSE;
+      await call(client);
+    });
+
+    test(`${name} refuses a closed past week Costpoint will not correct`, async () => {
+      const client = makeStubClient(1);
+      client.parentData.rows[1][TS_CLOSED_FL] = 'Y';
+      client.parentData.rows[1][ENABLE_CORRECT_FL] = 'N';
       client._postServlet = async () => { throw new Error('must not reach the server'); };
-      await assert.rejects(call(client), /only supported on the active week/);
+      await assert.rejects(call(client), /does not allow correcting/);
     });
   }
 

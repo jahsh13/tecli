@@ -79,6 +79,16 @@ async function connect() {
   }
 }
 
+async function askYesNo(prompt) {
+  const rl = readline.createInterface({
+    input: process.stdin,
+    output: process.stdout,
+  });
+  const answer = await new Promise((resolve) => rl.question(prompt, resolve));
+  rl.close();
+  return /^y(es)?$/i.test(answer.trim());
+}
+
 async function saveWithSpinner(cp) {
   const s = spin("Saving...");
   try {
@@ -167,18 +177,7 @@ program
 
       let shouldSign = options.yes;
       if (!shouldSign) {
-        const rl = readline.createInterface({
-          input: process.stdin,
-          output: process.stdout,
-        });
-        shouldSign = await new Promise((resolve) => {
-          rl.question("\n  Sign this timesheet? (y/n): ", (answer) => {
-            rl.close();
-            resolve(
-              answer.toLowerCase() === "y" || answer.toLowerCase() === "yes",
-            );
-          });
-        });
+        shouldSign = await askYesNo("\n  Sign this timesheet? (y/n): ");
       }
 
       if (shouldSign) {
@@ -303,14 +302,17 @@ program
     "  Shortcuts: " + COMMON_CODES.map(c => c.alias).join(", ") + "\n" +
     "  e.g. 'te add pto' → ZLEAVE.CMP (REG)",
   )
-  .action(async (code, payType) => {
+  .option("-f, --favorite", "also add the code to your Costpoint favorites")
+  .action(async (code, payType, options) => {
     try {
       const cp = await connect();
+      let fromFavorites = false;
 
       if (!code) {
         const picked = await pickFromFavorites(cp);
         if (!picked) { await cp.close(); return; }
         code = picked.code;
+        fromFavorites = true;
         if (!payType) payType = picked.payType || undefined;
       } else {
         const alias = resolveAlias(code);
@@ -325,6 +327,11 @@ program
       await cp.add(code, payType);
       s.succeed(`Added ${label}`);
 
+      const wantFavorite = options.favorite ||
+        (!fromFavorites && process.stdin.isTTY &&
+          await askYesNo(`  Also add ${label} to your favorites? (y/N): `));
+      if (wantFavorite) await addToFavoritesWithSpinner(cp);
+
       await saveWithSpinner(cp);
       showStatus(cp);
       console.log();
@@ -335,6 +342,16 @@ program
       process.exit(1);
     }
   });
+
+async function addToFavoritesWithSpinner(cp) {
+  const s = spin("Adding to favorites...");
+  try {
+    await cp.addToFavorites();
+    s.succeed("Added to favorites");
+  } catch (e) {
+    s.warn(`Could not add to favorites: ${e.message}`);
+  }
+}
 
 async function pickFromFavorites(cp) {
   const s = spin("Loading favorites...");

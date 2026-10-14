@@ -24,6 +24,7 @@ te set <line> <day> <hours>    # set hours (e.g. te set 1 4 8)
 te setm 1 1 8, 1 2 8, 1 3 8   # set multiple cells
 te add ZLEAVE.HOL              # add a project line
 te add ZLEAVE.FTB RHB          # add a multi-charge project line
+te add ZLEAVE.HOL --favorite   # also save the code to your Costpoint favorites
 te sign                        # sign timesheet
 te leave                       # show leave balances
 te server                      # start the web UI (port 3000)

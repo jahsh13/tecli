@@ -797,13 +797,13 @@
     }
   }
 
-  async function addProject(code, payType) {
+  async function addProject(code, payType, favorite = false) {
     updateSyncStatus("syncing");
     try {
       const response = await fetch("/api/project", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ code, payType })
+        body: JSON.stringify({ code, payType, favorite })
       });
 
       if (!response.ok) {
@@ -811,8 +811,13 @@
         throw new Error(errorData.error || "Failed to add project");
       }
 
-      showSuccess("Project added successfully! Reloading...");
-      setTimeout(() => { window.location.reload(); }, 1000);
+      const result = await response.json();
+      if (result.warning) {
+        showError("Project added. " + result.warning);
+      } else {
+        showSuccess("Project added successfully! Reloading...");
+      }
+      setTimeout(() => { window.location.reload(); }, result.warning ? 3000 : 1000);
     } catch (err) {
       console.error("Add project failed:", err);
       showError(err.message || "Failed to add project. Please check the code and try again.");
@@ -824,8 +829,10 @@
     const projectCodeInput = document.getElementById("project-code");
     const projectPayTypeSelect = document.getElementById("project-pay-type");
     const confirmAddProject = document.getElementById("confirm-add-project");
+    const favoriteInput = document.getElementById("project-favorite");
     const code = projectCodeInput.value.trim();
     const payType = projectPayTypeSelect ? projectPayTypeSelect.value : "REG";
+    const favorite = favoriteInput ? favoriteInput.checked : false;
     if (!code) {
       projectCodeInput.focus();
       return;
@@ -838,7 +845,7 @@
       hideAllModals();
       projectCodeInput.value = "";
       if (projectPayTypeSelect) projectPayTypeSelect.value = "REG";
-      await addProject(code, payType);
+      await addProject(code, payType, favorite);
     } finally {
       confirmAddProject.disabled = false;
       confirmAddProject.textContent = "Add";
@@ -1039,6 +1046,10 @@
     const projectPayTypeSelect = document.getElementById("project-pay-type");
     if (projectPayTypeSelect) {
       projectPayTypeSelect.value = "REG";
+    }
+    const favoriteInput = document.getElementById("project-favorite");
+    if (favoriteInput) {
+      favoriteInput.checked = false;
     }
   }
 

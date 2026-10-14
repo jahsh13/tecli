@@ -208,7 +208,7 @@ ${name}$N\x08{value}P\x07
 |------|---------|
 | rsType | Row set type: M (master), SR (sub-record), L (lookup) |
 | objectId | Field being validated (e.g., UDT02_ID, DAY4_HRS) |
-| actionId | Action name for CMD 300 (TMMTS_NEW_TS_LINE, TC_TS_CHARGE_LKP_OK) |
+| actionId | Action name for CMD 300 (TMMTS_NEW_TS_LINE, TMMTS_ADD_LINE_TO_FAVORITES, TC_TS_CHARGE_LKP_OK) |
 | lastPutId | Incrementing counter per-session, tracks PUT ordering |
 | checkCache | Hash of previous response for cache validation (Java String.hashCode()) |
 | rsContextOnly | "Y" — PUT is context-only, not a data mutation |
@@ -807,6 +807,24 @@ is not committed, causing "Account required" on save.
 #### Step 5: Save
 
 Normal save flow with editFlag=19 for the new row.
+
+#### Optional: Add to Favorites (between Step 4 and Step 5)
+
+CMD 300 `TMMTS_ADD_LINE_TO_FAVORITES` on the pending row (capture `add-favorite/` request 024, `DirectClient.addToFavorites()`). Same shape as NEW_TS_LINE, with these differences:
+
+```
+Batch: [205 PUT K1 rsRowSelectedFlOnly (editFlag 83, no lastPutId)
+      + 205 PUT K1 (83) + 205 PUT K0 ctx (editFlag 65562)
+      + 205 PUT K1 ctx (83) + 300 action + 204 K0+ + 204 K0-
+      + 204 K1+ + 204 K1- (cursor C=-59999) + 507]
+  + &reqIdx=2
+
+  - actionId: TMMTS_ADD_LINE_TO_FAVORITES
+  - procUniqueId: TMMTIMESHEET:A:{sid}:2 (second action in the session)
+  - 204 K0+ has no nonDBSize/nonDBStart
+```
+
+The response is all `<OK>` with no message text. Not captured: the action on an already-saved row.
 
 ### Multi-Charge Resolution
 

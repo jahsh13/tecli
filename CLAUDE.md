@@ -55,6 +55,7 @@ Interactive terminal UI (`node tui.js` or `npm run tui`). Zero extra dependencie
 - Prompt mode for text input (sign confirmation, project code)
 - Numbered lists (favorites `[f]`, add menu `[a]`) take multi-digit picks via `number-pick.js`: a digit selects once no longer number can match, otherwise Enter confirms (with 13 favorites, `1` waits, `13` or `1`+Enter picks)
 - Same persistent session pattern as web UI (`getClient`/`withClient`/`releaseClient`)
+- Typing a custom project code (add menu `[0]`/`[c]`) asks "Also add to favorites? [y/N]" after the pay type
 - Shares cache file (`~/.costpoint-cache.json`) with the web UI
 - Shows single active week (7 columns) — fits in 80-col terminals
 
@@ -68,6 +69,7 @@ See memory file `direct-protocol.md` for the full binary protocol reference.
 - Signing MUST run on a fresh session (launch → sign, nothing between). On a session that has done the init/edit/save flow, the server silently ignores the sign — all commands return success but the timesheet stays Open. Verified 2026-07-31: the browser-exact sign flow fails on a worked-in TUI session and succeeds on a fresh one. All three interfaces now sign on a fresh session (`signTimesheet()` in server.js, `doSign()` in tui.js, CLI is fresh by nature).
 - Prime suspects for the session poison (not yet proven): `_buildSaveBatch` diverges from the browser's save — parent editFlag 65562 vs the browser's 18 (65562 = 18|8|0x10000, cargo-culted from a charge-lookup capture per docs/binary-protocol.md), and we PUT ALL K1 rows where the browser PUTs only dirty ones. Cell-edit batches match the browser. To isolate: run `node captured/sign-bisect.js --go` on the next week that's ready to be signed — failed arms are free (sheet stays unsigned), the first successful arm signs it for real. On an already-signed timesheet CMD 300 fails loudly ("You do not have rights to execute this process") — the poison instead makes the whole flow round-trip as success.
 - `sign()` mirrors the browser byte-for-byte (see `captured/sign-capture/` requests 017+018): CMD 300 `TMMTS_SIGN_TIMESHEET` action event, then ACTION_CD='S' + CMD 206 save. ACTION_CD is parent col 23 (not 667). The sign-confirm save returns no 204 data, so `sign()` does an explicit re-fetch afterward and THROWS if status didn't become 'S' — sign can no longer fail silently.
+- `addToFavorites()` sends CMD 300 `TMMTS_ADD_LINE_TO_FAVORITES` for the pending line (capture 024). Call it after `add()` and before `save()`. Callers treat a failure as a warning: the line add still succeeds. CLI: `te add <code> --favorite`, or a y/N prompt on a TTY (skipped for favorites picks). Web UI: "Also add to favorites" checkbox, `/api/project` takes `favorite: true`. Not verified live: the action on a saved row and the server's success message.
 - `getPreviousPeriodData()` returns other week's data without mutating client state (no `navigateToPreviousPeriod()` state swap)
 
 ## Environment

@@ -581,29 +581,10 @@ class DirectClient {
         editFlag: '19,',
         rowNumber: rowNum + ',',
       }),
-      // 5. CMD 300 TMMTS_NEW_TS_LINE
-      this._wrap(this._cmd(300, [
-        ...this._actionBoilerplate(),
-        { name: 'actionId', value: 'TMMTS_NEW_TS_LINE' },
-        { name: 'restartFl', value: 'false' },
-        { code: 'C', value: rowNum },
-        { name: 'longRunActionFl', value: '0' },
-        { name: 'procUniqueId', value: APP_ID + ':A:' + this.sid + ':1' },
-        { name: 'psSchWorkflowNotifyFl', value: 'false' },
-        { code: 'K', value: '1' },
-        { code: 'P', value: '0' },
-        { code: 'V', value: 'true' },
-      ])),
-      // 6-7. 204 K0 positive + negative
-      ...this._get204(0),
-      // 8-9. 204 K1 positive + negative
-      ...this._get204(1),
-      // 10. keepalive
-      this._keepalive(),
+      ...this._pendingLineActionTail('TMMTS_NEW_TS_LINE', rowNum, 1),
     ];
 
-    // reqIdx=1 sets K1 as the action context (matches browser)
-    const body = protocol.buildRequestBody(this.sid, cmds) + '&reqIdx=1';
+    const body = this._buildPendingLineActionBody(cmds, 1);
     const respText = await this._postServlet(body);
 
     if (respText.includes('onServletException')) {
@@ -621,6 +602,111 @@ class DirectClient {
     }
     const k0Data = protocol.extract204(parsed, 0);
     if (k0Data) this.parentData = k0Data;
+  }
+
+  /**
+   * CMD 300 action on the pending row plus the 204 refetch and keepalive.
+   * actionSeq is the browser's per-session action counter: it ends the
+   * procUniqueId and is sent as reqIdx (NEW_TS_LINE is 1, the favorites
+   * action after it is 2 in capture add-favorite/).
+   */
+  _pendingLineActionTail(actionId, rowNum, actionSeq, refetchOpts) {
+    return [
+      this._wrap(this._cmd(300, [
+        ...this._actionBoilerplate(),
+        { name: 'actionId', value: actionId },
+        { name: 'restartFl', value: 'false' },
+        { code: 'C', value: rowNum },
+        { name: 'longRunActionFl', value: '0' },
+        { name: 'procUniqueId', value: APP_ID + ':A:' + this.sid + ':' + actionSeq },
+        { name: 'psSchWorkflowNotifyFl', value: 'false' },
+        { code: 'K', value: '1' },
+        { code: 'P', value: '0' },
+        { code: 'V', value: 'true' },
+      ])),
+      ...this._get204(0, undefined, refetchOpts),
+      ...this._get204(1, undefined, refetchOpts),
+      this._keepalive(),
+    ];
+  }
+
+  // reqIdx sets K1 as the action context (matches browser)
+  _buildPendingLineActionBody(cmds, actionSeq) {
+    return protocol.buildRequestBody(this.sid, cmds) + '&reqIdx=' + actionSeq;
+  }
+
+  /**
+   * Add the pending (unsaved) line to the user's Costpoint favorites via
+   * CMD 300 TMMTS_ADD_LINE_TO_FAVORITES. Call after add() has resolved the
+   * charge and before save(). Mirrors captured/add-favorite request 024.
+   * The action on an already-saved row was not captured.
+   */
+  async addToFavorites() {
+    const rowIdx = this.childData.rowNums.findIndex(n => parseInt(n, 10) < 0);
+    if (rowIdx < 0) throw new Error('No pending line to add to favorites');
+
+    const body = this._buildAddToFavoritesBatch(rowIdx);
+    const respText = await this._postServlet(body);
+    if (respText.includes('onServletException')) {
+      throw new Error('TMMTS_ADD_LINE_TO_FAVORITES caused server error. Session may be invalid.');
+    }
+
+    const parsed = protocol.parseResponse(respText);
+    const err = protocol.checkErrors(parsed);
+    if (err) throw new Error('Add to favorites error: ' + err);
+
+    const k1Data = protocol.extract204(parsed, 1);
+    if (k1Data) this.childData = k1Data;
+    const k0Data = protocol.extract204(parsed, 0);
+    if (k0Data) this.parentData = k0Data;
+  }
+
+  _buildAddToFavoritesBatch(rowIdx) {
+    const rowNum = this.childData.rowNums[rowIdx];
+    const encodedChild = protocol.encodePutRow(this.childData.rows[rowIdx]);
+    const encodedParent = protocol.encodePutRow(this.parentData.rows[0]);
+    const childOpts = {
+      data: encodedChild + protocol.DLM_ROW,
+      editFlag: '83,',
+      rowNumber: rowNum + ',',
+    };
+
+    const cmds = [
+      this._wrap(this._cmd(205, [
+        { name: 'rsRowSelectedFlOnly', value: 'true' },
+        { code: 'X', value: '0' }, { code: 'K', value: '1' },
+        { code: 'C', value: rowNum }, { code: 'P', value: '0' },
+        { code: 'V', value: 'true' },
+      ]), childOpts),
+      this._wrap(this._cmd(205, [
+        { code: 'X', value: '0' }, { code: 'K', value: '1' },
+        { code: 'C', value: rowNum }, { code: 'P', value: '0' },
+        { code: 'V', value: 'true' },
+        { name: 'lastPutId', value: String(this.lastPutId++) },
+      ]), childOpts),
+      this._wrap(this._cmd(205, [
+        { name: 'rsContextOnly', value: 'Y' },
+        { code: 'K', value: '0' }, { code: 'C', value: '0' },
+        { code: 'V', value: 'true' },
+        { name: 'lastPutId', value: String(this.lastPutId++) },
+      ]), {
+        data: encodedParent + protocol.DLM_ROW,
+        editFlag: '65562,',
+        rowNumber: '0,',
+      }),
+      this._wrap(this._cmd(205, [
+        { code: 'X', value: '0' },
+        { name: 'rsContextOnly', value: 'Y' },
+        { code: 'K', value: '1' }, { code: 'C', value: rowNum },
+        { code: 'P', value: '0' }, { code: 'V', value: 'true' },
+        { name: 'lastPutId', value: String(this.lastPutId++) },
+      ]), childOpts),
+      ...this._pendingLineActionTail('TMMTS_ADD_LINE_TO_FAVORITES', rowNum, 2, {
+        nonDb: false,
+        childCursor: rowNum,
+      }),
+    ];
+    return this._buildPendingLineActionBody(cmds, 2);
   }
 
   async save() {
@@ -2042,7 +2128,7 @@ class DirectClient {
     return this._wrap(this._cmd(507, [{ code: 'V', value: 'true' }]));
   }
 
-  _get204(rsKey, extra) {
+  _get204(rsKey, extra, { nonDb = true, childCursor = '0' } = {}) {
     const childRowCount = this.childData ? this.childData.rows.length : 40;
     const isChild = rsKey === 1;
     const posE = isChild ? Math.max(childRowCount + 5, 40) : 20;
@@ -2050,7 +2136,7 @@ class DirectClient {
 
     const baseParams = isChild
       ? [{ code: 'X', value: '0' }, { code: 'K', value: '1' },
-         { code: 'C', value: '0' }, { code: 'P', value: '0' },
+         { code: 'C', value: childCursor }, { code: 'P', value: '0' },
          { code: 'V', value: 'true' }]
       : [{ code: 'K', value: '0' }, { code: 'C', value: '0' },
          { code: 'V', value: 'true' }];
@@ -2067,7 +2153,7 @@ class DirectClient {
     ];
 
     // Parent positive range gets nonDBSize/nonDBStart
-    if (rsKey === 0) {
+    if (rsKey === 0 && nonDb) {
       posParams.push({ name: 'nonDBSize', value: '1' });
       posParams.push({ name: 'nonDBStart', value: '0' });
     }

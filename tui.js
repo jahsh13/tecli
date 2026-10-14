@@ -290,7 +290,7 @@ async function doSign() {
   }
 }
 
-async function doAddProject(code, payType) {
+async function doAddProject(code, payType, favorite = false) {
   if (isProcessing) return;
   isProcessing = true;
   startSpinner();
@@ -298,15 +298,27 @@ async function doAddProject(code, payType) {
   render();
 
   try {
+    let favoriteError = null;
     await withClient(async (cp) => {
       await cp.add(code, payType || 'REG');
+      if (favorite) {
+        try {
+          await cp.addToFavorites();
+        } catch (e) {
+          favoriteError = e.message;
+        }
+      }
       await cp.save();
       storeWeekData(cp.getData());
       saveCache();
     });
     data = getActiveWeekData();
     clampCursor();
-    setStatus(chalk.green('Added ' + code + '.'), 3000);
+    if (favoriteError) {
+      setStatus(chalk.yellow('Added ' + code + '. Could not add to favorites: ' + favoriteError), 5000);
+    } else {
+      setStatus(chalk.green('Added ' + code + (favorite ? ' and saved to favorites.' : '.')), 3000);
+    }
   } catch (e) {
     setStatus(chalk.red('Add failed: ' + e.message), 5000);
   } finally {
@@ -912,7 +924,9 @@ function handleMenuKey(str, key) {
     enterPrompt('Project code: ', function(code) {
       if (!code.trim()) return;
       enterPrompt('Pay type [REG]: ', function(pt) {
-        doAddProject(code.trim(), pt.trim() || 'REG');
+        enterPrompt('Also add to favorites? [y/N] ', function(ans) {
+          doAddProject(code.trim(), pt.trim() || 'REG', ans.trim().toLowerCase() === 'y');
+        });
       });
     });
     return;

@@ -362,15 +362,24 @@ async function saveWithExplanation(explanation) {
 }
 
 // Add a project to the timesheet
-async function addProject(code, payType) {
+async function addProject(code, payType, favorite = false) {
   if (isProcessing) throw new Error("Another operation is in progress");
 
   isProcessing = true;
   syncStatus = "syncing";
 
+  let warning = null;
   try {
     await withClient(async (cp) => {
       await cp.add(code, payType);
+      if (favorite) {
+        try {
+          await cp.addToFavorites();
+        } catch (e) {
+          console.error("Add to favorites failed:", e.message);
+          warning = `Could not add to favorites: ${e.message}`;
+        }
+      }
       await cp.save();
       storeWeekData(cp.getData());
       saveCache();
@@ -378,7 +387,7 @@ async function addProject(code, payType) {
 
     lastError = null;
     syncStatus = "idle";
-    return { success: true };
+    return { success: true, warning };
   } catch (e) {
     console.error("Add project failed:", e.message);
     lastError = e.message;
@@ -735,6 +744,11 @@ function renderHTML(data, isLoading = false) {
             <option value="LWD">LWD</option>
           </select>
         </div>
+        <div class="modal-field">
+          <label for="project-favorite">
+            <input type="checkbox" id="project-favorite" /> Also add to favorites
+          </label>
+        </div>
       </div>
       <div class="modal-footer">
         <button class="btn btn-secondary modal-cancel">Cancel</button>
@@ -917,7 +931,7 @@ app.post("/api/save-with-explanation", async (req, res) => {
 });
 
 app.post("/api/project", async (req, res) => {
-  const { code, payType } = req.body;
+  const { code, payType, favorite } = req.body;
 
   if (!code) {
     return res.status(400).json({ error: "Missing required field: code" });
@@ -932,8 +946,8 @@ app.post("/api/project", async (req, res) => {
   }
 
   try {
-    await addProject(code, normalizedPayType);
-    res.json({ success: true, data: getMergedData() });
+    const { warning } = await addProject(code, normalizedPayType, favorite === true);
+    res.json({ success: true, warning, data: getMergedData() });
   } catch (e) {
     res.status(500).json({ error: e.message });
   }

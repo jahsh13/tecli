@@ -142,8 +142,8 @@ class Db {
    * Parent (K0) row. Only the row under the cursor carries the computed
    * columns (past PARENT_DB_COLS); override replaces stored columns.
    */
-  parentRow(idx, { full, override } = {}) {
-    const p = this.period(idx);
+  parentRow(idx, { full, override, view } = {}) {
+    const p = view || this.period(idx);
     const row = new Array(this.cols.parent).fill('');
     const cols = { ...this.defaults.parent, ...(override || {}) };
     for (const [c, v] of Object.entries(cols)) row[Number(c)] = v;
@@ -256,7 +256,10 @@ class Session {
     this.favoritesPrimed = false;
     this.explanations = new Map();
     this.pendingAudit = new Map();
-    this.noDataNextSave = false;
+    this.parentPuts = new Map();
+    this.selectedCharge = null;
+    this.lastPut = null;
+    this.favSaved = false;
   }
 
   /** Working copy of a period, created from the database on first write */

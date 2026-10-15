@@ -43,6 +43,8 @@ const CHILD_DAY_COL = { 1: 26, 2: 27, 3: 28, 4: 29, 5: 30, 6: 31, 7: 32 };
 const CHILD_COMMENT_COL = { 1: 124, 2: 135, 3: 143, 4: 144, 5: 145, 6: 146, 7: 147 };
 const CHILD_LINE_DESC = 2;
 const CHILD_UDT02_ID = 6;  // UDT02_ID column index (verified: ZLEAVE.CMP pattern)
+const CHILD_WORK_LOCATION = 8;  // UDT03_ID: work location zip (captured/work-location/)
+const CHILD_PAY_TYPE = 16;
 const CHILD_TOTAL_ENTERED = 96;
 
 // Revision explanation column indices (K2 = TMMTS_TS_REVISION_EXP)
@@ -338,8 +340,9 @@ class DirectClient {
     }
   }
 
-  async add(code, payType) {
-    debug('Adding project code: ' + code + (payType ? ' (payType=' + payType + ')' : ''));
+  async add(code, payType, { workLocation } = {}) {
+    debug('Adding project code: ' + code + (payType ? ' (payType=' + payType + ')' : '') +
+      (workLocation ? ' (workLocation=' + workLocation + ')' : ''));
 
     // Reuse an existing pending line (e.g. from getFavorites) if present; otherwise
     // create one and register it with TMMTS_NEW_TS_LINE.
@@ -363,7 +366,24 @@ class DirectClient {
     // committed, causing "Account required" on save.
     await this._validateUdt02();
 
+    // Step 5: Override the server-default work location (browser: PUT col 8 + 208 UDT03_ID).
+    if (workLocation) {
+      const idx = this.childData.rowNums.findIndex(n => parseInt(n, 10) < 0);
+      this.childData.rows[idx][CHILD_WORK_LOCATION] = workLocation;
+      await this._validateObject('UDT03_ID');
+    }
+
     this._buildTableRows();
+  }
+
+  /**
+   * Server-chosen defaults on the pending (unsaved) line, or null if none.
+   */
+  pendingLine() {
+    const idx = this.childData.rowNums.findIndex(n => parseInt(n, 10) < 0);
+    if (idx < 0) return null;
+    const row = this.childData.rows[idx];
+    return { payType: row[CHILD_PAY_TYPE] || '', workLocation: row[CHILD_WORK_LOCATION] || '' };
   }
 
   /**
@@ -463,9 +483,13 @@ class DirectClient {
 
   /**
    * Validate the UDT02_ID field on a new row, populating server defaults.
-   * Sends 205 PUT + 208 VALIDATE for UDT02_ID and updates local data.
+   * Sends 205 PUT + 208 VALIDATE for the object and updates local data.
    */
   async _validateUdt02() {
+    await this._validateObject('UDT02_ID');
+  }
+
+  async _validateObject(objectId) {
     const newRowIdx = this.childData.rowNums.findIndex(n => parseInt(n, 10) < 0);
     const newRow = this.childData.rows[newRowIdx];
     const rowNum = this.childData.rowNums[newRowIdx];
@@ -495,9 +519,9 @@ class DirectClient {
         editFlag: '19,',
         rowNumber: rowNum + ',',
       }),
-      // 208 VALIDATE UDT02_ID
+      // 208 VALIDATE
       this._wrap(this._cmd(208, [
-        { name: 'objectId', value: 'UDT02_ID' },
+        { name: 'objectId', value: objectId },
         { code: 'K', value: '1' }, { code: 'C', value: rowNum },
         { code: 'P', value: '0' }, { code: 'V', value: 'true' },
       ])),
@@ -515,7 +539,7 @@ class DirectClient {
     if (err) {
       // "More than one charge found" is expected for multi-charge codes — not fatal
       if (!err.includes('More than one charge')) {
-        throw new Error('UDT02_ID validate error: ' + err);
+        throw new Error(objectId + ' validate error: ' + err);
       }
     }
 

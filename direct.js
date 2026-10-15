@@ -340,6 +340,10 @@ class DirectClient {
     }
   }
 
+  /**
+   * workLocation may be a zip string or an async (pendingLine) => zip|undefined
+   * called once the server has filled its defaults.
+   */
   async add(code, payType, { workLocation } = {}) {
     debug('Adding project code: ' + code + (payType ? ' (payType=' + payType + ')' : '') +
       (workLocation ? ' (workLocation=' + workLocation + ')' : ''));
@@ -367,6 +371,7 @@ class DirectClient {
     await this._validateUdt02();
 
     // Step 5: Override the server-default work location (browser: PUT col 8 + 208 UDT03_ID).
+    if (typeof workLocation === 'function') workLocation = await workLocation(this.pendingLine());
     if (workLocation) {
       const idx = this.childData.rowNums.findIndex(n => parseInt(n, 10) < 0);
       this.childData.rows[idx][CHILD_WORK_LOCATION] = workLocation;

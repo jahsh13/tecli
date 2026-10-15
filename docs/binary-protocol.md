@@ -490,10 +490,10 @@ Each child row is a timesheet line (one project). The row has **402 columns**.
 | 2 | LINE_DESC | Project description |
 | 4 | CHARGE_ID (UDT01_ID) | Charge identifier (e.g., ZTC-DL-000-0000). **Must be kept in PUT data** — clearing causes "Account required" |
 | 6 | UDT02_ID | Project code (e.g., ZLEAVE.CMP) |
-| 8 | UDT03_ID (PLC) | Project Labor Category |
+| 8 | UDT03_ID | Work location (zip code). Server default filled at charge resolution. Change = PUT K1 + CMD 208 `UDT03_ID` (captured/work-location/) |
 | 14 | ACCOUNT | Account (populated by server after charge resolution) |
 | 16 | PAY_TYPE (UDT10_ID) | Pay type (e.g., REG, RHB). **Must NOT be manually set for multi-charge codes** |
-| 17 | WORK_LOCATION | Work location |
+| 17 | WORK_LOCATION | Empty on charge-code lines, `00` on leave lines. Not the zip the UI shows |
 | 96 | TOTAL_ENTERED | Computed total hours for the row |
 | 101 | LEAVE_TYPE1 | Leave type |
 | 105 | PROJECT2 | Secondary project reference |

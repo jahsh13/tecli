@@ -25,6 +25,8 @@ te setm 1 1 8, 1 2 8, 1 3 8   # set multiple cells
 te add ZLEAVE.HOL              # add a project line
 te add ZLEAVE.FTB RHB          # add a multi-charge project line
 te add ZLEAVE.HOL --favorite   # also save the code to your Costpoint favorites
+te add G09118.A.3786.26B.500 --location 62226   # override the default work location (zip)
+te add G09118.A.3786.26B.500 --ask              # show Costpoint's defaults, then prompt (TTY)
 te sign                        # sign timesheet
 te leave                       # show leave balances
 te server                      # start the web UI (port 3000)

@@ -11,6 +11,7 @@ const ora = require("ora");
 const { normalizeTimesheetStatus } = require("./timesheet-status");
 const { getCredentials, login, logout } = require("./credentials");
 const { COMMON_CODES, resolveAlias } = require("./charge-codes");
+const { normalizeWorkLocation } = require("./add-options");
 
 require("dotenv").config();
 
@@ -79,14 +80,18 @@ async function connect() {
   }
 }
 
-async function askYesNo(prompt) {
+async function askLine(prompt) {
   const rl = readline.createInterface({
     input: process.stdin,
     output: process.stdout,
   });
   const answer = await new Promise((resolve) => rl.question(prompt, resolve));
   rl.close();
-  return /^y(es)?$/i.test(answer.trim());
+  return answer;
+}
+
+async function askYesNo(prompt) {
+  return /^y(es)?$/i.test((await askLine(prompt)).trim());
 }
 
 async function saveWithSpinner(cp) {
@@ -295,6 +300,13 @@ program
     }
   });
 
+async function askWorkLocation(pending) {
+  const current = pending.workLocation || "none";
+  const answer = await askLine(
+    `  Pay type: ${pending.payType || "?"}. Work location [${current}]: `);
+  return normalizeWorkLocation(answer);
+}
+
 program
   .command("add [code] [payType]")
   .description(
@@ -303,8 +315,11 @@ program
     "  e.g. 'te add pto' → ZLEAVE.CMP (REG)",
   )
   .option("-f, --favorite", "also add the code to your Costpoint favorites")
+  .option("-l, --location <zip>", "work location zip code (default: Costpoint's)")
+  .option("-i, --ask", "show Costpoint's default work location and ask for one (TTY)")
   .action(async (code, payType, options) => {
     try {
+      const explicitLocation = normalizeWorkLocation(options.location);
       const cp = await connect();
       let fromFavorites = false;
 
@@ -323,9 +338,13 @@ program
       }
 
       const label = payType ? `${code} (${payType})` : code;
-      const s = spin(`Adding ${label}...`);
-      await cp.add(code, payType);
-      s.succeed(`Added ${label}`);
+      const ask = options.ask && !explicitLocation && process.stdin.isTTY;
+      const s = ask ? null : spin(`Adding ${label}...`);
+      await cp.add(code, payType, {
+        workLocation: ask ? askWorkLocation : explicitLocation,
+      });
+      if (s) s.succeed(`Added ${label}`);
+      else console.log(chalk.green(`  Added ${label}`));
 
       const wantFavorite = options.favorite ||
         (!fromFavorites && process.stdin.isTTY &&

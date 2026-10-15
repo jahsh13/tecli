@@ -10,6 +10,7 @@ const Costpoint = require("./costpoint");
 const DirectClient = require("./direct");
 const { normalizeTimesheetStatus } = require("./timesheet-status");
 const { COMMON_CODES } = require("./charge-codes");
+const { normalizeWorkLocation } = require("./add-options");
 const { getCredentials } = require("./credentials");
 
 require("dotenv").config();
@@ -362,7 +363,7 @@ async function saveWithExplanation(explanation) {
 }
 
 // Add a project to the timesheet
-async function addProject(code, payType, favorite = false) {
+async function addProject(code, payType, favorite = false, workLocation) {
   if (isProcessing) throw new Error("Another operation is in progress");
 
   isProcessing = true;
@@ -371,7 +372,7 @@ async function addProject(code, payType, favorite = false) {
   let warning = null;
   try {
     await withClient(async (cp) => {
-      await cp.add(code, payType);
+      await cp.add(code, payType, { workLocation });
       if (favorite) {
         try {
           await cp.addToFavorites();
@@ -745,6 +746,10 @@ function renderHTML(data, isLoading = false) {
           </select>
         </div>
         <div class="modal-field">
+          <label for="project-work-location">Work Location:</label>
+          <input type="text" id="project-work-location" placeholder="Zip code (blank = Costpoint default)" maxlength="10" />
+        </div>
+        <div class="modal-field">
           <label for="project-favorite">
             <input type="checkbox" id="project-favorite" /> Also add to favorites
           </label>
@@ -931,7 +936,7 @@ app.post("/api/save-with-explanation", async (req, res) => {
 });
 
 app.post("/api/project", async (req, res) => {
-  const { code, payType, favorite } = req.body;
+  const { code, payType, favorite, workLocation } = req.body;
 
   if (!code) {
     return res.status(400).json({ error: "Missing required field: code" });
@@ -945,8 +950,15 @@ app.post("/api/project", async (req, res) => {
     return res.status(400).json({ error: "Invalid pay type" });
   }
 
+  let normalizedLocation;
   try {
-    const { warning } = await addProject(code, normalizedPayType, favorite === true);
+    normalizedLocation = normalizeWorkLocation(workLocation);
+  } catch (e) {
+    return res.status(400).json({ error: e.message });
+  }
+
+  try {
+    const { warning } = await addProject(code, normalizedPayType, favorite === true, normalizedLocation);
     res.json({ success: true, warning, data: getMergedData() });
   } catch (e) {
     res.status(500).json({ error: e.message });

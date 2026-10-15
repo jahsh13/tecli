@@ -266,3 +266,23 @@ describe('_resolveChargeOnServer charge selection', () => {
     // But we copy from K2, so it's 'RHB' (what the server returned for this code)
   });
 });
+
+describe('add() work location callback', () => {
+  test('function form receives pendingLine and its result is applied', async () => {
+    const client = makeStubClient();
+    client._stagePendingLine();
+    client._newTimesheetLine = async () => {};
+    client._validateUdt02 = async () => {};
+    client._resolveChargeOnServer = async () => {};
+    client._buildTableRows = () => {};
+    const validated = [];
+    client._validateObject = async id => { validated.push(id); };
+    let seen;
+    await client.add('ZLEAVE.CMP', 'REG', {
+      workLocation: async pending => { seen = pending; return '62221'; },
+    });
+    assert.deepEqual(seen, { payType: '', workLocation: '' });
+    assert.deepEqual(validated, ['UDT03_ID']);
+    assert.equal(client.pendingLine().workLocation, '62221');
+  });
+});

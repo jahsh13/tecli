@@ -11,6 +11,7 @@ const Costpoint = require('./costpoint');
 const { normalizeTimesheetStatus } = require('./timesheet-status');
 const { getCredentials } = require('./credentials');
 const { COMMON_CODES } = require('./charge-codes');
+const { normalizeWorkLocation } = require('./add-options');
 const numberPick = require('./number-pick');
 
 require('dotenv').config();
@@ -136,6 +137,7 @@ let statusTimer = null;
 let pendingChanges = new Map();
 let leaveData = null;     // { balances, details } from getLeaveBalances()
 let showLeave = false;    // toggle: timesheet vs leave view
+let favoriteOverride = false; // [e] in the favorites list: next pick asks pay type and location
 let favoritesData = null; // array of { code, description, payType }
 let showFavorites = false;
 let pickBuffer = '';      // digits typed so far in a numbered list (favorites, add menu)
@@ -290,7 +292,7 @@ async function doSign() {
   }
 }
 
-async function doAddProject(code, payType, favorite = false) {
+async function doAddProject(code, payType, favorite = false, workLocation) {
   if (isProcessing) return;
   isProcessing = true;
   startSpinner();
@@ -300,7 +302,7 @@ async function doAddProject(code, payType, favorite = false) {
   try {
     let favoriteError = null;
     await withClient(async (cp) => {
-      await cp.add(code, payType || 'REG');
+      await cp.add(code, payType || 'REG', { workLocation });
       if (favorite) {
         try {
           await cp.addToFavorites();
@@ -647,7 +649,7 @@ function render() {
       } else if (showFavorites) {
         lines.push(pickBuffer
           ? chalk.cyan('Favorite #' + pickBuffer + '\u2588') + chalk.dim('  Enter to add, Backspace to edit, Esc to clear')
-          : chalk.dim('[1-' + (favoritesData && favoritesData.length > 0 ? favoritesData.length : 'N') + '] add  [f]avorites back  [q]uit'));
+          : chalk.dim('[1-' + (favoritesData && favoritesData.length > 0 ? favoritesData.length : 'N') + '] add  [e]dit options' + (favoriteOverride ? ' (on)' : '') + '  [f]avorites back  [q]uit'));
       } else {
         lines.push(chalk.dim('[s]ave  [S]ign  [r]efresh  [a]dd  [C]omment  [c]opy Thu\u2192Fri  [l]eave  [f]av  [q]uit'));
       }
@@ -691,9 +693,24 @@ function handleNavigateKey(str, key) {
     if (handlePickKey(str, key, count, n => {
       showFavorites = false;
       const fav = favoritesData[n - 1];
+      if (favoriteOverride) {
+        favoriteOverride = false;
+        enterPrompt('Pay type [' + (fav.payType || 'REG') + ']: ', function(pt) {
+          promptWorkLocation(function(loc) {
+            doAddProject(fav.code, pt.trim().toUpperCase() || fav.payType || 'REG', false, loc);
+          });
+        });
+        return;
+      }
       doAddProject(fav.code, fav.payType || 'REG');
     })) return;
-    if (str === 'f' || key.name === 'escape') { showFavorites = false; render(); return; }
+    if (str === 'e') {
+      favoriteOverride = !favoriteOverride;
+      setStatus(favoriteOverride ? 'Next pick asks pay type and work location.' : 'Override off.', 2000);
+      render();
+      return;
+    }
+    if (str === 'f' || key.name === 'escape') { showFavorites = false; favoriteOverride = false; render(); return; }
     if (str === 'q') { shutdown(); return; }
     return;
   }
@@ -924,13 +941,31 @@ function handleMenuKey(str, key) {
     enterPrompt('Project code: ', function(code) {
       if (!code.trim()) return;
       enterPrompt('Pay type [REG]: ', function(pt) {
-        enterPrompt('Also add to favorites? [y/N] ', function(ans) {
-          doAddProject(code.trim(), pt.trim() || 'REG', ans.trim().toLowerCase() === 'y');
+        promptWorkLocation(function(loc) {
+          enterPrompt('Also add to favorites? [y/N] ', function(ans) {
+            doAddProject(code.trim(), pt.trim() || 'REG', ans.trim().toLowerCase() === 'y', loc);
+          });
         });
       });
     });
     return;
   }
+}
+
+// Blank answer keeps Costpoint's default work location. An invalid zip
+// is reported and the prompt repeats.
+function promptWorkLocation(callback) {
+  enterPrompt('Work location zip [Costpoint default]: ', function(text) {
+    let loc;
+    try {
+      loc = normalizeWorkLocation(text);
+    } catch (e) {
+      setStatus(chalk.red(e.message), 3000);
+      promptWorkLocation(callback);
+      return;
+    }
+    callback(loc);
+  });
 }
 
 function enterPrompt(label, callback) {

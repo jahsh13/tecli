@@ -733,11 +733,12 @@
         return;
       }
 
-      let html = '<table class="leave-table"><thead><tr><th>Code</th><th>Pay Type</th><th>Description</th><th></th></tr></thead><tbody>';
+      let html = '<table class="leave-table"><thead><tr><th>Code</th><th>Pay Type</th><th>Description</th><th>Work Location</th><th></th></tr></thead><tbody>';
       for (const f of favs) {
         html += '<tr><td><code>' + escapeHtml(f.code) + '</code></td>' +
           '<td>' + escapeHtml(f.payType || '') + '</td>' +
           '<td>' + escapeHtml(f.description || '') + '</td>' +
+          '<td><input type="text" class="fav-location" maxlength="10" size="10" placeholder="default" /></td>' +
           '<td><button class="btn btn-sm btn-primary fav-add-btn" data-code="' + escapeHtml(f.code) + '" data-paytype="' + escapeHtml(f.payType || 'REG') + '">Add</button></td></tr>';
       }
       html += '</tbody></table>';
@@ -747,8 +748,9 @@
         btn.addEventListener("click", async () => {
           const code = btn.dataset.code;
           const payType = btn.dataset.paytype;
+          const workLocation = btn.closest("tr").querySelector(".fav-location").value.trim();
           hideAllModals();
-          await addProject(code, payType);
+          await addProject(code, payType, false, workLocation);
         });
       });
     } catch (err) {
@@ -797,13 +799,13 @@
     }
   }
 
-  async function addProject(code, payType, favorite = false) {
+  async function addProject(code, payType, favorite = false, workLocation = "") {
     updateSyncStatus("syncing");
     try {
       const response = await fetch("/api/project", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ code, payType, favorite })
+        body: JSON.stringify({ code, payType, favorite, workLocation })
       });
 
       if (!response.ok) {
@@ -833,6 +835,8 @@
     const code = projectCodeInput.value.trim();
     const payType = projectPayTypeSelect ? projectPayTypeSelect.value : "REG";
     const favorite = favoriteInput ? favoriteInput.checked : false;
+    const locationInput = document.getElementById("project-work-location");
+    const workLocation = locationInput ? locationInput.value.trim() : "";
     if (!code) {
       projectCodeInput.focus();
       return;
@@ -845,7 +849,7 @@
       hideAllModals();
       projectCodeInput.value = "";
       if (projectPayTypeSelect) projectPayTypeSelect.value = "REG";
-      await addProject(code, payType, favorite);
+      await addProject(code, payType, favorite, workLocation);
     } finally {
       confirmAddProject.disabled = false;
       confirmAddProject.textContent = "Add";
@@ -1050,6 +1054,10 @@
     const favoriteInput = document.getElementById("project-favorite");
     if (favoriteInput) {
       favoriteInput.checked = false;
+    }
+    const locationInput = document.getElementById("project-work-location");
+    if (locationInput) {
+      locationInput.value = "";
     }
   }
 

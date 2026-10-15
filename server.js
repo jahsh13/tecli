@@ -6,13 +6,12 @@ const path = require("path");
 const fs = require("fs");
 const os = require("os");
 const moment = require("moment");
-const Costpoint = require("./costpoint");
-const DirectClient = require("./direct");
 const { normalizeTimesheetStatus } = require("./timesheet-status");
 const { COMMON_CODES } = require("./charge-codes");
 const { normalizeWorkLocation } = require("./add-options");
 const { getCredentials } = require("./credentials");
 const weekWindow = require("./week-window");
+const { launchForPeriod, createSessionManager } = require("./session");
 
 require("dotenv").config();
 
@@ -31,100 +30,26 @@ if (!creds.useDirect && !creds.system) {
   process.exit(1);
 }
 
-const { url, username, password, system, useDirect } = creds;
-
-// Weeks are identified by period: the parent K0 row index (0 = active week,
-// 1 = the week before it, ...).
+const { useDirect } = creds;
 
 // A past-week session is launched fresh and moved to its period before
-// anything else runs on it (same rule as signing, see signTimesheet()).
-async function launchClient(period = 0) {
-  if (useDirect) {
-    if (period === 0) {
-      return DirectClient.launch(url, username, password, { loadPreviousPeriod: true });
-    }
-    const cp = await DirectClient.launch(url, username, password);
-    try {
-      await cp.selectPeriod(period);
-    } catch (e) {
-      try { await cp.close(); } catch (e2) { /* ignore */ }
-      throw e;
-    }
-    return cp;
-  }
-  if (period !== 0) {
-    throw new Error("Editing a past week requires direct mode (COSTPOINT_DIRECT=true)");
-  }
-  return Costpoint.launch(url, username, password, system);
-}
+// anything else runs (same rule as signing, see signTimesheet()).
+const launchClient = (period = 0) => launchForPeriod(creds, period, { preloadPrevious: true });
 
 // Signing launches with nothing but the period select before the sign. The
 // active week skips the previous-period preload that launchClient(0) adds.
-async function launchSignClient(period) {
-  if (period !== 0) return launchClient(period);
-  return useDirect
-    ? DirectClient.launch(url, username, password)
-    : Costpoint.launch(url, username, password, system);
-}
+const launchSignClient = (period) => launchForPeriod(creds, period, { preloadPrevious: false });
 
-// Persistent session management — reuse one client across operations.
-// The session is bound to one period; asking for another relaunches it.
-let activeClient = null;
-let activeClientPeriod = 0;
-let clientIdleTimer = null;
-const CLIENT_IDLE_TIMEOUT = 5 * 60 * 1000; // 5 minutes
-
-async function getClient(period = 0) {
-  if (clientIdleTimer) clearTimeout(clientIdleTimer);
-
-  if (activeClient && activeClientPeriod !== period) {
-    await releaseClient();
-  }
-
-  if (!activeClient) {
-    console.log(`Creating new Costpoint session (period ${period})...`);
-    activeClient = await launchClient(period);
-    activeClientPeriod = period;
-    console.log('Session established.');
-  } else {
-    console.log('Reusing existing Costpoint session.');
-  }
-
-  clientIdleTimer = setTimeout(releaseClient, CLIENT_IDLE_TIMEOUT);
-  return activeClient;
-}
-
-async function releaseClient() {
-  if (clientIdleTimer) {
-    clearTimeout(clientIdleTimer);
-    clientIdleTimer = null;
-  }
-  if (activeClient) {
-    try { await activeClient.close(); } catch (e) { /* ignore */ }
-    activeClient = null;
-    console.log('Costpoint session released.');
-  }
-}
-
-function isSessionError(e) {
-  const msg = (e.message || '').toLowerCase();
-  return msg.includes('session') || msg.includes('not valid') ||
-         msg.includes('econnreset') || msg.includes('econnrefused') ||
-         msg.includes('socket hang up') || msg.includes('onservletexception');
-}
-
-async function withClient(fn, period = 0) {
-  try {
-    return await fn(await getClient(period));
-  } catch (e) {
-    if (isSessionError(e)) {
-      console.log('Session error, retrying with fresh login:', e.message);
-      await releaseClient();
-      return await fn(await getClient(period));
-    }
-    throw e;
-  }
-}
+// Persistent session management: one client reused across operations, bound
+// to one period.
+const { getClient, withClient, releaseClient } = createSessionManager({
+  launch: launchClient,
+  onLaunch: (period) => console.log(`Creating new Costpoint session (period ${period})...`),
+  onLaunched: () => console.log('Session established.'),
+  onReuse: () => console.log('Reusing existing Costpoint session.'),
+  onRetry: (e) => console.log('Session error, retrying with fresh login:', e.message),
+  onRelease: () => console.log('Costpoint session released.'),
+});
 
 // Cache file location — stores per-week data keyed by week start date
 const CACHE_FILE = path.join(os.homedir(), ".costpoint-cache.json");

@@ -7,14 +7,13 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const moment = require('moment');
-const DirectClient = require('./direct');
-const Costpoint = require('./costpoint');
 const { normalizeTimesheetStatus } = require('./timesheet-status');
 const { getCredentials } = require('./credentials');
 const { COMMON_CODES } = require('./charge-codes');
 const { normalizeWorkLocation } = require('./add-options');
 const numberPick = require('./number-pick');
 const { periodLabel, stepPeriod } = require('./tui-nav');
+const { launchForPeriod, createSessionManager } = require('./session');
 
 require('dotenv').config();
 
@@ -24,75 +23,16 @@ if (!creds) {
   process.exit(1);
 }
 
-const { url, username, password, system, useDirect } = creds;
-
 // ─── Session management ────────────────────────────────────────
 
 // One session at a time, bound to a period (0 = active week, N = N weeks
-// back). Asking for another period relaunches it: a past-week session is
-// launched fresh and moved to its period before anything else runs.
-let activeClient = null;
-let activeClientPeriod = 0;
-let clientIdleTimer = null;
-const CLIENT_IDLE_TIMEOUT = 5 * 60 * 1000;
-
-async function launchNewClient(period) {
-  if (!useDirect) {
-    if (period !== 0) throw new Error('Editing a past week requires direct mode (COSTPOINT_DIRECT=true)');
-    return Costpoint.launch(url, username, password, system);
-  }
-  if (period === 0) return DirectClient.launch(url, username, password, { loadPreviousPeriod: true });
-  const cp = await DirectClient.launch(url, username, password);
-  try {
-    await cp.selectPeriod(period);
-  } catch (e) {
-    try { await cp.close(); } catch (e2) { /* ignore */ }
-    throw e;
-  }
-  return cp;
-}
-
-async function getClient(period = 0) {
-  if (clientIdleTimer) clearTimeout(clientIdleTimer);
-  if (activeClient && activeClientPeriod !== period) await releaseClient();
-  if (!activeClient) {
-    setStatus('Logging in...');
-    render();
-    activeClient = await launchNewClient(period);
-    activeClientPeriod = period;
-  }
-  clientIdleTimer = setTimeout(releaseClient, CLIENT_IDLE_TIMEOUT);
-  return activeClient;
-}
-
-async function releaseClient() {
-  if (clientIdleTimer) { clearTimeout(clientIdleTimer); clientIdleTimer = null; }
-  if (activeClient) {
-    try { await activeClient.close(); } catch (e) { /* ignore */ }
-    activeClient = null;
-  }
-}
-
-function isSessionError(e) {
-  const msg = (e.message || '').toLowerCase();
-  return msg.includes('session') || msg.includes('not valid') ||
-         msg.includes('econnreset') || msg.includes('econnrefused') ||
-         msg.includes('socket hang up') || msg.includes('onservletexception');
-}
-
-async function withClient(fn, period = 0) {
-  try {
-    return await fn(await getClient(period));
-  } catch (e) {
-    if (isSessionError(e)) {
-      setStatus('Session expired, re-logging in...');
-      render();
-      await releaseClient();
-      return await fn(await getClient(period));
-    }
-    throw e;
-  }
-}
+// back). Asking for another period relaunches it.
+const session = createSessionManager({
+  launch: (period) => launchForPeriod(creds, period, { preloadPrevious: true }),
+  onLaunch: () => { setStatus('Logging in...'); render(); },
+  onRetry: () => { setStatus('Session expired, re-logging in...'); render(); },
+});
+const { getClient, withClient, releaseClient } = session;
 
 // ─── Cache (shared with web UI) ────────────────────────────────
 
@@ -531,7 +471,7 @@ function render() {
   }
   if (pendingChanges.size > 0) badges += ' ' + chalk.yellow(pendingChanges.size + ' unsaved');
   if (isProcessing) badges += ' ' + chalk.yellow(SPINNER[spinnerFrame]);
-  badges += activeClient ? ' ' + chalk.green('\u25cf') : ' ' + chalk.gray('\u25cb');
+  badges += session.current() ? ' ' + chalk.green('\u25cf') : ' ' + chalk.gray('\u25cb');
 
   const gap = Math.max(1, W - strip(title).length - strip(badges).length);
   lines.push(title + ' '.repeat(gap) + badges);
@@ -718,7 +658,7 @@ function render() {
       }
     }
   }
-  lines.push(statusMsg || chalk.dim('Ready' + (activeClient ? ' \u2022 session active' : '')));
+  lines.push(statusMsg || chalk.dim('Ready' + (session.current() ? ' \u2022 session active' : '')));
 
   // ── Write ──
   process.stdout.write('\x1b[H' + lines.slice(0, H).map(l => l + '\x1b[K').join('\n') + '\x1b[J');

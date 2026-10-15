@@ -2,6 +2,7 @@
 
 const Costpoint = require("./costpoint");
 const DirectClient = require("./direct");
+const { assertBackReachable } = require("./week-label");
 
 const DEFAULT_IDLE_MS = 5 * 60 * 1000;
 
@@ -25,6 +26,7 @@ async function launchForPeriod(creds, period, { preloadPrevious = false } = {}) 
   }
   const cp = await DirectClient.launch(url, username, password);
   try {
+    assertBackReachable(period, cp.getPeriods().length);
     await cp.selectPeriod(period);
   } catch (e) {
     try { await cp.close(); } catch (e2) { /* ignore */ }

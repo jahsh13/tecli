@@ -12,6 +12,7 @@ const { normalizeTimesheetStatus } = require("./timesheet-status");
 const { getCredentials, login, logout } = require("./credentials");
 const { COMMON_CODES, resolveAlias } = require("./charge-codes");
 const { normalizeWorkLocation } = require("./add-options");
+const { weekLabel, assertBackReachable } = require("./week-label");
 
 require("dotenv").config();
 
@@ -84,10 +85,6 @@ function resolveBack(options = {}) {
   return options.back || 0;
 }
 
-function weekLabel(back) {
-  return back === 1 ? "previous week" : `${back} weeks back`;
-}
-
 function withWeekOptions(command, verb) {
   return command
     .option("-p, --prev", `${verb} the previous week (direct mode only)`)
@@ -117,12 +114,7 @@ async function connect(options = {}) {
   if (back) {
     const p = spin(`Loading ${weekLabel(back)}...`);
     try {
-      const reach = cp.getPeriods().length - 1;
-      if (back > reach) {
-        throw new Error(
-          `Cannot go back ${back} weeks. Costpoint offers ${reach} past week${reach === 1 ? "" : "s"}.`,
-        );
-      }
+      assertBackReachable(back, cp.getPeriods().length);
       await cp.selectPeriod(back);
       p.succeed(`${weekLabel(back)[0].toUpperCase()}${weekLabel(back).slice(1)} loaded`);
     } catch (e) {

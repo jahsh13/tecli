@@ -7,73 +7,37 @@ const { z } = require('zod');
 const DirectClient = require('./direct');
 const { getCredentials } = require('./credentials');
 const { COMMON_CODES, resolveAlias } = require('./charge-codes');
+const { normalizeWorkLocation } = require('./add-options');
+const { normalizeTimesheetStatus } = require('./timesheet-status');
+const { launchForPeriod, createSessionManager } = require('./session');
+const { weekLabel } = require('./week-label');
 
 require('dotenv').config();
 
 const { RevisionRequiredError } = DirectClient;
 
-// ── Session management ─────────────────────────────────────────
-// Single persistent client, created on first use, auto-closed on idle.
-
-let client = null;
-let idleTimer = null;
-const IDLE_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes
-
-function resetIdleTimer() {
-  if (idleTimer) clearTimeout(idleTimer);
-  idleTimer = setTimeout(async () => {
-    if (client) {
-      await client.close().catch(() => {});
-      client = null;
-    }
-  }, IDLE_TIMEOUT_MS);
-}
-
-async function getClient() {
-  if (client) {
-    resetIdleTimer();
-    return client;
-  }
-
-  const creds = getCredentials();
-  if (!creds) {
-    throw new Error('No credentials found. Run `te login` to configure credentials, or set COSTPOINT_URL, COSTPOINT_USERNAME, and COSTPOINT_PASSWORD environment variables.');
-  }
-
-  client = await DirectClient.launch(creds.url, creds.username, creds.password);
-  resetIdleTimer();
-  return client;
-}
-
-async function withClient(fn) {
-  try {
-    const cp = await getClient();
-    return await fn(cp);
-  } catch (e) {
-    // Session expired — retry once with fresh client
-    if (client && (e.message.includes('session') || e.message.includes('Session') || e.message.includes('401') || e.message.includes('redirect'))) {
-      await client.close().catch(() => {});
-      client = null;
-      const cp = await getClient();
-      return await fn(cp);
-    }
-    throw e;
-  }
-}
+const backSchema = z.number().int().min(0).optional()
+  .describe('Weeks back from the current week (0 or omitted = current week, 1 = previous week). See list_weeks.');
 
 // ── Format helpers ─────────────────────────────────────────────
 
-function formatTimesheet(data) {
+function weekHeader(data, back) {
+  const label = back === 0 ? 'Current week' : weekLabel(back)[0].toUpperCase() + weekLabel(back).slice(1);
+  const first = data.dates[0].fullDate;
+  const last = data.dates[data.dates.length - 1].fullDate;
+  return `${label} (${first} to ${last}, back=${back})`;
+}
+
+function formatTimesheet(data, back) {
   const lines = [];
+  lines.push(weekHeader(data, back));
   lines.push(`Status: ${data.timesheetStatus} (Week ${data.payPeriodWeek} of ${data.payPeriodWeekCount})`);
   lines.push('');
 
-  // Header row
   const dayHeaders = data.dates.map(d => `${d.dayOfWeek} ${d.date}`);
   lines.push(['#', 'Project', 'Description', 'Pay Type', ...dayHeaders, 'Total'].join(' | '));
   lines.push('-'.repeat(lines[lines.length - 1].length));
 
-  // Project rows
   for (const p of data.projects) {
     const hours = data.dates.map(d => {
       const h = p.hours[d.date];
@@ -86,201 +50,301 @@ function formatTimesheet(data) {
   return lines.join('\n');
 }
 
+// Editing a processed past week reopens it; it must be signed again
+function signHint(data, back) {
+  if (!back || normalizeTimesheetStatus(data.timesheetStatusCode).tone !== 'open') return '';
+  return `\n\nWeek is Open again. Call sign_timesheet with back=${back}.`;
+}
+
+const text = (t, isError) => ({ content: [{ type: 'text', text: t }], ...(isError ? { isError: true } : {}) });
+
+function revisionResult(e, summary) {
+  const details = e.auditDetails.map(d => `Line ${d.lineNo}: ${d.description} (${d.project})`).join('\n');
+  const body = details ? `\n\nChanges requiring explanation:\n${details}` : '';
+  return text(`${summary} but save requires a revision explanation.${body}\n\nUse save_with_explanation to complete the save.`, true);
+}
+
 // ── MCP Server ─────────────────────────────────────────────────
 
-const server = new McpServer({
-  name: 'tecli',
-  version: '1.0.0',
-});
+/**
+ * Builds the tool server. options.creds replaces the stored credentials and
+ * options.idleMs the 5 minute idle release (both for tests). Returns
+ * { server, shutdown }; shutdown closes the held Costpoint session.
+ */
+function buildServer(options = {}) {
+  let pendingRevisionBack = null;
 
-// -- show --
-server.tool(
-  'show_timesheet',
-  'Show the current timesheet with status, project lines, hours, and comments for the active pay period.',
-  {},
-  async () => {
-    return await withClient(async (cp) => {
-      const data = cp.getData();
-      return { content: [{ type: 'text', text: formatTimesheet(data) }] };
-    });
-  },
-);
+  function credentials() {
+    const creds = options.creds || getCredentials();
+    if (!creds) {
+      throw new Error('No credentials found. Run `te login` to configure credentials, or set COSTPOINT_URL, COSTPOINT_USERNAME, and COSTPOINT_PASSWORD environment variables.');
+    }
+    // The MCP tools speak the direct protocol only
+    return { ...creds, useDirect: true };
+  }
 
-// -- set --
-server.tool(
-  'set_hours',
-  'Set hours for a specific project line and day on the timesheet. Saves immediately.',
-  {
-    line: z.number().int().describe('Project line number (0-based index from show_timesheet)'),
-    day: z.number().int().describe('Day of month (e.g. 14 for the 14th)'),
-    hours: z.number().describe('Number of hours to set (e.g. 8, 4.5, 0)'),
-    comment: z.string().optional().describe('Optional comment for the cell'),
-  },
-  async ({ line, day, hours, comment }) => {
-    return await withClient(async (cp) => {
-      await cp.set(line, day, hours, comment);
+  const manager = createSessionManager({
+    launch: period => launchForPeriod(credentials(), period),
+    idleMs: options.idleMs,
+    onRelease: () => { pendingRevisionBack = null; },
+  });
+  const { withClient, releaseClient } = manager;
+
+  // A session that is not shared with the edit session, closed right away
+  async function withThrowaway(fn) {
+    const cp = await launchForPeriod(credentials(), 0);
+    try {
+      return await fn(cp);
+    } finally {
+      await cp.close().catch(() => {});
+    }
+  }
+
+  // Edits waiting for a revision explanation live only on the current session
+  function guardRevision(back) {
+    if (pendingRevisionBack === null) return;
+    if (back !== pendingRevisionBack) {
+      throw new Error(`Week back=${pendingRevisionBack} has edits waiting for a revision explanation. Call save_with_explanation first; using another week now would discard them.`);
+    }
+  }
+
+  // Run mutate on the session for that week and save. Any failure other than
+  // a needed revision explanation drops the session so no half-done edit
+  // (a pending line, unsaved cells) survives into the next call.
+  async function editWeek(back, summary, mutate) {
+    guardRevision(back);
+    return withClient(async (cp) => {
       try {
+        const done = await mutate(cp);
         await cp.save();
+        const data = cp.getData();
+        return text(`${done}. Saved.\n\n${formatTimesheet(data, back)}${signHint(data, back)}`);
       } catch (e) {
         if (e instanceof RevisionRequiredError) {
-          const details = e.auditDetails.map(d =>
-            `Line ${d.lineNo}: ${d.description} (${d.project})`
-          ).join('\n');
-          return {
-            content: [{ type: 'text', text: `Hours set but save requires a revision explanation.\n\nChanges requiring explanation:\n${details}\n\nUse save_with_explanation to complete the save.` }],
-            isError: true,
-          };
+          pendingRevisionBack = back;
+          return revisionResult(e, summary);
         }
+        await releaseClient();
         throw e;
       }
-      const data = cp.getData();
-      return { content: [{ type: 'text', text: `Set line ${line}, day ${day} to ${hours}h. Saved.\n\n${formatTimesheet(data)}` }] };
-    });
-  },
-);
+    }, back);
+  }
 
-// -- setm --
-server.tool(
-  'set_hours_bulk',
-  'Set hours for multiple cells at once. Each change is a {line, day, hours, comment?} object. Saves after all changes.',
-  {
-    changes: z.array(z.object({
-      line: z.number().int().describe('Project line number'),
-      day: z.number().int().describe('Day of month'),
-      hours: z.number().describe('Hours to set'),
-      comment: z.string().optional().describe('Optional comment'),
-    })).describe('Array of cell changes'),
-  },
-  async ({ changes }) => {
-    return await withClient(async (cp) => {
+  const server = new McpServer({ name: 'tecli', version: '1.0.0' });
+
+  server.tool(
+    'list_weeks',
+    'List the weeks reachable from this login (about 20): back number, end date, status and whether it can be edited. Use the back number with the other tools.',
+    {},
+    async () => {
+      const periods = await withThrowaway(async cp => cp.getPeriods());
+      const lines = periods.map(p => {
+        const editable = p.editable === null ? 'unknown' : (p.editable ? 'yes' : 'no');
+        const status = normalizeTimesheetStatus(p.statusCode).label;
+        return `back=${p.idx} | week ending ${p.endDate} | ${status} | editable: ${editable}`;
+      });
+      return text(lines.join('\n'));
+    },
+  );
+
+  server.tool(
+    'show_timesheet',
+    'Show a timesheet with status, project lines and hours. Defaults to the current week; pass back for a past week.',
+    { back: backSchema },
+    async ({ back = 0 }) => {
+      guardRevision(back);
+      return withClient(async cp => text(formatTimesheet(cp.getData(), back)), back);
+    },
+  );
+
+  server.tool(
+    'set_hours',
+    'Set hours for a project line and day. Saves immediately. Editing a processed past week reopens it and asks for a revision explanation.',
+    {
+      line: z.number().int().describe('Project line number (0-based index from show_timesheet)'),
+      day: z.number().int().describe('Day of month (e.g. 14 for the 14th)'),
+      hours: z.number().describe('Number of hours to set (e.g. 8, 4.5, 0)'),
+      comment: z.string().optional().describe('Optional comment for the cell'),
+      back: backSchema,
+    },
+    async ({ line, day, hours, comment, back = 0 }) => editWeek(back, 'Hours set', async (cp) => {
+      await cp.set(line, day, hours, comment);
+      return `Set line ${line}, day ${day} to ${hours}h`;
+    }),
+  );
+
+  server.tool(
+    'set_hours_bulk',
+    'Set hours for multiple cells of one week at once. Each change is a {line, day, hours, comment?} object. Saves after all changes.',
+    {
+      changes: z.array(z.object({
+        line: z.number().int().describe('Project line number'),
+        day: z.number().int().describe('Day of month'),
+        hours: z.number().describe('Hours to set'),
+        comment: z.string().optional().describe('Optional comment'),
+      })).describe('Array of cell changes'),
+      back: backSchema,
+    },
+    async ({ changes, back = 0 }) => editWeek(back, `${changes.length} cells updated`, async (cp) => {
       for (const c of changes) {
         await cp.set(c.line, c.day, c.hours, c.comment);
       }
-      try {
-        await cp.save();
-      } catch (e) {
-        if (e instanceof RevisionRequiredError) {
-          const details = e.auditDetails.map(d =>
-            `Line ${d.lineNo}: ${d.description} (${d.project})`
-          ).join('\n');
-          return {
-            content: [{ type: 'text', text: `${changes.length} cells updated but save requires a revision explanation.\n\nChanges requiring explanation:\n${details}\n\nUse save_with_explanation to complete the save.` }],
-            isError: true,
-          };
-        }
-        throw e;
-      }
-      const data = cp.getData();
-      return { content: [{ type: 'text', text: `Updated ${changes.length} cell(s). Saved.\n\n${formatTimesheet(data)}` }] };
-    });
-  },
-);
+      return `Updated ${changes.length} cell(s)`;
+    }),
+  );
 
-// -- add --
-server.tool(
-  'add_project',
-  `Add a project/charge code to the timesheet. Saves after adding.\n\nShortcuts: ${COMMON_CODES.map(c => `${c.alias} (${c.label} → ${c.code})`).join(', ')}`,
-  {
-    code: z.string().describe('Project charge code (e.g. "ZLEAVE.CMP") or shortcut (e.g. "pto", "flex", "personal")'),
-    payType: z.string().optional().describe('Pay type (e.g. "REG", "RHB"). Required for multi-charge codes, auto-resolved for shortcuts.'),
-  },
-  async ({ code, payType }) => {
-    return await withClient(async (cp) => {
+  server.tool(
+    'add_project',
+    `Add a project/charge code to a timesheet. Saves after adding.\n\nShortcuts: ${COMMON_CODES.map(c => `${c.alias} (${c.label} → ${c.code})`).join(', ')}`,
+    {
+      code: z.string().describe('Project charge code (e.g. "ZLEAVE.CMP") or shortcut (e.g. "pto", "flex", "personal")'),
+      payType: z.string().optional().describe('Pay type (e.g. "REG", "RHB"). Required for multi-charge codes, auto-resolved for shortcuts.'),
+      workLocation: z.string().optional().describe('Work location zip code (5 digits or ZIP+4). Omit to keep the Costpoint default.'),
+      favorite: z.boolean().optional().describe('Also add the code to your Costpoint favorites'),
+      back: backSchema,
+    },
+    async ({ code, payType, workLocation, favorite, back = 0 }) => {
+      const zip = normalizeWorkLocation(workLocation);
       const alias = resolveAlias(code);
       if (alias) {
         if (!payType) payType = alias.payType;
         code = alias.code;
       }
-
       const label = payType ? `${code} (${payType})` : code;
-      await cp.add(code, payType);
+      let warning = '';
+      const result = await editWeek(back, `Added ${label}`, async (cp) => {
+        await cp.add(code, payType, { workLocation: zip });
+        if (favorite) {
+          try {
+            await cp.addToFavorites();
+          } catch (e) {
+            warning = `\n\nWarning: could not add to favorites: ${e.message}`;
+          }
+        }
+        return `Added ${label}`;
+      });
+      if (warning) result.content[0].text += warning;
+      return result;
+    },
+  );
+
+  server.tool(
+    'list_favorites',
+    'List the favorite charge codes saved in Costpoint. Favorites belong to the user, not to a week. Use the index with add_from_favorites.',
+    {},
+    async () => {
+      const favs = await withThrowaway(cp => cp.getFavorites());
+      if (favs.length === 0) return text('No favorites found.');
+      return text(favs.map((f, i) => `${i} | ${f.code} | ${f.description || ''} | ${f.payType || ''}`).join('\n'));
+    },
+  );
+
+  server.tool(
+    'add_from_favorites',
+    'Add a favorite charge code (by index from list_favorites) to a timesheet. Saves after adding.',
+    {
+      index: z.number().int().min(0).describe('Favorite index from list_favorites'),
+      workLocation: z.string().optional().describe('Work location zip code (5 digits or ZIP+4). Omit to keep the Costpoint default.'),
+      back: backSchema,
+    },
+    async ({ index, workLocation, back = 0 }) => {
+      const zip = normalizeWorkLocation(workLocation);
+      return editWeek(back, 'Favorite added', async (cp) => {
+        const favs = await cp.getFavorites();
+        if (index >= favs.length) {
+          throw new Error(`Favorite index ${index} out of range (0-${favs.length - 1})`);
+        }
+        const fav = favs[index];
+        await cp.add(fav.code, fav.payType || undefined, { workLocation: zip });
+        return `Added ${fav.payType ? `${fav.code} (${fav.payType})` : fav.code}`;
+      });
+    },
+  );
+
+  server.tool(
+    'sign_timesheet',
+    'Sign a timesheet (current week by default). This submits it for approval. Runs on its own fresh login, never on the session used for edits.',
+    { back: backSchema },
+    async ({ back = 0 }) => {
+      if (pendingRevisionBack !== null) {
+        throw new Error(`Week back=${pendingRevisionBack} has edits waiting for a revision explanation. Call save_with_explanation first; signing now would discard them.`);
+      }
+      await releaseClient();
+      const cp = await launchForPeriod(credentials(), back);
       try {
-        await cp.save();
-      } catch (e) {
-        if (e instanceof RevisionRequiredError) {
-          return {
-            content: [{ type: 'text', text: `Added ${label} but save requires a revision explanation. Use save_with_explanation.` }],
-            isError: true,
-          };
-        }
-        throw e;
+        await cp.sign();
+        return text(`Timesheet signed.\n\n${formatTimesheet(cp.getData(), back)}`);
+      } finally {
+        await cp.close().catch(() => {});
       }
-      const data = cp.getData();
-      return { content: [{ type: 'text', text: `Added ${label}. Saved.\n\n${formatTimesheet(data)}` }] };
-    });
-  },
-);
+    },
+  );
 
-// -- sign --
-server.tool(
-  'sign_timesheet',
-  'Sign the current timesheet. This submits the timesheet for approval.',
-  {},
-  async () => {
-    return await withClient(async (cp) => {
-      await cp.sign();
-      const data = cp.getData();
-      return { content: [{ type: 'text', text: `Timesheet signed.\n\n${formatTimesheet(data)}` }] };
-    });
-  },
-);
-
-// -- leave --
-server.tool(
-  'get_leave_balances',
-  'Show leave balances (PTO, personal, flex, etc.) and recent leave activity.',
-  {},
-  async () => {
-    return await withClient(async (cp) => {
-      const { balances, details } = await cp.getLeaveBalances();
-      const lines = [];
-
-      lines.push('Leave Balances:');
-      if (balances.length === 0) {
-        lines.push('  No leave balances found.');
-      } else {
-        for (const b of balances) {
-          lines.push(`  ${b.description}: ${b.balance.toFixed(4)}`);
-        }
+  server.tool(
+    'save_with_explanation',
+    'Save the timesheet with a revision explanation. Use this after an edit returns a "revision explanation required" error.',
+    {
+      explanation: z.string().describe('Explanation for the timesheet revision'),
+    },
+    async ({ explanation }) => {
+      if (pendingRevisionBack === null || !manager.current()) {
+        throw new Error('No revision explanation is pending. The session that held the edits was released, so redo the edit and save again.');
       }
-
-      if (details.length > 0) {
-        lines.push('');
-        lines.push('Recent Leave Activity:');
-        for (const d of details) {
-          lines.push(`  ${d.date} | ${d.type} | ${d.hours.toFixed(4)}h | ${d.leaveTypeDesc || d.leaveTypeCode}`);
-        }
-      }
-
-      return { content: [{ type: 'text', text: lines.join('\n') }] };
-    });
-  },
-);
-
-// -- save_with_explanation (for RevisionRequiredError recovery) --
-server.tool(
-  'save_with_explanation',
-  'Save the timesheet with a revision explanation. Use this after a set/add operation returns a "revision explanation required" error.',
-  {
-    explanation: z.string().describe('Explanation for the timesheet revision'),
-  },
-  async ({ explanation }) => {
-    return await withClient(async (cp) => {
+      const back = pendingRevisionBack;
+      const cp = await manager.getClient(back);
       await cp.saveWithExplanation(explanation);
+      pendingRevisionBack = null;
       const data = cp.getData();
-      return { content: [{ type: 'text', text: `Saved with explanation.\n\n${formatTimesheet(data)}` }] };
-    });
-  },
-);
+      return text(`Saved with explanation.\n\n${formatTimesheet(data, back)}${signHint(data, back)}`);
+    },
+  );
+
+  server.tool(
+    'get_leave_balances',
+    'Show leave balances (PTO, personal, flex, etc.) and recent leave activity.',
+    {},
+    async () => {
+      // Reuse whatever session is open so a pending revision is not dropped
+      const period = manager.current() ? manager.period : 0;
+      return withClient(async (cp) => {
+        const { balances, details } = await cp.getLeaveBalances();
+        const lines = ['Leave Balances:'];
+        if (balances.length === 0) {
+          lines.push('  No leave balances found.');
+        } else {
+          for (const b of balances) {
+            lines.push(`  ${b.description}: ${b.balance.toFixed(4)}`);
+          }
+        }
+
+        if (details.length > 0) {
+          lines.push('');
+          lines.push('Recent Leave Activity:');
+          for (const d of details) {
+            lines.push(`  ${d.date} | ${d.type} | ${d.hours.toFixed(4)}h | ${d.leaveTypeDesc || d.leaveTypeCode}`);
+          }
+        }
+
+        return text(lines.join('\n'));
+      }, period);
+    },
+  );
+
+  return { server, shutdown: releaseClient };
+}
 
 // ── Start ──────────────────────────────────────────────────────
 
 async function main() {
-  const transport = new StdioServerTransport();
-  await server.connect(transport);
+  const { server } = buildServer();
+  await server.connect(new StdioServerTransport());
 }
 
-main().catch((e) => {
-  console.error(e);
-  process.exit(1);
-});
+if (require.main === module) {
+  main().catch((e) => {
+    console.error(e);
+    process.exit(1);
+  });
+}
+
+module.exports = { buildServer };

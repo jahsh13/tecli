@@ -132,3 +132,17 @@ test("isSessionError matches known messages, any case", () => {
   assert.ok(!isSessionError(new Error("boom")));
   assert.ok(!isSessionError({}));
 });
+
+test("launchForPeriod rejects a period beyond the loaded weeks, with the CLI message", async () => {
+  const { startMock } = require("./mock-helper");
+  const mock = await startMock();
+  try {
+    const creds = { url: mock.url, username: "mock", password: "mock", useDirect: true };
+    await assert.rejects(() => launchForPeriod(creds, 25), /Cannot go back 25 weeks. Costpoint offers 19 past weeks./);
+    const cp = await launchForPeriod(creds, 19);
+    assert.equal(cp.getData().dates[6].fullDate, "2026-06-07");
+    await cp.close();
+  } finally {
+    await mock.stop();
+  }
+});

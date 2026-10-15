@@ -4,10 +4,11 @@ CLI + web UI + TUI for Costpoint timesheet management.
 
 ## Architecture
 
-Three interfaces, two client modes:
+Four interfaces, two client modes:
 - **CLI** (`cli.js`) — one-shot Commander commands, each invocation creates/destroys a session. `--prev` / `-b, --back <n>` select a past week (direct mode)
 - **Web UI** (`server.js`) — Express on port 3000, persistent session across HTTP requests
 - **TUI** (`tui.js`) — interactive terminal UI, persistent session across operations
+- **MCP server** (`mcp-server.js`) — stdio tools for AI assistants, direct mode only. Every week tool takes `back` (0 = current). Session rules come from `session.js`; `sign_timesheet` always signs on its own fresh login; a pending revision explanation is tracked per week (`pendingRevisionBack`)
 
 Two client modes (set via env vars):
 - **DirectClient** (`direct.js`) — binary HTTP protocol to MasterServlet.cps. Use `COSTPOINT_DIRECT=true`.
@@ -20,6 +21,9 @@ Key files:
 - `cli.js` — Commander CLI
 - `server.js` — Express web UI (port 3000)
 - `tui.js` — Interactive terminal UI (raw ANSI + readline, zero extra deps)
+- `session.js` — Shared session logic for the web UI, TUI and MCP: `launchForPeriod()`, `isSessionError()`, `createSessionManager()`
+- `week-label.js` — Week wording and the `back` reach check, shared by the CLI and MCP
+- `mock/` — Stateful Costpoint mock (see Testing)
 - `timesheet-status.js` — Status code normalization (A/M/O/P/R/S)
 - `public/app.js` — Client-side vanilla JS
 - `public/styles.css` — Dark theme ("Str8 Outta Deltek")
@@ -39,12 +43,9 @@ Single-page app with server-rendered HTML (no framework, no template engine). Al
 - Per-week headers show date range, status badge, and a Sign button on each editable unsigned week (Copy Thu -> Fri on the active week only). Add Project and Favorites modals pick a target week from the two visible ones.
 
 ### Session management
-- `server.js` keeps a persistent `DirectClient` session (`activeClient`) across operations
-- The session is bound to one period (`activeClientPeriod`: the period number). `getClient(period)` reuses it for the same period and relaunches for the other one. `releaseClient()` tears it down.
-- Period rule: a past-week session is launched fresh and moved with `selectPeriod(n)` before anything else runs (launch → select → set → save), the same fresh-session rule as signing
-- 5-minute idle timeout auto-releases the session
-- `withClient(fn, period)` wraps operations with auto-retry on session errors (re-login once)
-- `fetchFreshData()` always releases + re-creates (wants fresh data); save/add reuse; sign launches its own fresh session for the week's period (`launchSignClient()`)
+- Session logic lives in `session.js` (web UI, TUI and MCP share it): one `DirectClient` bound to one period, relaunched when the period changes, released after 5 idle minutes, one retry on a session error (`isSessionError`). `launchForPeriod(creds, period, { preloadPrevious })` is the launch rule. The hooks (`onLaunch`, `onReuse`, `onRetry`, `onRelease`) carry the per-interface logging and redraw.
+- Period rule: a past-week session is launched fresh and moved with `selectPeriod(n)` before anything else runs (launch → select → set → save), the same fresh-session rule as signing. `back` beyond `getPeriods().length - 1` fails with the shared message in `week-label.js`.
+- `server.js`: `launchClient` preloads the previous week, `launchSignClient` does not. `fetchFreshData()` always releases + re-creates (wants fresh data); save/add reuse; sign launches its own fresh session for the week's period (`signTimesheet()`)
 
 ### Thursday workflow
 - Per-week Sign buttons in the week header row (replaces old global "Sign Timesheet" button)
@@ -102,5 +103,10 @@ Captured traffic lives in `captured/` — named descriptively (e.g., `leave-bala
 
 ## Testing
 
-- Mock backend: `~/dev/deltek_ui/mock-backend/` on port 4000
-- To test against mock: `COSTPOINT_URL="http://localhost:4000/..." COSTPOINT_DIRECT=true node cli.js ...`
+- `npm test` runs everything, including the mock, session and MCP tests.
+- Mock backend: `npm run mock` (`mock/`, port 4000, `MOCK_PORT`). Stateful: edits, Correct, revisions, sign, add, favorites and leave work end to end. Seed: P0 Open, P1 Processed and correctable, P2 Signed, P3+ Processed. State is in memory (`POST /__mock/reset`, `POST /__mock/expire?sid=all`, `GET /__mock/state`; `MOCK_STATE_FILE` keeps it).
+- Point a client at it: `COSTPOINT_URL='http://localhost:4000/cpweb/cploginform.htm?system=MOCK' COSTPOINT_USERNAME=mock COSTPOINT_PASSWORD=mock COSTPOINT_DIRECT=true node cli.js ...`
+- Env: `MOCK_TODAY`, `MOCK_USER`/`MOCK_PASSWORD`, `MOCK_SESSION_TTL_MS`, `MOCK_STATE_FILE`, `MOCK_QUIRKS` (comma list: `sign-poison`, `auto-required`, `favorites-primer` on by default; `correct-stale`, `favsave-no204` opt-in).
+- The mock encodes what `direct.js` expects. Only `test/mock-codec.test.js` (re-encoding `captured/` responses) checks it against the real protocol, so a green mock run is not proof of live behavior.
+- Not emulated: SSO, the AES password path, Costpoint business validation, K0 paging past 20 rows, compressed responses, Puppeteer mode.
+- `mock/fixture.json` is built from local captures by `node mock/build-fixture.js` (anonymised, leak-scanned against `mock/deny.json`). `test/fixtures/small.json` is the hand-written scenario it starts from.

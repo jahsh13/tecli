@@ -10,7 +10,7 @@
 
 ## Caps
 - About 20 weeks back. The init fetch loads K0 rows 0-20 and `getPeriods()` reports only those. The browser pages K0 further (`S20 E40 K0 C19`), the client does not.
-- MCP server tools stay active-week only. The Puppeteer client stays active-week only.
+- The Puppeteer client stays active-week only. (The MCP tools gained `back`, see `mcp-parity.md`.)
 
 ## Capture vs `_buildPeriodFetch`
 - Browser arrow fetch: K1 pair only, `S0 E45` and `S-59999 E-59954`. No K0 fetch.

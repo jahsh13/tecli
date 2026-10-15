@@ -48,15 +48,40 @@ The MCP server exposes timesheet tools to AI assistants like Claude. It uses std
 
 ### Available tools
 
+Tools that work on a week take `back`: weeks back from the current one (0 or omitted = current, 1 = previous week). `list_weeks` shows what is reachable.
+
 | Tool | Description |
 |------|-------------|
-| `show_timesheet` | Show current timesheet with hours, status, and comments |
-| `set_hours` | Set hours for a specific line and day |
-| `set_hours_bulk` | Set hours for multiple cells at once |
-| `add_project` | Add a charge code (supports shortcuts: `pto`, `flex`, `personal`, `holiday`, `lwop`, `holdefer`) |
-| `sign_timesheet` | Sign/submit the timesheet |
+| `list_weeks` | List the reachable weeks (about 20) with back number, end date, status and whether they can be edited |
+| `show_timesheet` | Show a week's hours, status and comments (`back?`) |
+| `set_hours` | Set hours for one line and day, with an optional comment (`line`, `day`, `hours`, `comment?`, `back?`) |
+| `set_hours_bulk` | Set several cells of one week at once (`changes[]`, `back?`) |
+| `add_project` | Add a charge code to a week (`code`, `payType?`, `workLocation?`, `favorite?`, `back?`). Shortcuts: `pto`, `flex`, `personal`, `holiday`, `lwop`, `holdefer` |
+| `list_favorites` | List the favorites saved in Costpoint |
+| `add_from_favorites` | Add a favorite by index to a week (`index`, `workLocation?`, `back?`) |
+| `sign_timesheet` | Sign a week on its own fresh login (`back?`) |
+| `save_with_explanation` | Finish a save that needs a revision explanation |
 | `get_leave_balances` | Show leave balances and recent activity |
-| `save_with_explanation` | Save with a revision explanation (when required) |
+
+### Using the MCP server
+
+Ask in plain language. Each task below is a prompt and the tools it ends up calling.
+
+- **See a week.** "Show my timesheet" calls `show_timesheet`. "Show last week" calls it with `back=1`. "Which weeks can I reach?" calls `list_weeks`.
+- **Set hours.** "Put 8 hours on line 0 for the 14th" calls `set_hours`. "Fill Monday to Friday with 8 hours on line 0, comment 'on site' on Wednesday" calls `set_hours_bulk` with one change per day. Each call saves.
+- **Add a code.** "Add PTO" resolves the `pto` shortcut and calls `add_project`. "Add PROJ.M.400 as RHB, work location 20190, and save it to my favorites" calls `add_project` with `payType`, `workLocation` and `favorite`. A multi-charge code needs its pay type.
+- **Pick from favorites.** "What are my favorites?" calls `list_favorites`. "Add the second one to this week" calls `add_from_favorites` with `index=1`.
+- **Fix a processed past week.** "Change line 0 on the 5th to 4 hours last week" calls `set_hours` with `back=1`. Costpoint reopens the week and asks for a revision explanation, so the call returns an error that lists the changes. Give the reason ("late correction") and the assistant calls `save_with_explanation`. The week is Open again, so then "sign last week" calls `sign_timesheet` with `back=1`.
+- **Sign.** "Sign my timesheet" calls `sign_timesheet`. "Sign last week" calls it with `back=1`.
+- **Leave.** "How much PTO do I have?" calls `get_leave_balances`.
+
+### Limits
+
+- One Costpoint session at a time, tied to one week. A call for another week opens a new session.
+- A pending revision explanation lives on that session. Another week's call is refused until `save_with_explanation` runs, and a release of the session (5 minutes idle) drops it. The edit then has to be redone.
+- `sign_timesheet` always logs in again, because Costpoint ignores a sign on a session that has already edited.
+- About 20 weeks back, the weeks Costpoint loads.
+- Direct mode only. The MCP server always uses the direct protocol.
 
 ### Installing in Claude Code
 
@@ -110,6 +135,29 @@ The MCP server uses the same credential resolution as the CLI:
 2. Environment variables (`COSTPOINT_URL`, `COSTPOINT_USERNAME`, `COSTPOINT_PASSWORD`)
 
 If you haven't run `te login` yet, do that first — the MCP server picks up stored credentials automatically.
+
+## Testing against the mock
+
+`npm run mock` starts a stateful Costpoint stand-in on port 4000 (`MOCK_PORT` to change it). It serves a seed scenario: the current week Open, last week Processed and correctable, the week before Signed, older weeks Processed, plus a charge catalog, favorites and leave balances. Point any interface at it:
+
+```bash
+export COSTPOINT_URL='http://localhost:4000/cpweb/cploginform.htm?system=MOCK' COSTPOINT_USERNAME=mock COSTPOINT_PASSWORD=mock COSTPOINT_DIRECT=true
+node cli.js show --back 1
+node cli.js sign -y
+npx @modelcontextprotocol/inspector node mcp-server.js
+```
+
+State lives in memory, so restarting the mock resets it. `POST /__mock/reset` resets it in place, `POST /__mock/expire?sid=all` drops every login (to see the retry), and `GET /__mock/state` dumps it.
+
+| Variable | Effect |
+|----------|--------|
+| `MOCK_TODAY` | Fix "today" (`YYYY-MM-DD`); weeks are computed from it |
+| `MOCK_USER`, `MOCK_PASSWORD` | Require this login (any login works when unset) |
+| `MOCK_SESSION_TTL_MS` | Expire idle logins |
+| `MOCK_STATE_FILE` | Keep state across restarts |
+| `MOCK_QUIRKS` | Comma list of live behaviors to reproduce |
+
+Quirks: `sign-poison` (a sign on a worked session is silently ignored), `auto-required` (a past-week fetch returns the current week unless the `R=AUTO` fetch ran first) and `favorites-primer` (favorites need the categories lookup first) are on by default. `correct-stale` (the Correct response still shows the week closed) and `favsave-no204` (a save after add-to-favorites returns no row data) are opt-in.
 
 ## Disclaimer
 

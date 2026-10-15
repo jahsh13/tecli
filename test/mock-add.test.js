@@ -45,7 +45,7 @@ describe('mock add', () => {
   test('the server fills the default work location', async () => {
     const cp = await mock.launch();
     await cp.add('PROJ.C.300');
-    assert.deepEqual(cp.pendingLine(), { payType: 'REG', workLocation: '62226' });
+    assert.deepEqual(cp.pendingLine(), { payType: 'REG', workLocation: mock.db.employee.zip });
   });
 
   test('a work location override is saved', async () => {
@@ -65,7 +65,7 @@ describe('mock add', () => {
     const cp = await mock.launch();
     let seen;
     await cp.add('PROJ.C.300', undefined, { workLocation: async p => { seen = p; return '20190'; } });
-    assert.equal(seen.workLocation, '62226');
+    assert.equal(seen.workLocation, mock.db.employee.zip);
     assert.equal(cp.pendingLine().workLocation, '20190');
   });
 

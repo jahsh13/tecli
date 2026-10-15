@@ -9,7 +9,8 @@
     "server": "node cli.js server",
     "tui": "node cli.js tui",
     "mcp": "node mcp-server.js",
-    "test": "node --test test/**/*.test.js"
+    "test": "node --test test/**/*.test.js",
+    "mock": "node mock/server.js"
   },
   "keywords": [
     "cli",

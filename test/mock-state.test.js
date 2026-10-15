@@ -3,7 +3,7 @@
 const { test, describe } = require('node:test');
 const assert = require('node:assert/strict');
 const { Db, Session, PARENT, CHILD, PARENT_DB_COLS } = require('../mock/state');
-const fixture = require('../mock/fixture.json');
+const fixture = require('./fixtures/small.json');
 
 // 2026-10-15 is a Thursday, so period 0 ends Sunday 2026-10-18
 const TODAY = '2026-10-15';

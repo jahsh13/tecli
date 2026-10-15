@@ -44,6 +44,7 @@ function makeClient(sid = CAPTURE_SID) {
 // captured/ is gitignored (live session data), so these only run where the capture exists.
 describe('addToFavorites batch', { skip: !fs.existsSync(CAPTURE_DIR) && 'captured/add-favorite not present' }, () => {
   const client = makeClient();
+  client._actionSeq = 1;
   const actual = commands(new URLSearchParams(client._buildAddToFavoritesBatch(CHILD_ROWS - 1)));
   const expected = commands(loadCapture('024'));
 
@@ -82,6 +83,39 @@ describe('addToFavorites', () => {
     const client = makeClient();
     client._postServlet = async () => 'var responses=[["TMMTIMESHEET|0|507|0|0|0|0"],null,[null],["<OK>"]];';
     await client.addToFavorites();
+  });
+});
+
+describe('action counter', () => {
+  test('grows with every CMD 300 action in a session', () => {
+    const client = makeClient();
+    assert.equal(client._nextActionSeq(), 1);
+    assert.equal(client._nextActionSeq(), 2);
+    const seq = body => new URLSearchParams(body).get('reqIdx');
+    assert.equal(seq(client._buildAddToFavoritesBatch(CHILD_ROWS - 1)), '3');
+    assert.equal(seq(client._buildAddToFavoritesBatch(CHILD_ROWS - 1)), '4');
+  });
+});
+
+describe('save after add-to-favorites', () => {
+  test('re-fetches when the save response carries no 204 data', async () => {
+    const client = makeClient();
+    client.parentData.rows[0] = Array(700).fill('');
+    client.parentData.rowNums = ['0'];
+    client._buildTableRows = () => {};
+    const sent = [];
+    const fresh = { rowNums: ['0', '1'], rowFlags: ['0', '0'], rows: [[], []] };
+    client._postServlet = async body => {
+      sent.push(body);
+      return sent.length === 1
+        ? 'var responses=[["TMMTIMESHEET|0|206|0|0|0|0","TMMTIMESHEET|-1|507|0|0|0|0"],"00",["<NO DATA>","<NO DATA>"],["<OK>","<OK>"]];'
+        : 'refetch';
+    };
+    let refetches = 0;
+    client._refetchTimesheet = async () => { refetches++; client.childData = fresh; };
+    await client.save();
+    assert.equal(refetches, 1);
+    assert.deepEqual(client.childData.rowNums, ['0', '1']);
   });
 });
 

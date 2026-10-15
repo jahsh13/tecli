@@ -4,12 +4,21 @@ const http = require('http');
 const https = require('https');
 const { URL } = require('url');
 const crypto = require('crypto');
+const fs = require('fs');
 const moment = require('moment');
 const Table = require('cli-table');
 const protocol = require('./protocol');
 const { normalizeTimesheetStatus } = require('./timesheet-status');
 
 const debug = process.env.DEBUG ? (...args) => console.error(...args) : () => {};
+
+// COSTPOINT_TRACE=<file> appends every servlet request/response as JSON lines.
+// The bodies carry the session id, so the file is created owner-only.
+const tracePath = process.env.COSTPOINT_TRACE;
+function trace(entry) {
+  if (!tracePath) return;
+  fs.appendFileSync(tracePath, JSON.stringify(entry) + '\n', { mode: 0o600 });
+}
 
 const APP_ID = 'TMMTIMESHEET';
 const NUM_DAYS = 7;
@@ -71,6 +80,7 @@ class DirectClient {
     this.parentData = null;
     this.childData = null;
     this.lastPutId = 0;
+    this._actionSeq = 0;
     this.dates = null;
     this._openAppResponse = '';
     this._openRsParentResponse = '';
@@ -532,6 +542,7 @@ class DirectClient {
     const newRow = this.childData.rows[newRowIdx];
     const rowNum = this.childData.rowNums[newRowIdx];
     const parentRow = this.parentData.rows[0];
+    const actionSeq = this._nextActionSeq();
 
     const encodedChild = protocol.encodePutRow(newRow);
     const encodedParent = protocol.encodePutRow(parentRow);
@@ -581,10 +592,10 @@ class DirectClient {
         editFlag: '19,',
         rowNumber: rowNum + ',',
       }),
-      ...this._pendingLineActionTail('TMMTS_NEW_TS_LINE', rowNum, 1),
+      ...this._pendingLineActionTail('TMMTS_NEW_TS_LINE', rowNum, actionSeq),
     ];
 
-    const body = this._buildPendingLineActionBody(cmds, 1);
+    const body = this._buildPendingLineActionBody(cmds, actionSeq);
     const respText = await this._postServlet(body);
 
     if (respText.includes('onServletException')) {
@@ -605,10 +616,19 @@ class DirectClient {
   }
 
   /**
+   * The browser's per-session CMD 300 action counter (procUniqueId suffix and
+   * reqIdx). It grows with every action: a repeated value gets an empty
+   * response, which broke the second add in a long-lived (TUI/web) session.
+   */
+  _nextActionSeq() {
+    this._actionSeq = (this._actionSeq || 0) + 1;
+    return this._actionSeq;
+  }
+
+  /**
    * CMD 300 action on the pending row plus the 204 refetch and keepalive.
-   * actionSeq is the browser's per-session action counter: it ends the
-   * procUniqueId and is sent as reqIdx (NEW_TS_LINE is 1, the favorites
-   * action after it is 2 in capture add-favorite/).
+   * actionSeq is the value from _nextActionSeq() (capture add-favorite/: NEW_TS_LINE
+   * is 1, the favorites action after it is 2).
    */
   _pendingLineActionTail(actionId, rowNum, actionSeq, refetchOpts) {
     return [
@@ -662,6 +682,7 @@ class DirectClient {
   }
 
   _buildAddToFavoritesBatch(rowIdx) {
+    const actionSeq = this._nextActionSeq();
     const rowNum = this.childData.rowNums[rowIdx];
     const encodedChild = protocol.encodePutRow(this.childData.rows[rowIdx]);
     const encodedParent = protocol.encodePutRow(this.parentData.rows[0]);
@@ -701,12 +722,12 @@ class DirectClient {
         { code: 'P', value: '0' }, { code: 'V', value: 'true' },
         { name: 'lastPutId', value: String(this.lastPutId++) },
       ]), childOpts),
-      ...this._pendingLineActionTail('TMMTS_ADD_LINE_TO_FAVORITES', rowNum, 2, {
+      ...this._pendingLineActionTail('TMMTS_ADD_LINE_TO_FAVORITES', rowNum, actionSeq, {
         nonDb: false,
         childCursor: rowNum,
       }),
     ];
-    return this._buildPendingLineActionBody(cmds, 2);
+    return this._buildPendingLineActionBody(cmds, actionSeq);
   }
 
   async save() {
@@ -753,8 +774,27 @@ class DirectClient {
     if (k0Data) this.parentData = k0Data;
     if (k1Data) this.childData = k1Data;
 
+    // A save that follows add-to-favorites returns no 204 data. Without a
+    // re-fetch the saved line stays a pending row (-59999) in local state,
+    // and the next add() reuses it and re-saves it as a duplicate.
+    if (!k1Data) await this._refetchTimesheet();
+
     this._buildTableRows();
     debug('Timesheet saved.');
+  }
+
+  /** Re-read the selected period's parent and child rows from the server. */
+  async _refetchTimesheet() {
+    const resp = await this._postServlet(protocol.buildRequestBody(this.sid, [
+      ...this._get204(0),
+      ...this._get204(1),
+      this._keepalive(),
+    ]));
+    const parsed = protocol.parseResponse(resp);
+    const k0Data = protocol.extract204(parsed, 0);
+    const k1Data = protocol.extract204(parsed, 1);
+    if (k0Data) this.parentData = k0Data;
+    if (k1Data) this.childData = k1Data;
   }
 
   /**
@@ -1031,16 +1071,7 @@ class DirectClient {
     // The sign-confirm save returns no 204 data (unlike normal saves), so
     // save()'s refresh is a no-op and local state still shows unsigned.
     // Re-fetch explicitly so callers (and the web UI cache) see the new status.
-    const refreshResp = await this._postServlet(protocol.buildRequestBody(this.sid, [
-      ...this._get204(0),
-      ...this._get204(1),
-      this._keepalive(),
-    ]));
-    const refreshParsed = protocol.parseResponse(refreshResp);
-    const freshK0 = protocol.extract204(refreshParsed, 0);
-    const freshK1 = protocol.extract204(refreshParsed, 1);
-    if (freshK0) this.parentData = freshK0;
-    if (freshK1) this.childData = freshK1;
+    await this._refetchTimesheet();
     this._buildTableRows();
 
     const status = this.parentData.rows[0][PARENT_COL.S_STATUS_CD];
@@ -1586,6 +1617,7 @@ class DirectClient {
   async _postServlet(body) {
     const resp = await this._http('POST', '/cpweb/MasterServlet.cps', body,
       'application/x-www-form-urlencoded', { headers: this._servletHeaders() });
+    trace({ time: new Date().toISOString(), request: body, response: resp.body });
     return resp.body;
   }
 
@@ -2776,6 +2808,7 @@ class DirectClient {
    * Matches the browser's 14-command batch: 6 PUTs + CMD 300 + 6 204s + 507.
    */
   _buildChargeLkpOk(selectedK2Row, k2RowNum) {
+    const actionSeq = this._nextActionSeq();
     const newRowIdx = this.childData.rowNums.findIndex(n => parseInt(n, 10) < 0);
     const childRow = this.childData.rows[newRowIdx];
     const parentRow = this.parentData.rows[0];
@@ -2864,7 +2897,7 @@ class DirectClient {
         { name: 'restartFl', value: 'false' },
         { code: 'C', value: '0' },
         { name: 'longRunActionFl', value: '0' },
-        { name: 'procUniqueId', value: APP_ID + ':A:' + this.sid + ':2' },
+        { name: 'procUniqueId', value: APP_ID + ':A:' + this.sid + ':' + actionSeq },
         { name: 'psSchWorkflowNotifyFl', value: 'false' },
         { code: 'K', value: '2' },
         { code: 'P', value: '1' },
@@ -2906,9 +2939,9 @@ class DirectClient {
       // 14. keepalive
       this._keepalive(),
     ];
-    // reqIdx=2 tells the server the action context is K2 (charge lookup RS).
+    // reqIdx tells the server the action context (K2, the charge lookup RS).
     // Without this, the server ignores the K2 row selection.
-    return protocol.buildRequestBody(this.sid, cmds) + '&reqIdx=2';
+    return protocol.buildRequestBody(this.sid, cmds) + '&reqIdx=' + actionSeq;
   }
 }
 

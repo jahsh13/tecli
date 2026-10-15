@@ -209,7 +209,7 @@ ${name}$N\x08{value}P\x07
 |------|---------|
 | rsType | Row set type: M (master), SR (sub-record), L (lookup) |
 | objectId | Field being validated (e.g., UDT02_ID, DAY4_HRS) |
-| actionId | Action name for CMD 300 (TMMTS_NEW_TS_LINE, TC_TS_CHARGE_LKP_OK) |
+| actionId | Action name for CMD 300 (TMMTS_NEW_TS_LINE, TMMTS_ADD_LINE_TO_FAVORITES, TC_TS_CHARGE_LKP_OK) |
 | lastPutId | Incrementing counter per-session, tracks PUT ordering |
 | checkCache | Hash of previous response for cache validation (Java String.hashCode()) |
 | rsContextOnly | "Y" — PUT is context-only, not a data mutation |
@@ -499,10 +499,10 @@ Each child row is a timesheet line (one project). The row has **402 columns**.
 | 2 | LINE_DESC | Project description |
 | 4 | CHARGE_ID (UDT01_ID) | Charge identifier (e.g., ZTC-DL-000-0000). **Must be kept in PUT data** — clearing causes "Account required" |
 | 6 | UDT02_ID | Project code (e.g., ZLEAVE.CMP) |
-| 8 | UDT03_ID (PLC) | Project Labor Category |
+| 8 | UDT03_ID | Work location (zip code). Server default filled at charge resolution. Change = PUT K1 + CMD 208 `UDT03_ID` (captured/work-location/) |
 | 14 | ACCOUNT | Account (populated by server after charge resolution) |
 | 16 | PAY_TYPE (UDT10_ID) | Pay type (e.g., REG, RHB). **Must NOT be manually set for multi-charge codes** |
-| 17 | WORK_LOCATION | Work location |
+| 17 | WORK_LOCATION | Empty on charge-code lines, `00` on leave lines. Not the zip the UI shows |
 | 96 | TOTAL_ENTERED | Computed total hours for the row |
 | 101 | LEAVE_TYPE1 | Leave type |
 | 105 | PROJECT2 | Secondary project reference |
@@ -828,6 +828,24 @@ is not committed, causing "Account required" on save.
 #### Step 5: Save
 
 Normal save flow with editFlag=19 for the new row.
+
+#### Optional: Add to Favorites (between Step 4 and Step 5)
+
+CMD 300 `TMMTS_ADD_LINE_TO_FAVORITES` on the pending row (capture `add-favorite/` request 024, `DirectClient.addToFavorites()`). Same shape as NEW_TS_LINE, with these differences:
+
+```
+Batch: [205 PUT K1 rsRowSelectedFlOnly (editFlag 83, no lastPutId)
+      + 205 PUT K1 (83) + 205 PUT K0 ctx (editFlag 65562)
+      + 205 PUT K1 ctx (83) + 300 action + 204 K0+ + 204 K0-
+      + 204 K1+ + 204 K1- (cursor C=-59999) + 507]
+  + &reqIdx=2
+
+  - actionId: TMMTS_ADD_LINE_TO_FAVORITES
+  - procUniqueId: TMMTIMESHEET:A:{sid}:2 (second action in the session)
+  - 204 K0+ has no nonDBSize/nonDBStart
+```
+
+The response is all `<OK>` with no message text. Not captured: the action on an already-saved row.
 
 ### Multi-Charge Resolution
 

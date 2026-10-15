@@ -93,6 +93,54 @@ describe('add() pending-row management', () => {
   });
 });
 
+// ─── add() work location ──────────────────────────────────────────────────
+
+describe('add() work location', () => {
+  function stubbed() {
+    const client = makeStubClient();
+    client._stagePendingLine();
+    client._newTimesheetLine = async () => {};
+    client._validateUdt02 = async () => {};
+    client._resolveChargeOnServer = async () => {};
+    client._buildTableRows = () => {};
+    const validated = [];
+    client._validateObject = async id => { validated.push(id); };
+    return { client, validated };
+  }
+
+  test('no workLocation: no extra validate, column untouched', async () => {
+    const { client, validated } = stubbed();
+    await client.add('ZLEAVE.CMP', 'REG');
+    assert.deepEqual(validated, []);
+    assert.equal(client.pendingLine().workLocation, '');
+  });
+
+  test('workLocation: sets col 8 and validates UDT03_ID', async () => {
+    const { client, validated } = stubbed();
+    await client.add('ZLEAVE.CMP', 'REG', { workLocation: '62226' });
+    assert.deepEqual(validated, ['UDT03_ID']);
+    assert.equal(client.pendingLine().workLocation, '62226');
+  });
+
+  test('_validateObject sends 205, 205 context, 208 with the object id', async () => {
+    const client = makeStubClient();
+    client._stagePendingLine();
+    let body;
+    client._postServlet = async b => { body = b; return OK_RESPONSE; };
+    await client._validateObject('UDT03_ID');
+    const params = new URLSearchParams(body);
+    const cmds = params.get('cmd').split(protocol.DLM_RS);
+    assert.match(cmds[0], /^205/);
+    assert.match(cmds[1], /^205/);
+    assert.match(cmds[2], /^208/);
+    assert.match(cmds[2], /UDT03_ID/);
+  });
+
+  test('pendingLine is null without a pending row', () => {
+    assert.equal(makeStubClient().pendingLine(), null);
+  });
+});
+
 // ─── _resolveChargeOnServer charge selection ───────────────────────────────
 
 describe('_resolveChargeOnServer charge selection', () => {
@@ -262,5 +310,25 @@ describe('add builders take the period from periodIdx', () => {
     assert.ok(tokens.includes('X0'));
     assert.ok(tokens.some((t, i) => t === 'K0' && tokens[i + 1] === 'C0'));
     assert.ok(!tokens.includes('X1'));
+  });
+});
+
+describe('add() work location callback', () => {
+  test('function form receives pendingLine and its result is applied', async () => {
+    const client = makeStubClient();
+    client._stagePendingLine();
+    client._newTimesheetLine = async () => {};
+    client._validateUdt02 = async () => {};
+    client._resolveChargeOnServer = async () => {};
+    client._buildTableRows = () => {};
+    const validated = [];
+    client._validateObject = async id => { validated.push(id); };
+    let seen;
+    await client.add('ZLEAVE.CMP', 'REG', {
+      workLocation: async pending => { seen = pending; return '62221'; },
+    });
+    assert.deepEqual(seen, { payType: '', workLocation: '' });
+    assert.deepEqual(validated, ['UDT03_ID']);
+    assert.equal(client.pendingLine().workLocation, '62221');
   });
 });

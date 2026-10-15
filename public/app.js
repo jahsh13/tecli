@@ -777,11 +777,12 @@
         return;
       }
 
-      let html = '<table class="leave-table"><thead><tr><th>Code</th><th>Pay Type</th><th>Description</th><th></th></tr></thead><tbody>';
+      let html = '<table class="leave-table"><thead><tr><th>Code</th><th>Pay Type</th><th>Description</th><th>Work Location</th><th></th></tr></thead><tbody>';
       for (const f of favs) {
         html += '<tr><td><code>' + escapeHtml(f.code) + '</code></td>' +
           '<td>' + escapeHtml(f.payType || '') + '</td>' +
           '<td>' + escapeHtml(f.description || '') + '</td>' +
+          '<td><input type="text" class="fav-location" maxlength="10" size="10" placeholder="default" /></td>' +
           '<td><button class="btn btn-sm btn-primary fav-add-btn" data-code="' + escapeHtml(f.code) + '" data-paytype="' + escapeHtml(f.payType || 'REG') + '">Add</button></td></tr>';
       }
       html += '</tbody></table>';
@@ -791,8 +792,9 @@
         btn.addEventListener("click", async () => {
           const code = btn.dataset.code;
           const payType = btn.dataset.paytype;
+          const workLocation = btn.closest("tr").querySelector(".fav-location").value.trim();
           hideAllModals();
-          await addProject(code, payType, period);
+          await addProject(code, payType, period, false, workLocation);
         });
       });
     } catch (err) {
@@ -847,7 +849,7 @@
     return Number.isInteger(period) ? period : null;
   }
 
-  async function addProject(code, payType, period) {
+  async function addProject(code, payType, period, favorite = false, workLocation = "") {
     if (period === null) {
       showError("No editable week is shown.");
       return;
@@ -857,7 +859,7 @@
       const response = await fetch("/api/project", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ code, payType, period, offset: data ? data.offset : 0 })
+        body: JSON.stringify({ code, payType, period, favorite, workLocation, offset: data ? data.offset : 0 })
       });
 
       const result = await response.json().catch(() => ({}));
@@ -871,8 +873,12 @@
         return;
       }
 
-      showSuccess("Project added successfully! Reloading...");
-      setTimeout(() => { window.location.reload(); }, 1000);
+      if (result.warning) {
+        showError("Project added. " + result.warning);
+      } else {
+        showSuccess("Project added successfully! Reloading...");
+      }
+      setTimeout(() => { window.location.reload(); }, result.warning ? 3000 : 1000);
     } catch (err) {
       console.error("Add project failed:", err);
       showError(err.message || "Failed to add project. Please check the code and try again.");
@@ -884,9 +890,13 @@
     const projectCodeInput = document.getElementById("project-code");
     const projectPayTypeSelect = document.getElementById("project-pay-type");
     const confirmAddProject = document.getElementById("confirm-add-project");
+    const favoriteInput = document.getElementById("project-favorite");
     const code = projectCodeInput.value.trim();
     const payType = projectPayTypeSelect ? projectPayTypeSelect.value : "REG";
     const period = selectedPeriod("add-target-period");
+    const favorite = favoriteInput ? favoriteInput.checked : false;
+    const locationInput = document.getElementById("project-work-location");
+    const workLocation = locationInput ? locationInput.value.trim() : "";
     if (!code) {
       projectCodeInput.focus();
       return;
@@ -899,7 +909,7 @@
       hideAllModals();
       projectCodeInput.value = "";
       if (projectPayTypeSelect) projectPayTypeSelect.value = "REG";
-      await addProject(code, payType, period);
+      await addProject(code, payType, period, favorite, workLocation);
     } finally {
       confirmAddProject.disabled = false;
       confirmAddProject.textContent = "Add";
@@ -1102,6 +1112,14 @@
     const projectPayTypeSelect = document.getElementById("project-pay-type");
     if (projectPayTypeSelect) {
       projectPayTypeSelect.value = "REG";
+    }
+    const favoriteInput = document.getElementById("project-favorite");
+    if (favoriteInput) {
+      favoriteInput.checked = false;
+    }
+    const locationInput = document.getElementById("project-work-location");
+    if (locationInput) {
+      locationInput.value = "";
     }
   }
 

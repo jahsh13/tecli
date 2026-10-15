@@ -11,6 +11,7 @@ const ora = require("ora");
 const { normalizeTimesheetStatus } = require("./timesheet-status");
 const { getCredentials, login, logout } = require("./credentials");
 const { COMMON_CODES, resolveAlias } = require("./charge-codes");
+const { normalizeWorkLocation } = require("./add-options");
 
 require("dotenv").config();
 
@@ -133,6 +134,20 @@ async function connect(options = {}) {
   return cp;
 }
 
+async function askLine(prompt) {
+  const rl = readline.createInterface({
+    input: process.stdin,
+    output: process.stdout,
+  });
+  const answer = await new Promise((resolve) => rl.question(prompt, resolve));
+  rl.close();
+  return answer;
+}
+
+async function askYesNo(prompt) {
+  return /^y(es)?$/i.test((await askLine(prompt)).trim());
+}
+
 async function saveWithSpinner(cp) {
   const s = spin("Saving...");
   try {
@@ -233,20 +248,9 @@ withWeekOptions(program
 
       let shouldSign = options.yes;
       if (!shouldSign) {
-        const rl = readline.createInterface({
-          input: process.stdin,
-          output: process.stdout,
-        });
-        shouldSign = await new Promise((resolve) => {
-          const back = resolveBack(options);
-          const which = back ? `the ${weekLabel(back)}` : "this timesheet";
-          rl.question(`\n  Sign ${which}? (y/n): `, (answer) => {
-            rl.close();
-            resolve(
-              answer.toLowerCase() === "y" || answer.toLowerCase() === "yes",
-            );
-          });
-        });
+        const back = resolveBack(options);
+        const which = back ? `the ${weekLabel(back)}` : "this timesheet";
+        shouldSign = await askYesNo(`\n  Sign ${which}? (y/n): `);
       }
 
       if (shouldSign) {
@@ -376,6 +380,13 @@ withWeekOptions(program
     }
   });
 
+async function askWorkLocation(pending) {
+  const current = pending.workLocation || "none";
+  const answer = await askLine(
+    `  Pay type: ${pending.payType || "?"}. Work location [${current}]: `);
+  return normalizeWorkLocation(answer);
+}
+
 withWeekOptions(program
   .command("add [code] [payType]")
   .description(
@@ -383,14 +394,20 @@ withWeekOptions(program
     "  Shortcuts: " + COMMON_CODES.map(c => c.alias).join(", ") + "\n" +
     "  e.g. 'te add pto' → ZLEAVE.CMP (REG)",
   ), "add to")
+  .option("-f, --favorite", "also add the code to your Costpoint favorites")
+  .option("-l, --location <zip>", "work location zip code (default: Costpoint's)")
+  .option("-i, --ask", "show Costpoint's default work location and ask for one (TTY)")
   .action(async (code, payType, options) => {
     try {
+      const explicitLocation = normalizeWorkLocation(options.location);
       const cp = await connect(options);
+      let fromFavorites = false;
 
       if (!code) {
         const picked = await pickFromFavorites(cp);
         if (!picked) { await cp.close(); return; }
         code = picked.code;
+        fromFavorites = true;
         if (!payType) payType = picked.payType || undefined;
       } else {
         const alias = resolveAlias(code);
@@ -401,9 +418,18 @@ withWeekOptions(program
       }
 
       const label = payType ? `${code} (${payType})` : code;
-      const s = spin(`Adding ${label}...`);
-      await cp.add(code, payType);
-      s.succeed(`Added ${label}`);
+      const ask = options.ask && !explicitLocation && process.stdin.isTTY;
+      const s = ask ? null : spin(`Adding ${label}...`);
+      await cp.add(code, payType, {
+        workLocation: ask ? askWorkLocation : explicitLocation,
+      });
+      if (s) s.succeed(`Added ${label}`);
+      else console.log(chalk.green(`  Added ${label}`));
+
+      const wantFavorite = options.favorite ||
+        (!fromFavorites && process.stdin.isTTY &&
+          await askYesNo(`  Also add ${label} to your favorites? (y/N): `));
+      if (wantFavorite) await addToFavoritesWithSpinner(cp);
 
       await saveWithSpinner(cp);
       showStatus(cp);
@@ -416,6 +442,16 @@ withWeekOptions(program
       process.exit(1);
     }
   });
+
+async function addToFavoritesWithSpinner(cp) {
+  const s = spin("Adding to favorites...");
+  try {
+    await cp.addToFavorites();
+    s.succeed("Added to favorites");
+  } catch (e) {
+    s.warn(`Could not add to favorites: ${e.message}`);
+  }
+}
 
 async function pickFromFavorites(cp) {
   const s = spin("Loading favorites...");

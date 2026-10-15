@@ -10,6 +10,7 @@ const Costpoint = require("./costpoint");
 const DirectClient = require("./direct");
 const { normalizeTimesheetStatus } = require("./timesheet-status");
 const { COMMON_CODES } = require("./charge-codes");
+const { normalizeWorkLocation } = require("./add-options");
 const { getCredentials } = require("./credentials");
 const weekWindow = require("./week-window");
 
@@ -353,15 +354,24 @@ async function saveWithExplanation(explanation) {
 
 // Add a project to one week's timesheet. A save that needs a revision
 // explanation is parked the same way as a cell save.
-async function addProject(code, payType, period) {
+async function addProject(code, payType, period, favorite = false, workLocation) {
   if (isProcessing) throw new Error("Another operation is in progress");
 
   isProcessing = true;
   syncStatus = "syncing";
 
+  let warning = null;
   try {
     await withClient(async (cp) => {
-      await cp.add(code, payType);
+      await cp.add(code, payType, { workLocation });
+      if (favorite) {
+        try {
+          await cp.addToFavorites();
+        } catch (e) {
+          console.error("Add to favorites failed:", e.message);
+          warning = `Could not add to favorites: ${e.message}`;
+        }
+      }
       await cp.save();
       storeClientData(cp, period);
       saveCache();
@@ -369,7 +379,7 @@ async function addProject(code, payType, period) {
 
     lastError = null;
     syncStatus = "idle";
-    return { success: true };
+    return { success: true, warning };
   } catch (e) {
     if (e.name === 'RevisionRequiredError') {
       pendingRevisionWeek = period;
@@ -769,6 +779,15 @@ function renderHTML(data, isLoading = false) {
             <option value="LWD">LWD</option>
           </select>
         </div>
+        <div class="modal-field">
+          <label for="project-work-location">Work Location:</label>
+          <input type="text" id="project-work-location" placeholder="Zip code (blank = Costpoint default)" maxlength="10" />
+        </div>
+        <div class="modal-field">
+          <label for="project-favorite">
+            <input type="checkbox" id="project-favorite" /> Also add to favorites
+          </label>
+        </div>
       </div>
       <div class="modal-footer">
         <button class="btn btn-secondary modal-cancel">Cancel</button>
@@ -960,7 +979,7 @@ app.post("/api/save-with-explanation", async (req, res) => {
 });
 
 app.post("/api/project", async (req, res) => {
-  const { code, payType } = req.body;
+  const { code, payType, favorite, workLocation } = req.body;
   const period = weekWindow.parsePeriod(req.body.period);
 
   if (!code) {
@@ -978,10 +997,21 @@ app.post("/api/project", async (req, res) => {
     return res.status(400).json({ error: "Invalid pay type" });
   }
 
+  let normalizedLocation;
   try {
-    const result = await addProject(code, normalizedPayType, period);
+    normalizedLocation = normalizeWorkLocation(workLocation);
+  } catch (e) {
+    return res.status(400).json({ error: e.message });
+  }
+
+  try {
+    const result = await addProject(code, normalizedPayType, period, favorite === true, normalizedLocation);
     if (result.revisionRequired) return res.json(result);
-    res.json({ success: true, data: getMergedData(weekWindow.parsePeriod(req.body.offset)) });
+    res.json({
+      success: true,
+      warning: result.warning,
+      data: getMergedData(weekWindow.parsePeriod(req.body.offset)),
+    });
   } catch (e) {
     res.status(500).json({ error: e.message });
   }

@@ -26,6 +26,9 @@ te show --prev                 # show the previous week
 te set --prev 0 25 8           # set hours on the previous week
 te add ZLEAVE.HOL              # add a project line
 te add ZLEAVE.FTB RHB          # add a multi-charge project line
+te add ZLEAVE.HOL --favorite   # also save the code to your Costpoint favorites
+te add G09118.A.3786.26B.500 --location 62226   # override the default work location (zip)
+te add G09118.A.3786.26B.500 --ask              # show Costpoint's defaults, then prompt (TTY)
 te sign                        # sign timesheet
 te sign --prev                 # sign the previous week
 te show --back 3               # show the week 3 weeks back

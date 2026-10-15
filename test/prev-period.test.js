@@ -416,6 +416,7 @@ describe('past-week add and favorites batches (captured/past-week-add 014-019)',
 
   test('TC_TS_CHARGE_LKP_OK (capture 018)', () => {
     const client = withPendingLine(makeStubClient(1));
+    client._actionSeq = 1;  // NEW_TS_LINE was the first action of the add
     const k2Row = new Array(40).fill('');
     const cmds = commands(client._buildChargeLkpOk(k2Row, '10'));
     assert.deepEqual(cmds.map(c => c.cmd), [

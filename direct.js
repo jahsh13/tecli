@@ -4,12 +4,21 @@ const http = require('http');
 const https = require('https');
 const { URL } = require('url');
 const crypto = require('crypto');
+const fs = require('fs');
 const moment = require('moment');
 const Table = require('cli-table');
 const protocol = require('./protocol');
 const { normalizeTimesheetStatus } = require('./timesheet-status');
 
 const debug = process.env.DEBUG ? (...args) => console.error(...args) : () => {};
+
+// COSTPOINT_TRACE=<file> appends every servlet request/response as JSON lines.
+// The bodies carry the session id, so the file is created owner-only.
+const tracePath = process.env.COSTPOINT_TRACE;
+function trace(entry) {
+  if (!tracePath) return;
+  fs.appendFileSync(tracePath, JSON.stringify(entry) + '\n', { mode: 0o600 });
+}
 
 const APP_ID = 'TMMTIMESHEET';
 const NUM_DAYS = 7;
@@ -39,6 +48,8 @@ const CHILD_DAY_COL = { 1: 26, 2: 27, 3: 28, 4: 29, 5: 30, 6: 31, 7: 32 };
 const CHILD_COMMENT_COL = { 1: 124, 2: 135, 3: 143, 4: 144, 5: 145, 6: 146, 7: 147 };
 const CHILD_LINE_DESC = 2;
 const CHILD_UDT02_ID = 6;  // UDT02_ID column index (verified: ZLEAVE.CMP pattern)
+const CHILD_WORK_LOCATION = 8;  // UDT03_ID: work location zip (captured/work-location/)
+const CHILD_PAY_TYPE = 16;
 const CHILD_TOTAL_ENTERED = 96;
 
 // Revision explanation column indices (K2 = TMMTS_TS_REVISION_EXP)
@@ -69,6 +80,7 @@ class DirectClient {
     // Sent as X on K1 commands and as the K0 cursor C.
     this.periodIdx = 0;
     this.lastPutId = 0;
+    this._actionSeq = 0;
     this.dates = null;
     this.table = null;
     this.timesheetStatus = 'Unknown';
@@ -350,9 +362,14 @@ class DirectClient {
     }
   }
 
-  async add(code, payType) {
+  /**
+   * workLocation may be a zip string or an async (pendingLine) => zip|undefined
+   * called once the server has filled its defaults.
+   */
+  async add(code, payType, { workLocation } = {}) {
     if (this._isPeriodClosed()) await this._correctTimesheet();
-    debug('Adding project code: ' + code + (payType ? ' (payType=' + payType + ')' : ''));
+    debug('Adding project code: ' + code + (payType ? ' (payType=' + payType + ')' : '') +
+      (workLocation ? ' (workLocation=' + workLocation + ')' : ''));
 
     // Reuse an existing pending line (e.g. from getFavorites) if present; otherwise
     // create one and register it with TMMTS_NEW_TS_LINE.
@@ -376,7 +393,25 @@ class DirectClient {
     // committed, causing "Account required" on save.
     await this._validateUdt02();
 
+    // Step 5: Override the server-default work location (browser: PUT col 8 + 208 UDT03_ID).
+    if (typeof workLocation === 'function') workLocation = await workLocation(this.pendingLine());
+    if (workLocation) {
+      const idx = this.childData.rowNums.findIndex(n => parseInt(n, 10) < 0);
+      this.childData.rows[idx][CHILD_WORK_LOCATION] = workLocation;
+      await this._validateObject('UDT03_ID');
+    }
+
     this._buildTableRows();
+  }
+
+  /**
+   * Server-chosen defaults on the pending (unsaved) line, or null if none.
+   */
+  pendingLine() {
+    const idx = this.childData.rowNums.findIndex(n => parseInt(n, 10) < 0);
+    if (idx < 0) return null;
+    const row = this.childData.rows[idx];
+    return { payType: row[CHILD_PAY_TYPE] || '', workLocation: row[CHILD_WORK_LOCATION] || '' };
   }
 
   /**
@@ -480,9 +515,13 @@ class DirectClient {
 
   /**
    * Validate the UDT02_ID field on a new row, populating server defaults.
-   * Sends 205 PUT + 208 VALIDATE for UDT02_ID and updates local data.
+   * Sends 205 PUT + 208 VALIDATE for the object and updates local data.
    */
   async _validateUdt02() {
+    await this._validateObject('UDT02_ID');
+  }
+
+  async _validateObject(objectId) {
     const newRowIdx = this.childData.rowNums.findIndex(n => parseInt(n, 10) < 0);
     const newRow = this.childData.rows[newRowIdx];
     const rowNum = this.childData.rowNums[newRowIdx];
@@ -513,9 +552,9 @@ class DirectClient {
         editFlag: '19,',
         rowNumber: rowNum + ',',
       }),
-      // 208 VALIDATE UDT02_ID
+      // 208 VALIDATE
       this._wrap(this._cmd(208, [
-        { name: 'objectId', value: 'UDT02_ID' },
+        { name: 'objectId', value: objectId },
         { code: 'K', value: '1' }, { code: 'C', value: rowNum },
         { code: 'P', value: '0' }, { code: 'V', value: 'true' },
       ])),
@@ -533,7 +572,7 @@ class DirectClient {
     if (err) {
       // "More than one charge found" is expected for multi-charge codes — not fatal
       if (!err.includes('More than one charge')) {
-        throw new Error('UDT02_ID validate error: ' + err);
+        throw new Error(objectId + ' validate error: ' + err);
       }
     }
 
@@ -562,6 +601,7 @@ class DirectClient {
     const period = String(this.periodIdx);
     const parentRow = this.parentData.rows[this.periodIdx];
     const parentRowNum = this.parentData.rowNums[this.periodIdx];
+    const actionSeq = this._nextActionSeq();
 
     const encodedChild = protocol.encodePutRow(newRow);
     const encodedParent = protocol.encodePutRow(parentRow);
@@ -611,29 +651,10 @@ class DirectClient {
         editFlag: '19,',
         rowNumber: rowNum + ',',
       }),
-      // 5. CMD 300 TMMTS_NEW_TS_LINE
-      this._wrap(this._cmd(300, [
-        ...this._actionBoilerplate(),
-        { name: 'actionId', value: 'TMMTS_NEW_TS_LINE' },
-        { name: 'restartFl', value: 'false' },
-        { code: 'C', value: rowNum },
-        { name: 'longRunActionFl', value: '0' },
-        { name: 'procUniqueId', value: APP_ID + ':A:' + this.sid + ':1' },
-        { name: 'psSchWorkflowNotifyFl', value: 'false' },
-        { code: 'K', value: '1' },
-        { code: 'P', value: '0' },
-        { code: 'V', value: 'true' },
-      ])),
-      // 6-7. 204 K0 positive + negative
-      ...this._get204(0),
-      // 8-9. 204 K1 positive + negative
-      ...this._get204(1),
-      // 10. keepalive
-      this._keepalive(),
+      ...this._pendingLineActionTail('TMMTS_NEW_TS_LINE', rowNum, actionSeq),
     ];
 
-    // reqIdx=1 sets K1 as the action context (matches browser)
-    const body = protocol.buildRequestBody(this.sid, cmds) + '&reqIdx=1';
+    const body = this._buildPendingLineActionBody(cmds, actionSeq);
     const respText = await this._postServlet(body);
 
     if (respText.includes('onServletException')) {
@@ -651,6 +672,121 @@ class DirectClient {
     }
     const k0Data = protocol.extract204(parsed, 0);
     if (k0Data) this.parentData = k0Data;
+  }
+
+  /**
+   * The browser's per-session CMD 300 action counter (procUniqueId suffix and
+   * reqIdx). It grows with every action: a repeated value gets an empty
+   * response, which broke the second add in a long-lived (TUI/web) session.
+   */
+  _nextActionSeq() {
+    this._actionSeq = (this._actionSeq || 0) + 1;
+    return this._actionSeq;
+  }
+
+  /**
+   * CMD 300 action on the pending row plus the 204 refetch and keepalive.
+   * actionSeq is the value from _nextActionSeq() (capture add-favorite/: NEW_TS_LINE
+   * is 1, the favorites action after it is 2).
+   */
+  _pendingLineActionTail(actionId, rowNum, actionSeq, refetchOpts) {
+    return [
+      this._wrap(this._cmd(300, [
+        ...this._actionBoilerplate(),
+        { name: 'actionId', value: actionId },
+        { name: 'restartFl', value: 'false' },
+        { code: 'C', value: rowNum },
+        { name: 'longRunActionFl', value: '0' },
+        { name: 'procUniqueId', value: APP_ID + ':A:' + this.sid + ':' + actionSeq },
+        { name: 'psSchWorkflowNotifyFl', value: 'false' },
+        { code: 'K', value: '1' },
+        { code: 'P', value: '0' },
+        { code: 'V', value: 'true' },
+      ])),
+      ...this._get204(0, undefined, refetchOpts),
+      ...this._get204(1, undefined, refetchOpts),
+      this._keepalive(),
+    ];
+  }
+
+  // reqIdx sets K1 as the action context (matches browser)
+  _buildPendingLineActionBody(cmds, actionSeq) {
+    return protocol.buildRequestBody(this.sid, cmds) + '&reqIdx=' + actionSeq;
+  }
+
+  /**
+   * Add the pending (unsaved) line to the user's Costpoint favorites via
+   * CMD 300 TMMTS_ADD_LINE_TO_FAVORITES. Call after add() has resolved the
+   * charge and before save(). Mirrors captured/add-favorite request 024.
+   * The action on an already-saved row was not captured.
+   */
+  async addToFavorites() {
+    const rowIdx = this.childData.rowNums.findIndex(n => parseInt(n, 10) < 0);
+    if (rowIdx < 0) throw new Error('No pending line to add to favorites');
+
+    const body = this._buildAddToFavoritesBatch(rowIdx);
+    const respText = await this._postServlet(body);
+    if (respText.includes('onServletException')) {
+      throw new Error('TMMTS_ADD_LINE_TO_FAVORITES caused server error. Session may be invalid.');
+    }
+
+    const parsed = protocol.parseResponse(respText);
+    const err = protocol.checkErrors(parsed);
+    if (err) throw new Error('Add to favorites error: ' + err);
+
+    const k1Data = protocol.extract204(parsed, 1);
+    if (k1Data) this.childData = k1Data;
+    const k0Data = protocol.extract204(parsed, 0);
+    if (k0Data) this.parentData = k0Data;
+  }
+
+  _buildAddToFavoritesBatch(rowIdx) {
+    const actionSeq = this._nextActionSeq();
+    const rowNum = this.childData.rowNums[rowIdx];
+    const encodedChild = protocol.encodePutRow(this.childData.rows[rowIdx]);
+    const encodedParent = protocol.encodePutRow(this.parentData.rows[0]);
+    const childOpts = {
+      data: encodedChild + protocol.DLM_ROW,
+      editFlag: '83,',
+      rowNumber: rowNum + ',',
+    };
+
+    const cmds = [
+      this._wrap(this._cmd(205, [
+        { name: 'rsRowSelectedFlOnly', value: 'true' },
+        { code: 'X', value: '0' }, { code: 'K', value: '1' },
+        { code: 'C', value: rowNum }, { code: 'P', value: '0' },
+        { code: 'V', value: 'true' },
+      ]), childOpts),
+      this._wrap(this._cmd(205, [
+        { code: 'X', value: '0' }, { code: 'K', value: '1' },
+        { code: 'C', value: rowNum }, { code: 'P', value: '0' },
+        { code: 'V', value: 'true' },
+        { name: 'lastPutId', value: String(this.lastPutId++) },
+      ]), childOpts),
+      this._wrap(this._cmd(205, [
+        { name: 'rsContextOnly', value: 'Y' },
+        { code: 'K', value: '0' }, { code: 'C', value: '0' },
+        { code: 'V', value: 'true' },
+        { name: 'lastPutId', value: String(this.lastPutId++) },
+      ]), {
+        data: encodedParent + protocol.DLM_ROW,
+        editFlag: '65562,',
+        rowNumber: '0,',
+      }),
+      this._wrap(this._cmd(205, [
+        { code: 'X', value: '0' },
+        { name: 'rsContextOnly', value: 'Y' },
+        { code: 'K', value: '1' }, { code: 'C', value: rowNum },
+        { code: 'P', value: '0' }, { code: 'V', value: 'true' },
+        { name: 'lastPutId', value: String(this.lastPutId++) },
+      ]), childOpts),
+      ...this._pendingLineActionTail('TMMTS_ADD_LINE_TO_FAVORITES', rowNum, actionSeq, {
+        nonDb: false,
+        childCursor: rowNum,
+      }),
+    ];
+    return this._buildPendingLineActionBody(cmds, actionSeq);
   }
 
   async save() {
@@ -706,8 +842,27 @@ class DirectClient {
     if (k0Data) this.parentData = k0Data;
     if (k1Data) this.childData = k1Data;
 
+    // A save that follows add-to-favorites returns no 204 data. Without a
+    // re-fetch the saved line stays a pending row (-59999) in local state,
+    // and the next add() reuses it and re-saves it as a duplicate.
+    if (!k1Data) await this._refetchTimesheet();
+
     this._buildTableRows();
     debug('Timesheet saved.');
+  }
+
+  /** Re-read the selected period's parent and child rows from the server. */
+  async _refetchTimesheet() {
+    const resp = await this._postServlet(protocol.buildRequestBody(this.sid, [
+      ...this._get204(0),
+      ...this._get204(1),
+      this._keepalive(),
+    ]));
+    const parsed = protocol.parseResponse(resp);
+    const k0Data = protocol.extract204(parsed, 0);
+    const k1Data = protocol.extract204(parsed, 1);
+    if (k0Data) this.parentData = k0Data;
+    if (k1Data) this.childData = k1Data;
   }
 
   /**
@@ -995,16 +1150,7 @@ class DirectClient {
     // saves; the previous-week one does), so local state can still show
     // unsigned. Re-fetch explicitly so callers (and the web UI cache) see the
     // new status.
-    const refreshResp = await this._postServlet(protocol.buildRequestBody(this.sid, [
-      ...this._get204(0),
-      ...this._get204(1),
-      this._keepalive(),
-    ]));
-    const refreshParsed = protocol.parseResponse(refreshResp);
-    const freshK0 = protocol.extract204(refreshParsed, 0);
-    const freshK1 = protocol.extract204(refreshParsed, 1);
-    if (freshK0) this.parentData = freshK0;
-    if (freshK1) this.childData = freshK1;
+    await this._refetchTimesheet();
     this._buildTableRows();
 
     const status = this.parentData.rows[idx][PARENT_COL.S_STATUS_CD];
@@ -1595,6 +1741,7 @@ class DirectClient {
   async _postServlet(body) {
     const resp = await this._http('POST', '/cpweb/MasterServlet.cps', body,
       'application/x-www-form-urlencoded', { headers: this._servletHeaders() });
+    trace({ time: new Date().toISOString(), request: body, response: resp.body });
     return resp.body;
   }
 
@@ -2053,7 +2200,7 @@ class DirectClient {
     return this._wrap(this._cmd(507, [{ code: 'V', value: 'true' }]));
   }
 
-  _get204(rsKey, extra) {
+  _get204(rsKey, extra, { nonDb = true, childCursor = '0' } = {}) {
     const childRowCount = this.childData ? this.childData.rows.length : 40;
     const isChild = rsKey === 1;
     const posE = isChild ? Math.max(childRowCount + 5, 40) : 20;
@@ -2062,7 +2209,7 @@ class DirectClient {
     const period = String(this.periodIdx);
     const baseParams = isChild
       ? [{ code: 'X', value: period }, { code: 'K', value: '1' },
-         { code: 'C', value: '0' }, { code: 'P', value: '0' },
+         { code: 'C', value: childCursor }, { code: 'P', value: '0' },
          { code: 'V', value: 'true' }]
       : [{ code: 'K', value: '0' }, { code: 'C', value: period },
          { code: 'V', value: 'true' }];
@@ -2079,7 +2226,7 @@ class DirectClient {
     ];
 
     // Parent positive range gets nonDBSize/nonDBStart
-    if (rsKey === 0) {
+    if (rsKey === 0 && nonDb) {
       posParams.push({ name: 'nonDBSize', value: '1' });
       posParams.push({ name: 'nonDBStart', value: '0' });
     }
@@ -2847,6 +2994,7 @@ class DirectClient {
    * Matches the browser's 14-command batch: 6 PUTs + CMD 300 + 6 204s + 507.
    */
   _buildChargeLkpOk(selectedK2Row, k2RowNum) {
+    const actionSeq = this._nextActionSeq();
     const newRowIdx = this.childData.rowNums.findIndex(n => parseInt(n, 10) < 0);
     const childRow = this.childData.rows[newRowIdx];
     const period = String(this.periodIdx);
@@ -2937,7 +3085,7 @@ class DirectClient {
         { name: 'restartFl', value: 'false' },
         { code: 'C', value: '0' },
         { name: 'longRunActionFl', value: '0' },
-        { name: 'procUniqueId', value: APP_ID + ':A:' + this.sid + ':2' },
+        { name: 'procUniqueId', value: APP_ID + ':A:' + this.sid + ':' + actionSeq },
         { name: 'psSchWorkflowNotifyFl', value: 'false' },
         { code: 'K', value: '2' },
         { code: 'P', value: '1' },
@@ -2979,9 +3127,9 @@ class DirectClient {
       // 14. keepalive
       this._keepalive(),
     ];
-    // reqIdx=2 tells the server the action context is K2 (charge lookup RS).
+    // reqIdx tells the server the action context (K2, the charge lookup RS).
     // Without this, the server ignores the K2 row selection.
-    return protocol.buildRequestBody(this.sid, cmds) + '&reqIdx=2';
+    return protocol.buildRequestBody(this.sid, cmds) + '&reqIdx=' + actionSeq;
   }
 }
 

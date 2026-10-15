@@ -62,6 +62,7 @@ Interactive terminal UI (`node tui.js` or `npm run tui`). Zero extra dependencie
 - Prompt mode for text input (sign confirmation, project code)
 - Numbered lists (favorites `[f]`, add menu `[a]`) take multi-digit picks via `number-pick.js`: a digit selects once no longer number can match, otherwise Enter confirms (with 13 favorites, `1` waits, `13` or `1`+Enter picks)
 - Same period-bound session pattern as web UI (`getClient(period)`/`withClient(fn, period)`/`releaseClient`)
+- Typing a custom project code (add menu `[0]`/`[c]`) asks "Also add to favorites? [y/N]" after the pay type
 - Shares cache file (`~/.costpoint-cache.json`) with the web UI
 - Shows one week at a time (7 columns) — fits in 80-col terminals
 
@@ -80,6 +81,8 @@ See memory file `direct-protocol.md` for the full binary protocol reference.
 - `selectPeriod(idx)` points the client at another parent K0 row (1 = previous week). The period index goes in `X` on K1/K2 commands and in the K0 cursor `C` (205 K0, 206, 204 K0). `add()`, `getFavorites()` and `addFromFavorite()` work on any selected period and correct a closed one first. `getPeriods()` lists `[{ idx, endDate, statusCode, editable }]` for the loaded K0 rows only (about 20, K0 is not paged; `editable` is null for rows without detail columns). See `docs/binary-protocol.md` "Previous Period Edit".
 - X=1 child fetches return the wrong lines unless the `R=AUTO` parent fetch ran first in the session (`_fetchPeriod()` does both). Verified live 2026-09-28.
 - Editing a processed (closed, `TS_CLOSED_FL`=Y) week first runs the browser's Correct flow (`_correctTimesheet()`: CMD 300 TMMTS_CORRECT_TIMESHEET + 206). The week comes back Open and must be signed again (`te sign --prev` or `--back n`, the week's Sign button in the web UI, TUI `[S]`). If the save response still shows the week closed, `_correctTimesheet()` re-fetches the period before failing: one live correction committed while its response said closed.
+- `addToFavorites()` sends CMD 300 `TMMTS_ADD_LINE_TO_FAVORITES` for the pending line (capture 024). Call it after `add()` and before `save()`. Callers treat a failure as a warning: the line add still succeeds. CLI: `te add <code> --favorite`, or a y/N prompt on a TTY (skipped for favorites picks). Web UI: "Also add to favorites" checkbox, `/api/project` takes `favorite: true`. Not verified live: the action on a saved row and the server's success message.
+- Work location is K1 col 8 (`UDT03_ID`, a zip code), not col 17. The server fills a default during charge resolution. `add(code, payType, { workLocation })` overrides it with a PUT of col 8 + CMD 208 `UDT03_ID` (captured/work-location/); omitted means no extra requests. `workLocation` may be an async `(pendingLine) => zip` to prompt after defaults are known. Validation lives in `add-options.js`. CLI `--location/-l`, `--ask/-i`; web modal field and `/api/project` `workLocation`; TUI prompts after pay type, and `[e]` in the favorites list asks pay type + location for the next pick.
 
 ## Environment
 

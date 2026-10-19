@@ -58,11 +58,33 @@ function signHint(data, back) {
 
 const text = (t, isError) => ({ content: [{ type: 'text', text: t }], ...(isError ? { isError: true } : {}) });
 
+// Some clients (code-mode-mcp) pass on only the text and drop isError, so
+// every outcome other than plain success starts with one of these markers.
+const MARKER = {
+  error: 'ERROR:',
+  revision: 'NOT SAVED: revision explanation required.',
+  warning: 'WARNING:',
+};
+
+const errorResult = message => text(`${MARKER.error} ${message}`, true);
+
 function revisionResult(e, summary) {
   const details = e.auditDetails.map(d => `Line ${d.lineNo}: ${d.description} (${d.project})`).join('\n');
   const body = details ? `\n\nChanges requiring explanation:\n${details}` : '';
-  return text(`${summary} but save requires a revision explanation.${body}\n\nUse save_with_explanation to complete the save.`, true);
+  return text(`${MARKER.revision} ${summary} but save requires a revision explanation.${body}\n\nUse save_with_explanation to complete the save.`, true);
 }
+
+const INSTRUCTIONS = `Costpoint timesheet tools. Weeks are picked with back (0 = current week, see list_weeks).
+Every result is one text block. Success is plain text. Other outcomes start with a marker:
+- "${MARKER.error}" the call failed.
+- "${MARKER.revision}" the edit is held until save_with_explanation is called.
+- "${MARKER.warning}" the save went through but a side step failed.
+Code-mode clients (tecli.tecli_x({...})): calls are synchronous, so use plain JavaScript with no await, async or TypeScript annotations, and check the leading marker of the returned string.`;
+
+const NOTE = {
+  error: `Failures start with "${MARKER.error}".`,
+  revision: `Starts with "${MARKER.revision}" when an explanation is needed.`,
+};
 
 // ── MCP Server ─────────────────────────────────────────────────
 
@@ -130,11 +152,14 @@ function buildServer(options = {}) {
     }, back);
   }
 
-  const server = new McpServer({ name: 'tecli', version: '1.0.0' });
+  const server = new McpServer({ name: 'tecli', version: '1.0.0' }, { instructions: INSTRUCTIONS });
+  // Thrown handler errors and argument validation failures both end up here.
+  // createToolError is an SDK internal; mcp-server.test.js fails if it moves.
+  server.createToolError = errorResult;
 
   server.tool(
     'list_weeks',
-    'List the weeks reachable from this login (about 20): back number, end date, status and whether it can be edited. Use the back number with the other tools.',
+    `List the weeks reachable from this login (about 20): back number, end date, status and whether it can be edited. Use the back number with the other tools. ${NOTE.error}`,
     {},
     async () => {
       const periods = await withThrowaway(async cp => cp.getPeriods());
@@ -149,7 +174,7 @@ function buildServer(options = {}) {
 
   server.tool(
     'show_timesheet',
-    'Show a timesheet with status, project lines and hours. Defaults to the current week; pass back for a past week.',
+    `Show a timesheet with status, project lines and hours. Defaults to the current week; pass back for a past week. ${NOTE.error}`,
     { back: backSchema },
     async ({ back = 0 }) => {
       guardRevision(back);
@@ -159,7 +184,7 @@ function buildServer(options = {}) {
 
   server.tool(
     'set_hours',
-    'Set hours for a project line and day. Saves immediately. Editing a processed past week reopens it and asks for a revision explanation.',
+    `Set hours for a project line and day. Saves immediately. Editing a processed past week reopens it and asks for a revision explanation. ${NOTE.error} ${NOTE.revision}`,
     {
       line: z.number().int().describe('Project line number (0-based index from show_timesheet)'),
       day: z.number().int().describe('Day of month (e.g. 14 for the 14th)'),
@@ -175,7 +200,7 @@ function buildServer(options = {}) {
 
   server.tool(
     'set_hours_bulk',
-    'Set hours for multiple cells of one week at once. Each change is a {line, day, hours, comment?} object. Saves after all changes.',
+    `Set hours for multiple cells of one week at once. Each change is a {line, day, hours, comment?} object. Saves after all changes. ${NOTE.error} ${NOTE.revision}`,
     {
       changes: z.array(z.object({
         line: z.number().int().describe('Project line number'),
@@ -195,7 +220,7 @@ function buildServer(options = {}) {
 
   server.tool(
     'add_project',
-    `Add a project/charge code to a timesheet. Saves after adding.\n\nShortcuts: ${COMMON_CODES.map(c => `${c.alias} (${c.label} → ${c.code})`).join(', ')}`,
+    `Add a project/charge code to a timesheet. Saves after adding. ${NOTE.error} ${NOTE.revision} Starts with "${MARKER.warning}" when the line was saved but adding it to favorites failed.\n\nShortcuts: ${COMMON_CODES.map(c => `${c.alias} (${c.label} → ${c.code})`).join(', ')}`,
     {
       code: z.string().describe('Project charge code (e.g. "ZLEAVE.CMP") or shortcut (e.g. "pto", "flex", "personal")'),
       payType: z.string().optional().describe('Pay type (e.g. "REG", "RHB"). Required for multi-charge codes, auto-resolved for shortcuts.'),
@@ -218,19 +243,23 @@ function buildServer(options = {}) {
           try {
             await cp.addToFavorites();
           } catch (e) {
-            warning = `\n\nWarning: could not add to favorites: ${e.message}`;
+            warning = `${MARKER.warning} could not add to favorites: ${e.message}`;
           }
         }
         return `Added ${label}`;
       });
-      if (warning) result.content[0].text += warning;
+      if (warning) {
+        // A needed revision explanation keeps its marker in front
+        const t = result.content[0].text;
+        result.content[0].text = result.isError ? `${t}\n\n${warning}` : `${warning}\n\n${t}`;
+      }
       return result;
     },
   );
 
   server.tool(
     'list_favorites',
-    'List the favorite charge codes saved in Costpoint. Favorites belong to the user, not to a week. Use the index with add_from_favorites.',
+    `List the favorite charge codes saved in Costpoint. Favorites belong to the user, not to a week. Use the index with add_from_favorites. ${NOTE.error}`,
     {},
     async () => {
       const favs = await withThrowaway(cp => cp.getFavorites());
@@ -241,7 +270,7 @@ function buildServer(options = {}) {
 
   server.tool(
     'add_from_favorites',
-    'Add a favorite charge code (by index from list_favorites) to a timesheet. Saves after adding.',
+    `Add a favorite charge code (by index from list_favorites) to a timesheet. Saves after adding. ${NOTE.error} ${NOTE.revision}`,
     {
       index: z.number().int().min(0).describe('Favorite index from list_favorites'),
       workLocation: z.string().optional().describe('Work location zip code (5 digits or ZIP+4). Omit to keep the Costpoint default.'),
@@ -263,7 +292,7 @@ function buildServer(options = {}) {
 
   server.tool(
     'sign_timesheet',
-    'Sign a timesheet (current week by default). This submits it for approval. Runs on its own fresh login, never on the session used for edits.',
+    `Sign a timesheet (current week by default). This submits it for approval. Runs on its own fresh login, never on the session used for edits. ${NOTE.error}`,
     { back: backSchema },
     async ({ back = 0 }) => {
       if (pendingRevisionBack !== null) {
@@ -282,7 +311,7 @@ function buildServer(options = {}) {
 
   server.tool(
     'save_with_explanation',
-    'Save the timesheet with a revision explanation. Use this after an edit returns a "revision explanation required" error.',
+    `Save the timesheet with a revision explanation. Use this after an edit result starts with "${MARKER.revision}" ${NOTE.error}`,
     {
       explanation: z.string().describe('Explanation for the timesheet revision'),
     },
@@ -301,7 +330,7 @@ function buildServer(options = {}) {
 
   server.tool(
     'get_leave_balances',
-    'Show leave balances (PTO, personal, flex, etc.) and recent leave activity.',
+    `Show leave balances (PTO, personal, flex, etc.) and recent leave activity. ${NOTE.error}`,
     {},
     async () => {
       // Reuse whatever session is open so a pending revision is not dropped
@@ -347,4 +376,4 @@ if (require.main === module) {
   });
 }
 
-module.exports = { buildServer };
+module.exports = { buildServer, MARKER };

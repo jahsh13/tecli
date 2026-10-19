@@ -4,7 +4,8 @@ const { test, describe, beforeEach, afterEach } = require('node:test');
 const assert = require('node:assert/strict');
 const { Client } = require('@modelcontextprotocol/sdk/client/index.js');
 const { InMemoryTransport } = require('@modelcontextprotocol/sdk/inMemory.js');
-const { buildServer } = require('../mcp-server');
+const DirectClient = require('../direct');
+const { buildServer, MARKER } = require('../mcp-server');
 const { startMock } = require('./mock-helper');
 
 describe('mcp server against the mock', () => {
@@ -19,9 +20,18 @@ describe('mcp server against the mock', () => {
     await Promise.all([built.server.connect(serverSide), client.connect(clientSide)]);
   }
 
+  // Clients that drop isError (code-mode-mcp) see only the first text block,
+  // so every result must be a single text block and every error must carry a marker.
   async function call(name, args = {}) {
     const res = await client.callTool({ name, arguments: args });
-    return { text: res.content.map(c => c.text).join('\n'), isError: Boolean(res.isError) };
+    assert.equal(res.content.length, 1);
+    assert.equal(res.content[0].type, 'text');
+    assert.equal(res.structuredContent, undefined);
+    const text = res.content[0].text;
+    const isError = Boolean(res.isError);
+    if (isError) assert.ok(text.startsWith(MARKER.error) || text.startsWith(MARKER.revision), text);
+    else assert.ok(!text.startsWith(MARKER.error) && !text.startsWith(MARKER.revision), text);
+    return { text, isError };
   }
 
   const status = async back => (await mock.launch().then(async cp => {
@@ -48,6 +58,16 @@ describe('mcp server against the mock', () => {
     ]);
   });
 
+  test('the server instructions and edit tool descriptions name the markers', async () => {
+    const instructions = client.getInstructions();
+    for (const m of Object.values(MARKER)) assert.ok(instructions.includes(m), m);
+    assert.match(instructions, /no await/);
+    const { tools } = await client.listTools();
+    const setHours = tools.find(t => t.name === 'set_hours');
+    assert.ok(setHours.description.includes(MARKER.revision));
+    assert.ok(setHours.description.includes(MARKER.error));
+  });
+
   test('list_weeks shows back numbers, end dates and status', async () => {
     const { text } = await call('list_weeks');
     const lines = text.split('\n');
@@ -70,12 +90,13 @@ describe('mcp server against the mock', () => {
   test('an out of range back is an error with the CLI message', async () => {
     const res = await call('show_timesheet', { back: 25 });
     assert.equal(res.isError, true);
-    assert.match(res.text, /Cannot go back 25 weeks. Costpoint offers 19 past weeks./);
+    assert.equal(res.text, `${MARKER.error} Cannot go back 25 weeks. Costpoint offers 19 past weeks.`);
   });
 
   test('a negative back is rejected by the schema', async () => {
     const res = await call('show_timesheet', { back: -1 });
     assert.equal(res.isError, true);
+    assert.match(res.text, /^ERROR: .*Input validation error/);
   });
 
   test('set_hours saves and a new session sees it', async () => {
@@ -118,11 +139,11 @@ describe('mcp server against the mock', () => {
   test('editing a processed week asks for an explanation, then save_with_explanation finishes it', async () => {
     const edit = await call('set_hours', { line: 0, day: 5, hours: 4, back: 1 });
     assert.equal(edit.isError, true);
-    assert.match(edit.text, /revision explanation/);
+    assert.ok(edit.text.startsWith(`${MARKER.revision} Hours set but save requires a revision explanation.`), edit.text);
     assert.match(edit.text, /Line .*Hours changed/);
     const saved = await call('save_with_explanation', { explanation: 'wrong hours' });
     assert.equal(saved.isError, false, saved.text);
-    assert.match(saved.text, /Saved with explanation/);
+    assert.match(saved.text, /^Saved with explanation/);
     assert.match(saved.text, /Week is Open again. Call sign_timesheet with back=1./);
     assert.equal(await status(1), 'O');
 
@@ -154,7 +175,7 @@ describe('mcp server against the mock', () => {
   test('save_with_explanation with nothing pending is an error', async () => {
     const res = await call('save_with_explanation', { explanation: 'x' });
     assert.equal(res.isError, true);
-    assert.match(res.text, /No revision explanation is pending/);
+    assert.match(res.text, /^ERROR: No revision explanation is pending/);
   });
 
   test('add_project resolves shortcuts and sets the work location', async () => {
@@ -191,6 +212,16 @@ describe('mcp server against the mock', () => {
   test('add_project with favorite adds the code to the favorites', async () => {
     await call('add_project', { code: 'PROJ.C.300', favorite: true });
     assert.ok(mock.db.favorites.some(f => f.code === 'PROJ.C.300'));
+  });
+
+  test('add_project leads with a warning when the favorites step fails, and the line is still saved', async (t) => {
+    t.mock.method(DirectClient.prototype, 'addToFavorites', async () => { throw new Error('boom'); });
+    const res = await call('add_project', { code: 'PROJ.C.300', favorite: true });
+    assert.equal(res.isError, false);
+    assert.ok(res.text.startsWith(`${MARKER.warning} could not add to favorites: boom`), res.text);
+    assert.match(res.text, /Added PROJ.C.300. Saved./);
+    const codes = (await mock.launch()).getData().projects.map(p => p.code);
+    assert.ok(codes.includes('PROJ.C.300'));
   });
 
   test('add_project on a past week adds a hint to sign again', async () => {

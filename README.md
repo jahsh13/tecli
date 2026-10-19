@@ -71,9 +71,19 @@ Ask in plain language. Each task below is a prompt and the tools it ends up call
 - **Set hours.** "Put 8 hours on line 0 for the 14th" calls `set_hours`. "Fill Monday to Friday with 8 hours on line 0, comment 'on site' on Wednesday" calls `set_hours_bulk` with one change per day. Each call saves.
 - **Add a code.** "Add PTO" resolves the `pto` shortcut and calls `add_project`. "Add PROJ.M.400 as RHB, work location 20190, and save it to my favorites" calls `add_project` with `payType`, `workLocation` and `favorite`. A multi-charge code needs its pay type.
 - **Pick from favorites.** "What are my favorites?" calls `list_favorites`. "Add the second one to this week" calls `add_from_favorites` with `index=1`.
-- **Fix a processed past week.** "Change line 0 on the 5th to 4 hours last week" calls `set_hours` with `back=1`. Costpoint reopens the week and asks for a revision explanation, so the call returns an error that lists the changes. Give the reason ("late correction") and the assistant calls `save_with_explanation`. The week is Open again, so then "sign last week" calls `sign_timesheet` with `back=1`.
+- **Fix a processed past week.** "Change line 0 on the 5th to 4 hours last week" calls `set_hours` with `back=1`. Costpoint reopens the week and asks for a revision explanation, so the call returns a result starting with `NOT SAVED: revision explanation required.` that lists the changes. Give the reason ("late correction") and the assistant calls `save_with_explanation`. The week is Open again, so then "sign last week" calls `sign_timesheet` with `back=1`.
 - **Sign.** "Sign my timesheet" calls `sign_timesheet`. "Sign last week" calls it with `back=1`.
 - **Leave.** "How much PTO do I have?" calls `get_leave_balances`.
+
+### Result markers
+
+Every tool returns one text block. Success is plain text. Any other outcome starts with a fixed marker, so a client that only reads the text can tell them apart:
+
+| Marker | Meaning | `isError` |
+|--------|---------|-----------|
+| `ERROR:` | The call failed (bad arguments, Costpoint refusal, lost session) | true |
+| `NOT SAVED: revision explanation required.` | The edit is held; call `save_with_explanation` | true |
+| `WARNING:` | Saved, but a side step failed (adding to favorites) | not set |
 
 ### Limits
 
@@ -126,6 +136,18 @@ The server uses stdio transport. Point your client at:
 ```
 node /path/to/tecli/mcp-server.js
 ```
+
+### Using tecli via code-mode
+
+[code-mode-mcp](https://github.com/universal-tool-calling-protocol/utcp-mcp) (`@utcp/code-mode-mcp`) runs agent-written JavaScript that calls tools as `tecli.tecli_<tool>({...})`. Register tecli in its UTCP config as an `mcp` manual with the same `node /path/to/tecli/mcp-server.js` stdio command. Rules for the scripts:
+
+- Calls are synchronous and return the result string: `return tecli.tecli_show_timesheet({})`. Chain calls with plain `var` assignments.
+- No `await` or `async`. Top-level `await` is a compile error, and an async function returns `{}`.
+- Plain JavaScript only. TypeScript annotations (`const n: number`) do not compile, even though the code-mode tool description says TypeScript.
+- code-mode drops `isError`, so check the leading marker (above) of each result, for example `if (r.indexOf('NOT SAVED:') === 0) ...`.
+- A script error still reports `success: true`. Look for `[ERROR]` in the returned `logs`.
+
+Installed directly (Claude Code, Claude Desktop, other MCP clients) nothing changes: errors also carry `isError`.
 
 ### Credentials
 

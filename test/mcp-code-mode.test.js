@@ -36,6 +36,7 @@ function mockEnv(mock) {
     COSTPOINT_USERNAME: 'mock',
     COSTPOINT_PASSWORD: 'mock',
     COSTPOINT_DIRECT: 'true',
+    TECLI_MOCK: '1',
   };
 }
 

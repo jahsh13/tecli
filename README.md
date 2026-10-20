@@ -153,8 +153,8 @@ Installed directly (Claude Code, Claude Desktop, other MCP clients) nothing chan
 
 The MCP server uses the same credential resolution as the CLI:
 
-1. Stored credentials from `te login` (`~/.tecli.json` + OS keychain)
-2. Environment variables (`COSTPOINT_URL`, `COSTPOINT_USERNAME`, `COSTPOINT_PASSWORD`)
+1. Environment variables (`COSTPOINT_URL`, `COSTPOINT_USERNAME`, `COSTPOINT_PASSWORD`), used only when all three are set
+2. Stored credentials from `te login` (`~/.tecli.json` + OS keychain), not used when `TECLI_MOCK` is set (see [Testing against the mock](#testing-against-the-mock))
 
 If you haven't run `te login` yet, do that first — the MCP server picks up stored credentials automatically.
 
@@ -163,11 +163,13 @@ If you haven't run `te login` yet, do that first — the MCP server picks up sto
 `npm run mock` starts a stateful Costpoint stand-in on port 4000 (`MOCK_PORT` to change it). It serves a seed scenario: the current week Open, last week Processed and correctable, the week before Signed, older weeks Processed, plus a charge catalog, favorites and leave balances. Point any interface at it:
 
 ```bash
-export COSTPOINT_URL='http://localhost:4000/cpweb/cploginform.htm?system=MOCK' COSTPOINT_USERNAME=mock COSTPOINT_PASSWORD=mock COSTPOINT_DIRECT=true
+export TECLI_MOCK=1 COSTPOINT_URL='http://localhost:4000/cpweb/cploginform.htm?system=MOCK' COSTPOINT_USERNAME=mock COSTPOINT_PASSWORD=mock COSTPOINT_DIRECT=true
 node cli.js show --back 1
 node cli.js sign -y
 npx @modelcontextprotocol/inspector node mcp-server.js
 ```
+
+Set `TECLI_MOCK=1` for any mock run. With it set, `COSTPOINT_URL`, `COSTPOINT_USERNAME` and `COSTPOINT_PASSWORD` must all be in the environment (the stored `te login` credentials are never used) and the URL must be `localhost`, `127.0.0.1` or `::1`. Otherwise credential lookup throws and `mcp-server.js` refuses to start (stderr message, exit code 2). It refuses rather than warns because a mock run that reaches real Costpoint can edit or sign a real timesheet. Any value other than empty, `0` or `false` turns it on. The mock tests set it themselves.
 
 State lives in memory, so restarting the mock resets it. `POST /__mock/reset` resets it in place, `POST /__mock/expire?sid=all` drops every login (to see the retry), and `GET /__mock/state` dumps it.
 

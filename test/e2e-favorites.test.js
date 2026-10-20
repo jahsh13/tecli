@@ -7,7 +7,7 @@
  * COSTPOINT_PASSWORD, COSTPOINT_DIRECT=true) or ~/.tecli.json + keychain.
  *
  * Run with: node --test test/e2e-favorites.test.js
- * Skip if no credentials: set SKIP_E2E=1
+ * Skips without credentials or with TECLI_MOCK set; set SKIP_E2E=1 to skip anyway
  *
  * TUI manual checklist (requires running `node tui.js`):
  *   1. Press [f] — favorites panel opens, shows "No favorites found" or a list
@@ -19,8 +19,15 @@
 require('dotenv').config();
 const { test, describe } = require('node:test');
 const assert = require('node:assert/strict');
+const { getCredentials, isMockRun } = require('../credentials');
 
-const SKIP = process.env.SKIP_E2E === '1';
+function skipReason() {
+  if (process.env.SKIP_E2E === '1') return 'SKIP_E2E=1';
+  if (isMockRun()) return 'TECLI_MOCK is set (this test needs live Costpoint)';
+  return getCredentials() ? false : 'no Costpoint credentials';
+}
+
+const SKIP = skipReason();
 
 // ─── CLI smoke test ────────────────────────────────────────────────────────
 

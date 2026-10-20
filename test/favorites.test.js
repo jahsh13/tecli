@@ -28,9 +28,13 @@ function decodeBody(body) {
   return decodeURIComponent(body.replace(/\+/g, ' '));
 }
 
+// captured/ is gitignored (real timesheet data), so tests that read it skip without it
+const capturedPath = filename => path.join(__dirname, '../captured', filename);
+const skipWithout = filename => (fs.existsSync(capturedPath(filename)) ? false : `captured/${filename} not present`);
+
 // Load and decode a base64-encoded captured response
 function loadCapturedResponse(filename) {
-  const raw = fs.readFileSync(path.join(__dirname, '../captured', filename), 'utf8').trim();
+  const raw = fs.readFileSync(capturedPath(filename), 'utf8').trim();
   return Buffer.from(raw.replace('data:application/octet-stream;base64,', ''), 'base64').toString('binary');
 }
 
@@ -86,7 +90,7 @@ describe('protocol.extract204', () => {
     assert.equal(protocol.extract204(parsed, 2), null);
   });
 
-  test('extracts rows from captured favorites filter response', () => {
+  test('extracts rows from captured favorites filter response', { skip: skipWithout('favorites-filter-res.txt') }, () => {
     // This uses real captured server data to verify end-to-end decoding.
     const responseText = loadCapturedResponse('favorites-filter-res.txt');
     const parsed = protocol.parseResponse(responseText);

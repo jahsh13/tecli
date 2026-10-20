@@ -5,7 +5,7 @@ const { McpServer } = require('@modelcontextprotocol/sdk/server/mcp.js');
 const { StdioServerTransport } = require('@modelcontextprotocol/sdk/server/stdio.js');
 const { z } = require('zod');
 const DirectClient = require('./direct');
-const { getCredentials } = require('./credentials');
+const { getCredentials, assertMockSafe, isMockRun } = require('./credentials');
 const { COMMON_CODES, resolveAlias } = require('./charge-codes');
 const { normalizeWorkLocation } = require('./add-options');
 const { normalizeTimesheetStatus } = require('./timesheet-status');
@@ -98,6 +98,7 @@ function buildServer(options = {}) {
 
   function credentials() {
     const creds = options.creds || getCredentials();
+    assertMockSafe(creds);
     if (!creds) {
       throw new Error('No credentials found. Run `te login` to configure credentials, or set COSTPOINT_URL, COSTPOINT_USERNAME, and COSTPOINT_PASSWORD environment variables.');
     }
@@ -365,6 +366,16 @@ function buildServer(options = {}) {
 // ── Start ──────────────────────────────────────────────────────
 
 async function main() {
+  // Credentials are read lazily per tool call, so a mock run checks them up
+  // front: refusing to start is the only signal a client is sure to see.
+  if (isMockRun()) {
+    try {
+      getCredentials();
+    } catch (e) {
+      console.error(`tecli MCP server refused to start: ${e.message}`);
+      process.exit(2);
+    }
+  }
   const { server } = buildServer();
   await server.connect(new StdioServerTransport());
 }

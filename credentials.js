@@ -243,11 +243,42 @@ function promptSecret(text) {
 
 // ─── Public API ─────────────────────────────────────────────────
 
+// ─── Mock-run guard ─────────────────────────────────────────────
+
+const LOCAL_HOSTS = ['localhost', '127.0.0.1', '::1', '[::1]'];
+
+// TECLI_MOCK marks a run that must only reach a local mock. Any value other
+// than empty, 0 or false turns it on, so a typo errs toward protection.
+function isMockRun() {
+  const v = (process.env.TECLI_MOCK || '').trim().toLowerCase();
+  return v !== '' && v !== '0' && v !== 'false';
+}
+
+function isLocalUrl(url) {
+  try {
+    return LOCAL_HOSTS.includes(new URL(url).hostname);
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Throws when a mock run would reach anything but a local host. Refusing
+ * beats warning: a mock run that edits or signs a real timesheet is worse
+ * than a failed start.
+ */
+function assertMockSafe(creds) {
+  if (!isMockRun() || !creds || isLocalUrl(creds.url)) return;
+  throw new Error(`TECLI_MOCK is set but the Costpoint URL is not local (${creds.url}). Point COSTPOINT_URL at the mock (localhost) or unset TECLI_MOCK.`);
+}
+
 /**
  * Get stored credentials.  Priority:
  *   1. Environment variables (COSTPOINT_URL, COSTPOINT_USERNAME, COSTPOINT_PASSWORD)
- *   2. Config file (~/.tecli.json) + OS keychain
- * Returns { url, username, password, system, useDirect } or null.
+ *   2. Config file (~/.tecli.json) + OS keychain, skipped when TECLI_MOCK is
+ *      set: the stored login is the real one
+ * Returns { url, username, password, system, useDirect } or null. Throws
+ * when TECLI_MOCK is set and the URL is not local (assertMockSafe).
  */
 function getCredentials() {
   // 1. Env vars (preserves .env / CI compatibility)
@@ -256,13 +287,19 @@ function getCredentials() {
   const envPass = process.env.COSTPOINT_PASSWORD;
 
   if (envUrl && envUser && envPass) {
-    return {
+    const creds = {
       url: envUrl,
       username: envUser,
       password: envPass,
       system: process.env.COSTPOINT_SYSTEM || '',
       useDirect: process.env.COSTPOINT_DIRECT === 'true',
     };
+    assertMockSafe(creds);
+    return creds;
+  }
+
+  if (isMockRun()) {
+    throw new Error('TECLI_MOCK is set but COSTPOINT_URL, COSTPOINT_USERNAME and COSTPOINT_PASSWORD are not all set. The stored login is not used in a mock run.');
   }
 
   // 2. Config + keychain
@@ -326,4 +363,4 @@ function logout() {
   _fallbackDelete();
 }
 
-module.exports = { getCredentials, login, logout, prompt, promptSecret };
+module.exports = { getCredentials, assertMockSafe, isMockRun, login, logout, prompt, promptSecret };

@@ -158,6 +158,10 @@ The MCP server uses the same credential resolution as the CLI:
 
 If you haven't run `te login` yet, do that first — the MCP server picks up stored credentials automatically.
 
+## Running tests
+
+`npm test` runs the unit and mock tests offline. Tests against live Costpoint are opt-in: `RUN_E2E=1 npm test` runs them with your stored `te login` or the `COSTPOINT_*` variables. They are read-only but reach te.leidos.com. They still skip without credentials, with `TECLI_MOCK` set or with `SKIP_E2E=1`.
+
 ## Testing against the mock
 
 `npm run mock` starts a stateful Costpoint stand-in on port 4000 (`MOCK_PORT` to change it). It serves a seed scenario: the current week Open, last week Processed and correctable, the week before Signed, older weeks Processed, plus a charge catalog, favorites and leave balances. Point any interface at it:

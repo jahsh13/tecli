@@ -75,3 +75,75 @@ test('refuses to treat a Processed week as open', () => {
   client.periodIdx = 0;
   assert.throws(() => client._isPeriodClosed(), /Processed/);
 });
+
+// Child (K1) columns: the 10/2026 update inserted REVERSED_FROM_LN_NO at 244
+// (402 -> 403 columns), moving every child column from 244 on up by one.
+const CHILD_CAPTURE = path.join(__dirname, '../captured/work-location/008-res.txt');
+
+const CHILD_402 = { S_APPROVE_STATUS_CD: 0, DISPLAY_LINE_NO: 1, LINE_DESC: 2, UDT02_ID: 6, UDT03_ID: 8,
+  UDT10_ID: 16, DAY1_HRS: 26, DAY2_HRS: 27, DAY3_HRS: 28, DAY4_HRS: 29, DAY5_HRS: 30, DAY6_HRS: 31,
+  DAY7_HRS: 32, TOTAL_ENTERED_HRS: 96, CHARGE_BRANCH_CD_U2_CHG_LKUP: 104, CHARGE_CD_U2_CHG_LKUP: 108,
+  CHARGE_TREE_CD_U2_CHG_LKUP: 112, COMMENT___DAY1_HRS: 124, COMMENT___DAY2_HRS: 135,
+  COMMENT___DAY3_HRS: 143, COMMENT___DAY4_HRS: 144, COMMENT___DAY5_HRS: 145, COMMENT___DAY6_HRS: 146,
+  COMMENT___DAY7_HRS: 147, COST_FL: 150, COUNT_ROW: 151, EMPL_ID: 187, HRS_INCREMENT_CD: 193,
+  HRS_MODIFY_FL: 194, IS_AMBIGUOUS_LKP: 196, IS_PROCESSED_FL: 197, LINE_NO: 198, OT_FL: 234,
+  PERIOD_NO_CD: 235, TS_SCHEDULE_CD: 336, UDT10_ID_U2_CHG_LKUP: 376, UDT_FROM_LKP_FL: 393,
+  YEAR_NO_CD: 398, UDT02_DISPLAY: 400 };
+
+function liveChildLayout() {
+  const names = layout(402, CHILD_402);
+  names.splice(244, 0, 'REVERSED_FROM_LN_NO');
+  return names;
+}
+
+test('the K1 column list in the init response matches the capture layout', { skip: !hasCapture && 'no captured/' }, () => {
+  const [names] = protocol.columnNames(fs.readFileSync(CHILD_CAPTURE, 'utf8'));
+  assert.equal(names.length, 402);
+  for (const [name, i] of Object.entries(CHILD_402)) assert.equal(names[i], name, 'column ' + i);
+});
+
+test('resolves the live child layout (403 columns) by name', () => {
+  const cols = DirectClient.resolveChildColumns(liveChildLayout(), 403);
+  assert.equal(cols.UDT02_ID, 6);
+  assert.equal(cols.DAYS[0], 26);
+  assert.equal(cols.COMMENTS[6], 147);
+  assert.equal(cols.TS_SCHEDULE_CD, 337);
+  assert.equal(cols.CHARGE_PAY_TYPE, 377);
+  assert.equal(cols.UDT_FROM_LKP_FL, 394);
+  assert.equal(cols.YEAR_NO_CD, 399);
+  assert.equal(cols.CHARGE_PROJECT_ID, 401);
+});
+
+test('child resolution fails loudly on a missing name, a duplicate or a width mismatch', () => {
+  const missing = liveChildLayout();
+  missing[401] = 'OTHER';
+  assert.throws(() => DirectClient.resolveChildColumns(missing, 403), /UDT02_DISPLAY/);
+  const dup = liveChildLayout();
+  dup[5] = 'UDT02_ID';
+  assert.throws(() => DirectClient.resolveChildColumns(dup, 403), /UDT02_ID.*not unique/);
+  assert.throws(() => DirectClient.resolveChildColumns(liveChildLayout(), 402), /403.*402/);
+  assert.throws(() => DirectClient.resolveChildColumns(undefined, 403), /child column names/);
+});
+
+test('staging a line and copying a charge write the live child columns', () => {
+  const client = Object.create(DirectClient.prototype);
+  client.childCol = DirectClient.resolveChildColumns(liveChildLayout(), 403);
+  const template = new Array(403).fill('');
+  template[337] = 'SCHED'; template[399] = '2026'; template[336] = 'WRONG'; template[398] = 'WRONG';
+  client.childData = { rowNums: ['0'], rowFlags: ['0'], rows: [template] };
+  client._stagePendingLine();
+  const row = client.childData.rows[1];
+  assert.equal(row[337], 'SCHED');
+  assert.equal(row[399], '2026');
+  assert.equal(row[336], '');
+  assert.equal(row[394], 'N');
+  assert.equal(row[393], '');
+
+  const k2 = new Array(56).fill('');
+  k2[5] = 'PROJ'; k2[15] = 'REG'; k2[24] = 'PROJ.REG'; k2[26] = '1'; k2[32] = 'PROJ-ID';
+  client._applyCharge(k2);
+  assert.equal(row[377], 'REG');
+  assert.equal(row[401], 'PROJ-ID');
+  assert.equal(row[376], '');
+  assert.equal(row[400], '');
+});

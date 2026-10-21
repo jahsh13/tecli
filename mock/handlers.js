@@ -212,15 +212,30 @@ const PARENT_NAMES = {
   [PARENT.TS_CLOSED_FL]: 'TS_CLOSED_FL',
 };
 
-function parentColumnNames(width) {
-  return Array.from({ length: width }, (_, i) => PARENT_NAMES[i] || 'COL' + i);
+// Child columns direct.js resolves by name, at the 402-column capture layout
+const CHILD_NAMES = {
+  0: 'S_APPROVE_STATUS_CD', [CHILD.LINE_NO]: 'DISPLAY_LINE_NO', [CHILD.DESC]: 'LINE_DESC',
+  [CHILD.CODE]: 'UDT02_ID', [CHILD.WORK_LOCATION]: 'UDT03_ID', [CHILD.PAY_TYPE]: 'UDT10_ID',
+  ...Object.fromEntries(CHILD.DAYS.map((c, i) => [c, 'DAY' + (i + 1) + '_HRS'])),
+  ...Object.fromEntries(CHILD.COMMENTS.map((c, i) => [c, 'COMMENT___DAY' + (i + 1) + '_HRS'])),
+  [CHILD.CHARGE_PROJECT]: 'CHARGE_BRANCH_CD_U2_CHG_LKUP', [CHILD.CHARGE_COMBINED]: 'CHARGE_CD_U2_CHG_LKUP',
+  [CHILD.CHARGE_FLAG]: 'CHARGE_TREE_CD_U2_CHG_LKUP', [CHILD.CHARGE_PAY_TYPE]: 'UDT10_ID_U2_CHG_LKUP',
+  [CHILD.CHARGE_PROJECT_ID]: 'UDT02_DISPLAY', [CHILD.SEQ]: 'LINE_NO',
+  150: 'COST_FL', 151: 'COUNT_ROW', 187: 'EMPL_ID', 193: 'HRS_INCREMENT_CD', 194: 'HRS_MODIFY_FL',
+  196: 'IS_AMBIGUOUS_LKP', 197: 'IS_PROCESSED_FL', 234: 'OT_FL', 235: 'PERIOD_NO_CD',
+  336: 'TS_SCHEDULE_CD', 393: 'UDT_FROM_LKP_FL', 398: 'YEAR_NO_CD',
+};
+
+function columnNames(named, width) {
+  return Array.from({ length: width }, (_, i) => named[i] || 'COL' + i);
 }
 
 function openRs(cmd, env) {
   const k = int(cmd.codes.K);
   env.session.openRs[k] = cmd.codes.I;
   if (cmd.codes.I === 'TC_UDT02_CHARGE_LKP') env.session.favoritesPrimed = false;
-  if (k === 0) return [{ rsKey: k, cmdCd: 201, columnNames: parentColumnNames(env.db.cols.parent) }];
+  if (k === 0) return [{ rsKey: k, cmdCd: 201, columnNames: columnNames(PARENT_NAMES, env.db.cols.parent) }];
+  if (k === 1) return [{ rsKey: k, cmdCd: 201, columnNames: columnNames(CHILD_NAMES, env.db.cols.child) }];
   return [{ rsKey: k, cmdCd: 201 }];
 }
 

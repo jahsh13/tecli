@@ -49,38 +49,77 @@ const PARENT_COL = {
 };
 
 /**
- * Map PARENT_COL_NAMES to indices in a K0 maObjId name list. Throws when a
- * name is missing or repeated, or when the list does not match the row width,
- * so a layout change fails loudly instead of reading the wrong flags.
+ * Map a { key: name | [names] } spec to indices in an OPEN_RS maObjId name
+ * list. Throws when a name is missing or repeated, or when the list does not
+ * match the row width, so a layout change fails loudly instead of reading or
+ * writing the wrong columns.
  */
-function resolveParentColumns(names, rowWidth) {
+function resolveColumns(kind, spec, names, rowWidth) {
   if (!Array.isArray(names) || names.length === 0) {
-    throw new Error('Costpoint sent no parent column names; cannot locate timesheet columns');
+    throw new Error('Costpoint sent no ' + kind + ' column names; cannot locate timesheet columns');
   }
   if (rowWidth !== undefined && names.length !== rowWidth) {
-    throw new Error('Parent column names (' + names.length + ') do not match the row width (' +
-      rowWidth + '); the Costpoint layout changed');
+    throw new Error(kind[0].toUpperCase() + kind.slice(1) + ' column names (' + names.length +
+      ') do not match the row width (' + rowWidth + '); the Costpoint layout changed');
   }
-  const cols = {};
-  for (const [key, name] of Object.entries(PARENT_COL_NAMES)) {
+  const indexOf = (name) => {
     const idx = names.indexOf(name);
     if (idx < 0 || names.indexOf(name, idx + 1) >= 0) {
-      throw new Error('Parent column ' + name + (idx < 0 ? ' not found' : ' is not unique') +
-        ' in the Costpoint layout');
+      throw new Error(kind[0].toUpperCase() + kind.slice(1) + ' column ' + name +
+        (idx < 0 ? ' not found' : ' is not unique') + ' in the Costpoint layout');
     }
-    cols[key] = idx;
+    return idx;
+  };
+  const cols = {};
+  for (const [key, name] of Object.entries(spec)) {
+    cols[key] = Array.isArray(name) ? name.map(indexOf) : indexOf(name);
   }
   return cols;
 }
 
-// Child column indices
-const CHILD_DAY_COL = { 1: 26, 2: 27, 3: 28, 4: 29, 5: 30, 6: 31, 7: 32 };
-const CHILD_COMMENT_COL = { 1: 124, 2: 135, 3: 143, 4: 144, 5: 145, 6: 146, 7: 147 };
-const CHILD_LINE_DESC = 2;
-const CHILD_UDT02_ID = 6;  // UDT02_ID column index (verified: ZLEAVE.CMP pattern)
-const CHILD_WORK_LOCATION = 8;  // UDT03_ID: work location zip (captured/work-location/)
-const CHILD_PAY_TYPE = 16;
-const CHILD_TOTAL_ENTERED = 96;
+const resolveParentColumns = (names, rowWidth) => resolveColumns('parent', PARENT_COL_NAMES, names, rowWidth);
+
+// Child (K1) columns, by maObjId name. The 10/2026 update inserted
+// REVERSED_FROM_LN_NO at 244 (402 -> 403 columns), so like the parent these
+// are resolved from the OPEN_RS name list at launch (resolveChildColumns).
+const CHILD_COL_NAMES = {
+  LINE_DESC: 'LINE_DESC',
+  UDT02_ID: 'UDT02_ID',
+  // Work location zip (captured/work-location/)
+  WORK_LOCATION: 'UDT03_ID',
+  PAY_TYPE: 'UDT10_ID',
+  DAYS: ['DAY1_HRS', 'DAY2_HRS', 'DAY3_HRS', 'DAY4_HRS', 'DAY5_HRS', 'DAY6_HRS', 'DAY7_HRS'],
+  COMMENTS: ['COMMENT___DAY1_HRS', 'COMMENT___DAY2_HRS', 'COMMENT___DAY3_HRS', 'COMMENT___DAY4_HRS',
+    'COMMENT___DAY5_HRS', 'COMMENT___DAY6_HRS', 'COMMENT___DAY7_HRS'],
+  // Copied from an existing line when staging a new one
+  TEMPLATE: ['S_APPROVE_STATUS_CD', 'COST_FL', 'COUNT_ROW', 'EMPL_ID', 'HRS_INCREMENT_CD', 'HRS_MODIFY_FL',
+    'IS_PROCESSED_FL', 'OT_FL', 'PERIOD_NO_CD', 'TS_SCHEDULE_CD', 'YEAR_NO_CD'],
+  TS_SCHEDULE_CD: 'TS_SCHEDULE_CD',
+  YEAR_NO_CD: 'YEAR_NO_CD',
+  DISPLAY_LINE_NO: 'DISPLAY_LINE_NO',
+  LINE_NO: 'LINE_NO',
+  IS_AMBIGUOUS_LKP: 'IS_AMBIGUOUS_LKP',
+  UDT_FROM_LKP_FL: 'UDT_FROM_LKP_FL',
+  // Charge fields the browser copies from the selected K2 lookup row
+  CHARGE_PROJECT: 'CHARGE_BRANCH_CD_U2_CHG_LKUP',
+  CHARGE_COMBINED: 'CHARGE_CD_U2_CHG_LKUP',
+  CHARGE_FLAG: 'CHARGE_TREE_CD_U2_CHG_LKUP',
+  CHARGE_PAY_TYPE: 'UDT10_ID_U2_CHG_LKUP',
+  CHARGE_PROJECT_ID: 'UDT02_DISPLAY',
+};
+
+// Layout of the 402-column captures, for stub clients built without a launch
+const CHILD_COL = {
+  LINE_DESC: 2, UDT02_ID: 6, WORK_LOCATION: 8, PAY_TYPE: 16,
+  DAYS: [26, 27, 28, 29, 30, 31, 32],
+  COMMENTS: [124, 135, 143, 144, 145, 146, 147],
+  TEMPLATE: [0, 150, 151, 187, 193, 194, 197, 234, 235, 336, 398],
+  TS_SCHEDULE_CD: 336, YEAR_NO_CD: 398, DISPLAY_LINE_NO: 1, LINE_NO: 198, IS_AMBIGUOUS_LKP: 196,
+  UDT_FROM_LKP_FL: 393, CHARGE_PROJECT: 104, CHARGE_COMBINED: 108, CHARGE_FLAG: 112,
+  CHARGE_PAY_TYPE: 376, CHARGE_PROJECT_ID: 400,
+};
+
+const resolveChildColumns = (names, rowWidth) => resolveColumns('child', CHILD_COL_NAMES, names, rowWidth);
 
 // Revision explanation column indices (K2 = TMMTS_TS_REVISION_EXP)
 const REV_COL = { EXPLANATION: 0, REVISION_NO: 1, CANCELLED_CD: 4, EMPL_ID: 5, PERIOD_NO_CD: 6, TS_SCHEDULE_CD: 7, YEAR: 8, TOTAL_COLS: 9 };
@@ -130,6 +169,15 @@ class DirectClient {
 
   set parentCol(cols) {
     this._parentCol = cols;
+  }
+
+  /** Child column indices: resolved at launch, the capture layout otherwise. */
+  get childCol() {
+    return this._childCol || CHILD_COL;
+  }
+
+  set childCol(cols) {
+    this._childCol = cols;
   }
 
   /**
@@ -238,7 +286,7 @@ class DirectClient {
         ),
         comments: Object.fromEntries(
           this.dates.map((d, i) => {
-            const c = this.childData.rows[idx] ? (this.childData.rows[idx][CHILD_COMMENT_COL[i + 1]] || '') : '';
+            const c = this.childData.rows[idx] ? (this.childData.rows[idx][this.childCol.COMMENTS[i]] || '') : '';
             return [d.date(), c || null];
           })
         ),
@@ -321,14 +369,14 @@ class DirectClient {
     const projects = [];
     for (let i = 0; i < this.prevChildData.rows.length; i++) {
       const row = this.prevChildData.rows[i];
-      const code = row[CHILD_UDT02_ID] || '';
-      const desc = row[CHILD_LINE_DESC] || '';
-      const payType = row[16] || '';
+      const code = row[this.childCol.UDT02_ID] || '';
+      const desc = row[this.childCol.LINE_DESC] || '';
+      const payType = row[this.childCol.PAY_TYPE] || '';
       const hours = {};
       const comments = {};
       for (let d = 1; d <= NUM_DAYS; d++) {
-        const val = row[CHILD_DAY_COL[d]];
-        const comment = row[CHILD_COMMENT_COL[d]] || '';
+        const val = row[this.childCol.DAYS[d - 1]];
+        const comment = row[this.childCol.COMMENTS[d - 1]] || '';
         hours[dates[d - 1].date()] = val ? parseFloat(val) : null;
         comments[dates[d - 1].date()] = comment || null;
       }
@@ -366,15 +414,15 @@ class DirectClient {
     if (this._isPeriodClosed()) await this._correctTimesheet();
 
     const dayNum = dayIdx + 1;
-    const childCol = CHILD_DAY_COL[dayNum];
+    const dayCol = this.childCol.DAYS[dayNum - 1];
     const rowNum = parseInt(this.childData.rowNums[line], 10);
 
     // Update local child data
-    this.childData.rows[line][childCol] = String(hours);
+    this.childData.rows[line][dayCol] = String(hours);
 
     // Set comment if provided
     if (comment !== undefined && comment !== null) {
-      this.childData.rows[line][CHILD_COMMENT_COL[dayNum]] = comment;
+      this.childData.rows[line][this.childCol.COMMENTS[dayNum - 1]] = comment;
     }
 
     // Send cell edit batch (205+208+204s+507)
@@ -424,7 +472,7 @@ class DirectClient {
     // Step 2: Set the project code and validate it.
     // Find the new row (may have been replaced by server response).
     const newRowIdx = this.childData.rowNums.findIndex(n => parseInt(n, 10) < 0);
-    this.childData.rows[newRowIdx][CHILD_UDT02_ID] = code;
+    this.childData.rows[newRowIdx][this.childCol.UDT02_ID] = code;
     await this._validateUdt02();
 
     // Step 3: Resolve charge via server-side lookup.
@@ -439,7 +487,7 @@ class DirectClient {
     if (typeof workLocation === 'function') workLocation = await workLocation(this.pendingLine());
     if (workLocation) {
       const idx = this.childData.rowNums.findIndex(n => parseInt(n, 10) < 0);
-      this.childData.rows[idx][CHILD_WORK_LOCATION] = workLocation;
+      this.childData.rows[idx][this.childCol.WORK_LOCATION] = workLocation;
       await this._validateObject('UDT03_ID');
     }
 
@@ -453,7 +501,7 @@ class DirectClient {
     const idx = this.childData.rowNums.findIndex(n => parseInt(n, 10) < 0);
     if (idx < 0) return null;
     const row = this.childData.rows[idx];
-    return { payType: row[CHILD_PAY_TYPE] || '', workLocation: row[CHILD_WORK_LOCATION] || '' };
+    return { payType: row[this.childCol.PAY_TYPE] || '', workLocation: row[this.childCol.WORK_LOCATION] || '' };
   }
 
   /**
@@ -477,16 +525,16 @@ class DirectClient {
     const numCols = this.childData.rows[0].length;
     const newRow = new Array(numCols).fill('');
 
-    const TEMPLATE_COLS = [0, 150, 151, 187, 193, 194, 197, 234, 235, 336, 398];
+    const col = this.childCol;
     const templateRow = this.childData.rows[0];
-    for (const ci of TEMPLATE_COLS) {
+    for (const ci of col.TEMPLATE) {
       if (ci < templateRow.length && templateRow[ci]) newRow[ci] = templateRow[ci];
     }
     const nextSeq = String(this.childData.rows.length + 1);
-    newRow[1] = nextSeq;
-    newRow[198] = nextSeq;
-    newRow[196] = 'N';
-    newRow[393] = 'N';
+    newRow[col.DISPLAY_LINE_NO] = nextSeq;
+    newRow[col.LINE_NO] = nextSeq;
+    newRow[col.IS_AMBIGUOUS_LKP] = 'N';
+    newRow[col.UDT_FROM_LKP_FL] = 'N';
 
     this.childData.rows.push(newRow);
     this.childData.rowNums.push('-59999');
@@ -1032,6 +1080,21 @@ class DirectClient {
    * For single-charge codes (1 result), auto-selects the only option.
    * For multi-charge codes, selects the row matching payType.
    */
+  /**
+   * Copy charge fields from the selected K2 lookup row into the pending K1
+   * row. The browser does this client-side before sending CMD 300.
+   */
+  _applyCharge(k2Row) {
+    const col = this.childCol;
+    const childRow = this.childData.rows[this.childData.rowNums.findIndex(n => parseInt(n, 10) < 0)];
+    childRow[col.CHARGE_PROJECT] = k2Row[5] || '';
+    // Combined code+payType (e.g., ZLEAVE.FTBRHB)
+    childRow[col.CHARGE_COMBINED] = k2Row[24] || '';
+    childRow[col.CHARGE_FLAG] = k2Row[26] || '';
+    childRow[col.CHARGE_PAY_TYPE] = k2Row[15] || '';
+    childRow[col.CHARGE_PROJECT_ID] = k2Row[32] || '';
+  }
+
   async _resolveChargeOnServer(code, payType) {
     // Step 1: PUT child row + OPEN_RS K2 for charge lookup
     const openRsBody = this._buildOpenRsChargeLookup();
@@ -1081,15 +1144,7 @@ class DirectClient {
     const selectedRowNum = k2Data.rowNums[selectedIdx];
     const selectedK2Row = k2Data.rows[selectedIdx];
 
-    // Copy charge fields from K2 selected row into K1 child row.
-    // The browser does this client-side before sending CMD 300.
-    const newRowIdx = this.childData.rowNums.findIndex(n => parseInt(n, 10) < 0);
-    const childRow = this.childData.rows[newRowIdx];
-    childRow[104] = selectedK2Row[5] || '';   // project code
-    childRow[108] = selectedK2Row[24] || '';   // combined code+payType (e.g., ZLEAVE.FTBRHB)
-    childRow[112] = selectedK2Row[26] || '';   // flag
-    childRow[376] = selectedK2Row[15] || '';   // pay type
-    childRow[400] = selectedK2Row[32] || '';   // project code
+    this._applyCharge(selectedK2Row);
 
     // Step 3: CMD 300 TC_TS_CHARGE_LKP_OK with selected charge
     const lkpOkBody = this._buildChargeLkpOk(selectedK2Row, selectedRowNum);
@@ -1874,6 +1929,9 @@ class DirectClient {
     const childParsed = protocol.parseResponse(childResp);
     this.childData = protocol.extract204(childParsed, 1);
     if (!this.childData) throw new Error('Failed to decode child data');
+    // The init parent batch carries the K1 OPEN_RS, so its names are the child list
+    this.childCol = resolveChildColumns(protocol.columnNames(parentResp)[0],
+      this.childData.rows[0] && this.childData.rows[0].length);
 
     // Previous period lines (X=1) for read-only display — only when
     // requested (web UI, TUI). getPreviousPeriodData() reads them.
@@ -2213,7 +2271,7 @@ class DirectClient {
     // Compute Code column width from actual data
     let codeW = 4; // minimum ("Code".length)
     for (const row of this.childData.rows) {
-      const len = (row[CHILD_UDT02_ID] || '').length;
+      const len = (row[this.childCol.UDT02_ID] || '').length;
       if (len > codeW) codeW = len;
     }
     codeW += 2; // padding
@@ -2229,13 +2287,13 @@ class DirectClient {
     this.table.length = 0;
     for (let i = 0; i < this.childData.rows.length; i++) {
       const row = this.childData.rows[i];
-      const code = row[CHILD_UDT02_ID] || '';
-      const desc = row[CHILD_LINE_DESC] || '';
-      const payType = row[16] || '';
+      const code = row[this.childCol.UDT02_ID] || '';
+      const desc = row[this.childCol.LINE_DESC] || '';
+      const payType = row[this.childCol.PAY_TYPE] || '';
       const hours = [];
       for (let d = 1; d <= NUM_DAYS; d++) {
-        const val = row[CHILD_DAY_COL[d]];
-        const comment = row[CHILD_COMMENT_COL[d]] || '';
+        const val = row[this.childCol.DAYS[d - 1]];
+        const comment = row[this.childCol.COMMENTS[d - 1]] || '';
         if (val) {
           hours.push(parseFloat(val) + (comment ? '*' : ''));
         } else {
@@ -3203,4 +3261,5 @@ class DirectClient {
 
 DirectClient.RevisionRequiredError = RevisionRequiredError;
 DirectClient.resolveParentColumns = resolveParentColumns;
+DirectClient.resolveChildColumns = resolveChildColumns;
 module.exports = DirectClient;

@@ -490,7 +490,7 @@ Only row 0 comes back with its non-DB columns (everything past the first ~45 fil
 
 ## Column Layout — Child (K1, TMMTS_TS_LINE)
 
-Each child row is a timesheet line (one project). The row has **402 columns**.
+Each child row is a timesheet line (one project). The live row has **403 columns** (2026-10); the captures have 402. Costpoint inserted `REVERSED_FROM_LN_NO` at 244, so every column from 244 on moved up by one. Indices below 244 are the same in both. `direct.js` resolves the columns it uses by name (`resolveChildColumns()`) from the K1 `maObjId` list, which arrives with the K1 OPEN_RS in the init parent batch. A missing or repeated name, or a list that does not match the row width, fails the launch. Indices >= 244 below show capture -> live.
 
 ### Key Columns
 
@@ -538,7 +538,7 @@ Note: Comment columns are NOT sequentially numbered. The mapping was discovered 
 These columns carry employee defaults and must be copied from an existing row when creating a new one:
 
 ```
-0, 150, 151, 187, 193, 194, 197, 234, 235, 336, 398
+0, 150, 151, 187, 193, 194, 197, 234, 235, 336 -> 337 (TS_SCHEDULE_CD), 398 -> 399 (YEAR_NO_CD)
 ```
 
 ### New Row Columns
@@ -548,7 +548,7 @@ These columns carry employee defaults and must be copied from an existing row wh
 | 1 | next seq number | Sequence number |
 | 198 | next seq number | Duplicate seq number |
 | 196 | "N" | New row flag |
-| 393 | "N" | New row flag (duplicate) |
+| 393 -> 394 | "N" | UDT_FROM_LKP_FL |
 
 ### Charge Resolution Columns (K2 -> K1 copy)
 
@@ -559,8 +559,8 @@ After charge lookup, these fields are copied from the K2 lookup row into the K1 
 | 104 | 5 | Project code |
 | 108 | 24 | Combined code+payType (e.g., ZLEAVE.FTBRHB) |
 | 112 | 26 | Flag |
-| 376 | 15 | Pay type |
-| 400 | 32 | Project code |
+| 376 -> 377 | 15 | Pay type (UDT10_ID_U2_CHG_LKUP) |
+| 400 -> 401 | 32 | Project code (UDT02_DISPLAY) |
 
 ### Source Code Columns
 
@@ -787,10 +787,10 @@ Full 5-step flow for adding a new timesheet line:
 
 ```
 Local preparation:
-  - new Array(402).fill('')
-  - Copy template cols (0, 150, 151, 187, 193, 194, 197, 234, 235, 336, 398) from existing row
+  - new Array(row width).fill('')
+  - Copy the template columns (see Template Columns) from an existing row
   - Set col[1] = col[198] = next sequence number
-  - Set col[196] = col[393] = "N"
+  - Set col[196] (IS_AMBIGUOUS_LKP) = UDT_FROM_LKP_FL = "N"
   - Append to childData with rowNum=-59999, rowFlag=19
 
 Batch: [205 PUT K0 + 205 PUT K1 + 205 PUT K0 ctx + 205 PUT K1 ctx + 300 TMMTS_NEW_TS_LINE + 204 K0+ + 204 K0- + 204 K1+ + 204 K1- + 507]
@@ -889,8 +889,8 @@ Before sending CMD 300, copy fields from selected K2 row to K1 child row:
 K1[104] ← K2[5]    (project code)
 K1[108] ← K2[24]   (combined code+payType)
 K1[112] ← K2[26]   (flag)
-K1[376] ← K2[15]   (pay type)
-K1[400] ← K2[32]   (project code)
+K1[UDT10_ID_U2_CHG_LKUP] ← K2[15]   (pay type; 376 captures, 377 live)
+K1[UDT02_DISPLAY] ← K2[32]   (project code; 400 captures, 401 live)
 ```
 
 Then send the 14-command batch:

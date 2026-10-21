@@ -87,6 +87,9 @@ const REV_COL = { EXPLANATION: 0, REVISION_NO: 1, CANCELLED_CD: 4, EMPL_ID: 5, P
 // Audit column indices (K3 = TMMTS_TS_AUDIT_EXP)
 const AUDIT_COL = { REVISION_NO: 0, LINE_NO: 1, DATE: 2, PROJECT: 3, ACCOUNT: 5, CHARGE_DESC: 6, DETAIL: 7 };
 
+// Message of the 206 failure that asks for a revision explanation
+const REVISION_REQUIRED_ERROR = /Explanation or Reject Reason is required/i;
+
 /**
  * Thrown when a save attempt requires a revision explanation.
  * The auditDetails array describes what changed.
@@ -846,9 +849,8 @@ class DirectClient {
     const hasRescdError = protocol.checkRescds(parsed);
     const err = protocol.checkErrors(parsed);
 
-    // Check for revision explanation required (CMD 206 returned -1).
-    // Check this BEFORE generic error handling — the -1 on CMD 206 is the definitive signal,
-    // and the server may also include an error message like "Explanation or Reject Reason is required."
+    // Revision explanation required: the 206 failed with the explanation
+    // error. Every other failure is surfaced verbatim below.
     if (hasRescdError && this._isSaveRevisionRequired(parsed)) {
       debug('Revision explanation required — fetching audit details...');
       // Refresh data from this response (server accepted the PUT, just blocked the save)
@@ -868,6 +870,7 @@ class DirectClient {
       } catch (detailErr) {
         debug('Failed to fetch revision audit details: ' + detailErr.message);
       }
+      if (auditDetails.length === 0) debug('Warning: revision required but no audit details were returned');
       throw new RevisionRequiredError(auditDetails);
     }
 
@@ -905,23 +908,14 @@ class DirectClient {
   }
 
   /**
-   * Check if the save response indicates revision explanation is required.
-   * This happens when CMD 206 SAVE gets result code -1.
+   * True when the CMD 206 save failed on the revision explanation prompt
+   * (captured/prev-period-edit/017). Any other 206 failure is a real error.
    */
   _isSaveRevisionRequired(parsed) {
     const frames = protocol.parseFrames(parsed[0]);
-    const rescds = parsed[1];
-    let pos = 0;
-    for (let i = 0; i < frames.length; i++) {
-      if (pos >= rescds.length) break;
-      if (rescds[pos] === '-') {
-        if (frames[i].cmdCd === 206) return true;
-        pos += 2; // skip '-' and digit
-      } else {
-        pos++;
-      }
-    }
-    return false;
+    const codes = protocol.resultCodes(parsed);
+    return frames.some((f, i) => f.cmdCd === 206 && codes[i] < 0 &&
+      REVISION_REQUIRED_ERROR.test(protocol.frameError(parsed, i) || ''));
   }
 
   /**

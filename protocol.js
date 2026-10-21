@@ -329,19 +329,30 @@ function checkErrors(parsed) {
 }
 
 /**
- * Check rescds (result codes) for save errors.
- * -1 means error (e.g., explanation required).
+ * Result codes, one per frame, from the \x0B-separated rescds string.
+ */
+function resultCodes(parsed) {
+  const rescds = parsed[1];
+  if (typeof rescds !== 'string' || rescds === '') return [];
+  return rescds.split(ENCODE_COMMA).map(c => parseInt(c, 10));
+}
+
+/**
+ * Error message of frame i, or null when the frame is OK.
+ */
+function frameError(parsed, i) {
+  const err = Array.isArray(parsed[3]) ? parsed[3][i] : undefined;
+  if (err === undefined || err === '<OK>' || err === '<NO DATA>') return null;
+  if (typeof err === 'string') return err;
+  if (Array.isArray(err) && err.length > 0) return Array.isArray(err[0]) ? err[0][0] : String(err[0]);
+  return null;
+}
+
+/**
+ * True when any frame's result code is negative (-1 means error).
  */
 function checkRescds(parsed) {
-  const rescds = parsed[1];
-  if (typeof rescds === 'string') {
-    // rescds is a concatenated string like "0100" — one char per frame
-    for (let i = 0; i < rescds.length; i++) {
-      // Check for '-' which starts a negative number
-      if (rescds[i] === '-') return true;
-    }
-  }
-  return false;
+  return resultCodes(parsed).some(c => c < 0);
 }
 
 // ---------------------------------------------------------------------------
@@ -414,6 +425,8 @@ module.exports = {
   extract204,
   checkErrors,
   checkRescds,
+  resultCodes,
+  frameError,
   columnNames,
   // Request encoding
   encodePutRow,

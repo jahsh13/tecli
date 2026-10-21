@@ -15,4 +15,15 @@ function stepPeriod(current, delta, periodCount) {
   return next;
 }
 
-module.exports = { periodLabel, stepPeriod };
+// Start of the week holding today, stepping a cached week start forward in
+// whole weeks. A cache written in an earlier week is otherwise taken for the
+// current week, and the real current week reads as one that does not exist.
+function currentWeekStart(cachedStart, today) {
+  if (!cachedStart) return null;
+  const DAY_MS = 24 * 60 * 60 * 1000;
+  const days = Math.round((Date.parse(today) - Date.parse(cachedStart)) / DAY_MS);
+  if (!(days >= 7)) return cachedStart;
+  return new Date(Date.parse(cachedStart) + Math.floor(days / 7) * 7 * DAY_MS).toISOString().slice(0, 10);
+}
+
+module.exports = { periodLabel, stepPeriod, currentWeekStart };

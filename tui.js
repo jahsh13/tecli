@@ -12,7 +12,7 @@ const { getCredentials } = require('./credentials');
 const { COMMON_CODES } = require('./charge-codes');
 const { normalizeWorkLocation } = require('./add-options');
 const numberPick = require('./number-pick');
-const { periodLabel, stepPeriod } = require('./tui-nav');
+const { periodLabel, stepPeriod, currentWeekStart } = require('./tui-nav');
 const { launchForPeriod, createSessionManager } = require('./session');
 
 require('dotenv').config();
@@ -39,6 +39,8 @@ const { getClient, withClient, releaseClient } = session;
 const CACHE_FILE = path.join(os.homedir(), '.costpoint-cache.json');
 let cachedWeeks = {};
 let activeWeekStart = null;
+// Set while the shown data comes from the cache file, until a fetch works
+let cacheStale = false;
 
 function weekStartKey(weekData) {
   if (!weekData || !weekData.dates || weekData.dates.length === 0) return null;
@@ -63,7 +65,8 @@ function loadCache() {
       const parsed = JSON.parse(fs.readFileSync(CACHE_FILE, 'utf8'));
       if (parsed && parsed.weeks) {
         cachedWeeks = parsed.weeks;
-        activeWeekStart = parsed.activeWeekStart || null;
+        activeWeekStart = currentWeekStart(parsed.activeWeekStart || null, moment().format('YYYY-MM-DD'));
+        cacheStale = true;
         return true;
       }
     }
@@ -182,12 +185,14 @@ async function fetchData() {
       }
     } catch (e) { /* non-fatal */ }
 
+    cacheStale = false;
     saveCache();
     loadViewData();
     clampCursor();
     setStatus(chalk.green('Loaded.'), 3000);
   } catch (e) {
-    setStatus(chalk.red('Load failed: ' + e.message), 5000);
+    // Stays up while the cached view is all there is
+    setStatus(chalk.red('Load failed: ' + e.message + (cacheStale ? '  Showing cached data; [r] to retry.' : '')), cacheStale ? 0 : 5000);
   } finally {
     isProcessing = false;
     stopSpinner();
@@ -469,6 +474,7 @@ function render() {
     };
     badges += (colors[meta.tone] || chalk.gray)('[' + meta.label + ']');
   }
+  if (cacheStale) badges += ' ' + chalk.red('[CACHED]');
   if (pendingChanges.size > 0) badges += ' ' + chalk.yellow(pendingChanges.size + ' unsaved');
   if (isProcessing) badges += ' ' + chalk.yellow(SPINNER[spinnerFrame]);
   badges += session.current() ? ' ' + chalk.green('\u25cf') : ' ' + chalk.gray('\u25cb');

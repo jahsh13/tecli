@@ -64,7 +64,7 @@ Interactive terminal UI (`node tui.js` or `npm run tui`). Zero extra dependencie
 - Numbered lists (favorites `[f]`, add menu `[a]`) take multi-digit picks via `number-pick.js`: a digit selects once no longer number can match, otherwise Enter confirms (with 13 favorites, `1` waits, `13` or `1`+Enter picks)
 - Same period-bound session pattern as web UI (`getClient(period)`/`withClient(fn, period)`/`releaseClient`)
 - Typing a custom project code (add menu `[0]`/`[c]`) asks "Also add to favorites? [y/N]" after the pay type
-- Shares cache file (`~/.costpoint-cache.json`) with the web UI
+- Shares cache file (`~/.costpoint-cache.json`) with the web UI. At start the cached active week is moved up to the week holding today (`currentWeekStart()` in `tui-nav.js`), so a cache from an earlier week is shown as a past week. Until a fetch works the header shows `[CACHED]` and a failed fetch's error stays in the status line
 - Shows one week at a time (7 columns) — fits in 80-col terminals
 
 ## Direct Protocol

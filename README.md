@@ -160,7 +160,7 @@ If you haven't run `te login` yet, do that first — the MCP server picks up sto
 
 ## Servlet trace
 
-The CLI and the MCP server append every Costpoint servlet request and response to `~/.tecli-trace.jsonl`, so a failed save or sign leaves evidence. The file is owner-only (the bodies carry the session id) and moves to `~/.tecli-trace.jsonl.1` once it reaches 10 MB. `COSTPOINT_TRACE=<file>` writes elsewhere (any interface, including the web UI and TUI), `COSTPOINT_TRACE=off` turns it off. Mock runs (`TECLI_MOCK`) have no default trace. Login requests are not traced.
+Servlet tracing is off unless you turn it on. With `COSTPOINT_TRACE=1` (or `on`/`true`) every interface appends each Costpoint servlet request and response to `~/.tecli-trace.jsonl`. `COSTPOINT_TRACE=<file>` writes to that file instead. The file is owner-only (the bodies carry the session id) and moves to `<file>.1` once it reaches 10 MB. Login requests are not traced.
 
 ## Running tests
 

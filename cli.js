@@ -9,14 +9,12 @@ const { program, InvalidArgumentError } = require("commander");
 const readline = require("readline");
 const ora = require("ora");
 const { normalizeTimesheetStatus } = require("./timesheet-status");
-const { TRACE_PATH, getCredentials, isMockRun, login, logout } = require("./credentials");
+const { getCredentials, login, logout } = require("./credentials");
 const { COMMON_CODES, resolveAlias } = require("./charge-codes");
 const { normalizeWorkLocation } = require("./add-options");
 const { weekLabel, assertBackReachable } = require("./week-label");
 
 require("dotenv").config();
-
-if (!isMockRun()) DirectClient.setDefaultTrace(TRACE_PATH);
 
 const { RevisionRequiredError } = DirectClient;
 

@@ -10,8 +10,6 @@ const readline = require('readline');
 const SERVICE = 'tecli';
 const CONFIG_PATH = path.join(os.homedir(), '.tecli.json');
 const CRED_PATH = path.join(os.homedir(), '.tecli-credentials');
-// Servlet trace kept by the CLI and MCP server (see setDefaultTrace in direct.js)
-const TRACE_PATH = path.join(os.homedir(), '.tecli-trace.jsonl');
 const DEFAULT_URL = 'https://te.leidos.com/cpweb/cploginform.htm?system=LEIDOS';
 
 // ─── Config file (non-secret settings) ──────────────────────────
@@ -365,4 +363,4 @@ function logout() {
   _fallbackDelete();
 }
 
-module.exports = { TRACE_PATH, getCredentials, assertMockSafe, isMockRun, login, logout, prompt, promptSecret };
+module.exports = { getCredentials, assertMockSafe, isMockRun, login, logout, prompt, promptSecret };

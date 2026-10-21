@@ -5,7 +5,7 @@ const { McpServer } = require('@modelcontextprotocol/sdk/server/mcp.js');
 const { StdioServerTransport } = require('@modelcontextprotocol/sdk/server/stdio.js');
 const { z } = require('zod');
 const DirectClient = require('./direct');
-const { TRACE_PATH, getCredentials, assertMockSafe, isMockRun } = require('./credentials');
+const { getCredentials, assertMockSafe, isMockRun } = require('./credentials');
 const { COMMON_CODES, resolveAlias } = require('./charge-codes');
 const { normalizeWorkLocation } = require('./add-options');
 const { normalizeTimesheetStatus } = require('./timesheet-status');
@@ -382,7 +382,6 @@ async function main() {
       process.exit(2);
     }
   }
-  if (!isMockRun()) DirectClient.setDefaultTrace(TRACE_PATH);
   const { server } = buildServer();
   await server.connect(new StdioServerTransport());
 }

@@ -5,6 +5,8 @@ const https = require('https');
 const { URL } = require('url');
 const crypto = require('crypto');
 const fs = require('fs');
+const os = require('os');
+const path = require('path');
 const moment = require('moment');
 const Table = require('cli-table');
 const protocol = require('./protocol');
@@ -12,22 +14,19 @@ const { normalizeTimesheetStatus } = require('./timesheet-status');
 
 const debug = process.env.DEBUG ? (...args) => console.error(...args) : () => {};
 
-// Every servlet request/response is appended as a JSON line to
-// COSTPOINT_TRACE=<file>, or to the default file an entry point sets with
-// setDefaultTrace() (the CLI and MCP server do, so a failed live write leaves
-// evidence). COSTPOINT_TRACE=off disables both. The bodies carry the session
+// Opt-in servlet trace: with COSTPOINT_TRACE set, every servlet
+// request/response is appended as a JSON line. 1/on/true writes
+// ~/.tecli-trace.jsonl, any other value is the file path, and unset, empty or
+// 0/off/false trace nothing. Read per request. The bodies carry the session
 // id, so the file is owner-only. Past TRACE_MAX_BYTES it moves to <file>.1.
 const TRACE_MAX_BYTES = 10 * 1024 * 1024;
-let defaultTracePath = null;
-
-function setDefaultTrace(file) {
-  defaultTracePath = file;
-}
 
 function tracePath() {
   const env = (process.env.COSTPOINT_TRACE || '').trim();
-  if (['off', '0', 'false'].includes(env.toLowerCase())) return null;
-  return env || defaultTracePath;
+  const flag = env.toLowerCase();
+  if (['', '0', 'off', 'false'].includes(flag)) return null;
+  if (['1', 'on', 'true'].includes(flag)) return path.join(os.homedir(), '.tecli-trace.jsonl');
+  return env;
 }
 
 function trace(entry) {
@@ -3281,6 +3280,5 @@ class DirectClient {
 DirectClient.RevisionRequiredError = RevisionRequiredError;
 DirectClient.resolveParentColumns = resolveParentColumns;
 DirectClient.resolveChildColumns = resolveChildColumns;
-DirectClient.setDefaultTrace = setDefaultTrace;
 DirectClient.TRACE_MAX_BYTES = TRACE_MAX_BYTES;
 module.exports = DirectClient;

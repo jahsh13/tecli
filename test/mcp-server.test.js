@@ -68,6 +68,12 @@ describe('mcp server against the mock', () => {
     assert.ok(setHours.description.includes(MARKER.error));
   });
 
+  // code-mode-mcp shows tool descriptions but never the server instructions
+  test('every tool description carries the code-mode calling rule', async () => {
+    const { tools } = await client.listTools();
+    for (const t of tools) assert.match(t.description, /Code-mode: .*no await or async.*\{\}.*console\.log/, t.name);
+  });
+
   test('list_weeks shows back numbers, end dates and status', async () => {
     const { text } = await call('list_weeks');
     const lines = text.split('\n');

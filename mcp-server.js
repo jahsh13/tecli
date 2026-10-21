@@ -81,6 +81,11 @@ Every result is one text block. Success is plain text. Other outcomes start with
 - "${MARKER.warning}" the save went through but a side step failed.
 Code-mode clients (tecli.tecli_x({...})): calls are synchronous, so use plain JavaScript with no await, async or TypeScript annotations, and check the leading marker of the returned string.`;
 
+// code-mode-mcp shows tool descriptions but not the server instructions. It
+// JSON.stringifies the script's return value, so a Promise from an async
+// function comes back as {} even though console.log shows the text.
+const CODE_MODE_RULE = 'Code-mode: tool calls are synchronous; use no await or async (an async result comes back as {}), return the string or console.log it.';
+
 const NOTE = {
   error: `Failures start with "${MARKER.error}".`,
   revision: `Starts with "${MARKER.revision}" when an explanation is needed.`,
@@ -157,8 +162,9 @@ function buildServer(options = {}) {
   // Thrown handler errors and argument validation failures both end up here.
   // createToolError is an SDK internal; mcp-server.test.js fails if it moves.
   server.createToolError = errorResult;
+  const tool = (name, description, ...rest) => server.tool(name, `${description}\n\n${CODE_MODE_RULE}`, ...rest);
 
-  server.tool(
+  tool(
     'list_weeks',
     `List the weeks reachable from this login (about 20): back number, end date, status and whether it can be edited. Use the back number with the other tools. ${NOTE.error}`,
     {},
@@ -173,7 +179,7 @@ function buildServer(options = {}) {
     },
   );
 
-  server.tool(
+  tool(
     'show_timesheet',
     `Show a timesheet with status, project lines and hours. Defaults to the current week; pass back for a past week. ${NOTE.error}`,
     { back: backSchema },
@@ -183,7 +189,7 @@ function buildServer(options = {}) {
     },
   );
 
-  server.tool(
+  tool(
     'set_hours',
     `Set hours for a project line and day. Saves immediately. Editing a processed past week reopens it and asks for a revision explanation. ${NOTE.error} ${NOTE.revision}`,
     {
@@ -199,7 +205,7 @@ function buildServer(options = {}) {
     }),
   );
 
-  server.tool(
+  tool(
     'set_hours_bulk',
     `Set hours for multiple cells of one week at once. Each change is a {line, day, hours, comment?} object. Saves after all changes. ${NOTE.error} ${NOTE.revision}`,
     {
@@ -219,7 +225,7 @@ function buildServer(options = {}) {
     }),
   );
 
-  server.tool(
+  tool(
     'add_project',
     `Add a project/charge code to a timesheet. Saves after adding. ${NOTE.error} ${NOTE.revision} Starts with "${MARKER.warning}" when the line was saved but adding it to favorites failed.\n\nShortcuts: ${COMMON_CODES.map(c => `${c.alias} (${c.label} → ${c.code})`).join(', ')}`,
     {
@@ -258,7 +264,7 @@ function buildServer(options = {}) {
     },
   );
 
-  server.tool(
+  tool(
     'list_favorites',
     `List the favorite charge codes saved in Costpoint. Favorites belong to the user, not to a week. Use the index with add_from_favorites. ${NOTE.error}`,
     {},
@@ -269,7 +275,7 @@ function buildServer(options = {}) {
     },
   );
 
-  server.tool(
+  tool(
     'add_from_favorites',
     `Add a favorite charge code (by index from list_favorites) to a timesheet. Saves after adding. ${NOTE.error} ${NOTE.revision}`,
     {
@@ -291,7 +297,7 @@ function buildServer(options = {}) {
     },
   );
 
-  server.tool(
+  tool(
     'sign_timesheet',
     `Sign a timesheet (current week by default). This submits it for approval. Runs on its own fresh login, never on the session used for edits. ${NOTE.error}`,
     { back: backSchema },
@@ -310,7 +316,7 @@ function buildServer(options = {}) {
     },
   );
 
-  server.tool(
+  tool(
     'save_with_explanation',
     `Save the timesheet with a revision explanation. Use this after an edit result starts with "${MARKER.revision}" ${NOTE.error}`,
     {
@@ -335,7 +341,7 @@ function buildServer(options = {}) {
     },
   );
 
-  server.tool(
+  tool(
     'get_leave_balances',
     `Show leave balances (PTO, personal, flex, etc.) and recent leave activity. ${NOTE.error}`,
     {},

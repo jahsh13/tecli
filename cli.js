@@ -12,7 +12,7 @@ const { normalizeTimesheetStatus } = require("./timesheet-status");
 const { getCredentials, login, logout } = require("./credentials");
 const { COMMON_CODES, resolveAlias } = require("./charge-codes");
 const { normalizeWorkLocation } = require("./add-options");
-const { weekLabel, assertBackReachable } = require("./week-label");
+const { weekLabel, assertBackReachable, weekSummary } = require("./week-label");
 
 require("dotenv").config();
 
@@ -216,6 +216,7 @@ withWeekOptions(program
     try {
       const cp = await connect(options);
       showStatus(cp);
+      console.log(`  ${weekSummary(cp.getData())}`);
       console.log();
       cp.display();
       await cp.close();

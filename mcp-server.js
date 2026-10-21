@@ -10,7 +10,7 @@ const { COMMON_CODES, resolveAlias } = require('./charge-codes');
 const { normalizeWorkLocation } = require('./add-options');
 const { normalizeTimesheetStatus } = require('./timesheet-status');
 const { launchForPeriod, createSessionManager } = require('./session');
-const { weekLabel } = require('./week-label');
+const { weekLabel, weekSummary } = require('./week-label');
 
 require('dotenv').config();
 
@@ -32,6 +32,7 @@ function formatTimesheet(data, back) {
   const lines = [];
   lines.push(weekHeader(data, back));
   lines.push(`Status: ${data.timesheetStatus} (Week ${data.payPeriodWeek} of ${data.payPeriodWeekCount})`);
+  lines.push(weekSummary(data));
   lines.push('');
 
   const dayHeaders = data.dates.map(d => `${d.dayOfWeek} ${d.date}`);
@@ -181,7 +182,7 @@ function buildServer(options = {}) {
 
   tool(
     'show_timesheet',
-    `Show a timesheet with status, project lines and hours. Defaults to the current week; pass back for a past week. ${NOTE.error}`,
+    `Show a timesheet with status, signed state, week total, project lines and hours. Defaults to the current week; pass back for a past week. ${NOTE.error}`,
     { back: backSchema },
     async ({ back = 0 }) => {
       guardRevision(back);

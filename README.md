@@ -19,7 +19,7 @@ te login
 ## Usage
 
 ```
-te show                        # show timesheet
+te show                        # show timesheet, signed state and week total
 te set <line> <day> <hours>    # set hours (e.g. te set 1 4 8)
 te setm 1 1 8, 1 2 8, 1 3 8   # set multiple cells
 te show --prev                 # show the previous week
@@ -53,7 +53,7 @@ Tools that work on a week take `back`: weeks back from the current one (0 or omi
 | Tool | Description |
 |------|-------------|
 | `list_weeks` | List the reachable weeks (about 20) with back number, end date, status and whether they can be edited |
-| `show_timesheet` | Show a week's hours, status and comments (`back?`) |
+| `show_timesheet` | Show a week's hours, status, signed state, week total and comments (`back?`) |
 | `set_hours` | Set hours for one line and day, with an optional comment (`line`, `day`, `hours`, `comment?`, `back?`) |
 | `set_hours_bulk` | Set several cells of one week at once (`changes[]`, `back?`) |
 | `add_project` | Add a charge code to a week (`code`, `payType?`, `workLocation?`, `favorite?`, `back?`). Shortcuts: `pto`, `flex`, `personal`, `holiday`, `lwop`, `holdefer` |

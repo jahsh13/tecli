@@ -89,6 +89,8 @@ describe('mcp server against the mock', () => {
     const past = await call('show_timesheet', { back: 1 });
     assert.match(past.text, /^Previous week \(2026-10-05 to 2026-10-11, back=1\)/);
     assert.match(past.text, /Status: Processed/);
+    assert.match(current.text, /\nSigned: no \| Week total: 41\.5h\n/);
+    assert.match((await call('show_timesheet', { back: 2 })).text, /\nSigned: yes \| Week total: 39\.5h\n/);
     const far = await call('show_timesheet', { back: 3 });
     assert.match(far.text, /^3 weeks back/i);
   });

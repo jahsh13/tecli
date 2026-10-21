@@ -1859,24 +1859,49 @@ class DirectClient {
   // SSO login (Okta Identity Engine / IDX)
   // =========================================================================
 
+  /**
+   * stateToken for the IDX flow from the Okta page the SAML request lands on.
+   * The Sign-In page carries it as JSON ("stateToken":"..."). The desktop-SSO
+   * interstitial (/sso/idps/DSSO) carries `var stateToken = "..."` and runs a
+   * Kerberos precheck that fails off the corporate network; its failure
+   * redirect (dssoPreCheck.js redirectOnFailure, IDX pipeline) is the Sign-In
+   * page with a new stateToken, so follow it the same way.
+   */
+  async _ssoStateToken(pageHtml, pageUrl) {
+    const decode = s => s.replace(/\\x([0-9A-Fa-f]{2})/g,
+      (_, hex) => String.fromCharCode(parseInt(hex, 16)));
+    const json = pageHtml.match(/"stateToken"\s*:\s*"([^"]+)"/);
+    if (json) return decode(json[1]);
+
+    const dsso = pageHtml.match(/var\s+stateToken\s*=\s*"([^"]+)"/);
+    if (!dsso) throw new Error('Could not extract stateToken from SSO page');
+    debug('SSO: desktop-SSO page, following the precheck failure redirect');
+    const fallbackUrl = new URL('/login/agentlessDsso/idx', pageUrl);
+    fallbackUrl.search = new URLSearchParams({
+      stateToken: decode(dsso[1]), precheckFailure: 'true', redirectFromAdsso: 'true',
+    }).toString();
+    const r = await this._httpRaw('GET', fallbackUrl.href);
+    const signIn = r.body.match(/"stateToken"\s*:\s*"([^"]+)"/);
+    if (!signIn) {
+      throw new Error('Could not extract stateToken from SSO page after desktop-SSO fallback (HTTP ' + r.status + ')');
+    }
+    return decode(signIn[1]);
+  }
+
   async _ssoLogin(samlUrl, username, password) {
     const ssoOrigin = new URL(samlUrl).origin;
 
     // 1. GET the Okta SAML page — extract stateToken from HTML/JS
     const pageResp = await this._httpRaw('GET', samlUrl);
     let pageHtml = pageResp.body;
+    let pageUrl = samlUrl;
     // Follow redirects manually (httpRaw doesn't follow)
     if (pageResp.status >= 300 && pageResp.status < 400 && pageResp.headers.location) {
-      const r = await this._httpRaw('GET', pageResp.headers.location);
+      pageUrl = new URL(pageResp.headers.location, samlUrl).href;
+      const r = await this._httpRaw('GET', pageUrl);
       pageHtml = r.body;
     }
-    const stateTokenMatch = pageHtml.match(/"stateToken"\s*:\s*"([^"]+)"/);
-    if (!stateTokenMatch) {
-      throw new Error('Could not extract stateToken from SSO page');
-    }
-    // Decode JS escape sequences like \x2D → '-'
-    const stateToken = stateTokenMatch[1].replace(/\\x([0-9A-Fa-f]{2})/g,
-      (_, hex) => String.fromCharCode(parseInt(hex, 16)));
+    const stateToken = await this._ssoStateToken(pageHtml, pageUrl);
 
     // 2. POST /idp/idx/introspect to get stateHandle
     const introspectResp = await this._httpJson(ssoOrigin, 'POST',

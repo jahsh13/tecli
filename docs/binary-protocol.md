@@ -1096,6 +1096,13 @@ The initial GET to `cploginform.htm` returns a 302 redirect to an external hostn
 1. GET {samlUrl}
    → Extract stateToken from HTML/JS: "stateToken":"..."
    → Decode JS escapes (\x2D → '-')
+   → Since 2026-10 the SAML URL lands on the desktop-SSO interstitial
+     /sso/idps/DSSO ("One moment please..."), which carries
+     `var stateToken = "..."` and runs a Kerberos precheck. Off the corporate
+     network the browser takes the precheck failure redirect:
+     GET /login/agentlessDsso/idx?stateToken=…&precheckFailure=true&redirectFromAdsso=true
+     That is the Sign-In page with its own JSON "stateToken" (a different
+     token); step 2 uses it
 
 2. POST /idp/idx/introspect  (JSON: { stateToken })
    → Returns { stateHandle }

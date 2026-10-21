@@ -322,7 +322,13 @@ function buildServer(options = {}) {
       }
       const back = pendingRevisionBack;
       const cp = await manager.getClient(back);
-      await cp.saveWithExplanation(explanation);
+      try {
+        await cp.saveWithExplanation(explanation);
+      } catch (e) {
+        // Like editWeek: a failed save must not leave its edits for the next call
+        await releaseClient();
+        throw e;
+      }
       pendingRevisionBack = null;
       const data = cp.getData();
       return text(`Saved with explanation.\n\n${formatTimesheet(data, back)}${signHint(data, back)}`);

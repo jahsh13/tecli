@@ -172,6 +172,24 @@ describe('mcp server against the mock', () => {
     assert.equal(mock.db.period(1).lines[0]['30'], '8');
   });
 
+  test('a failed save_with_explanation drops the session and the pending explanation', async () => {
+    await call('set_hours', { line: 0, day: 5, hours: 4, back: 1 });
+    const original = DirectClient.prototype.saveWithExplanation;
+    DirectClient.prototype.saveWithExplanation = async () => { throw new Error('Timesheet is read only'); };
+    let res;
+    try {
+      res = await call('save_with_explanation', { explanation: 'wrong hours' });
+    } finally {
+      DirectClient.prototype.saveWithExplanation = original;
+    }
+    assert.equal(res.isError, true);
+    assert.match(res.text, /Timesheet is read only/);
+    const again = await call('save_with_explanation', { explanation: 'retry' });
+    assert.match(again.text, /^ERROR: No revision explanation is pending/);
+    assert.equal((await call('show_timesheet')).isError, false);
+    assert.equal(mock.db.period(1).lines[0]['30'], '8');
+  });
+
   test('save_with_explanation with nothing pending is an error', async () => {
     const res = await call('save_with_explanation', { explanation: 'x' });
     assert.equal(res.isError, true);

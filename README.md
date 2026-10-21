@@ -88,7 +88,7 @@ Every tool returns one text block. Success is plain text. Any other outcome star
 ### Limits
 
 - One Costpoint session at a time, tied to one week. A call for another week opens a new session.
-- A pending revision explanation lives on that session. Another week's call is refused until `save_with_explanation` runs, and a release of the session (5 minutes idle) drops it. The edit then has to be redone.
+- A pending revision explanation lives on that session. Another week's call is refused until `save_with_explanation` runs, and a release of the session (5 minutes idle, or a failed edit or `save_with_explanation`) drops it. The edit then has to be redone.
 - `sign_timesheet` always logs in again, because Costpoint ignores a sign on a session that has already edited.
 - About 20 weeks back, the weeks Costpoint loads.
 - Direct mode only. The MCP server always uses the direct protocol.

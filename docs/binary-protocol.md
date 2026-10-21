@@ -476,11 +476,13 @@ The parent record set contains timesheet header information. One row per availab
 | 5 | REVISION_NO | Timesheet revision; a correction bumps it |
 | 23 | ACTION_CD | Set to "S" to trigger sign on save |
 | 34 | CORRECTION_STATE | `NA`, or `INP` while a correction is in progress |
-| 573 | ENABLE_SIGN_FL | Whether signing is enabled for this period |
-| 676 | ENABLE_CORRECT_FL | Whether the Correct action is available |
-| 685 | TS_CLOSED_FL | `Y` on a processed (closed) period; edits need a correction first |
+| 575 | ENABLE_SIGN_FL | Whether signing is enabled for this period |
+| 680 | ENABLE_CORRECT_FL | Whether the Correct action is available |
+| 689 | TS_CLOSED_FL | `Y` on a processed (closed) period; edits need a correction first |
 
-Indices 5-685 come from the K0 `maObjId` column list in the OPEN_RS response (`captured/prev-period-edit/006`), cross-checked against row values before and after a correction.
+Indices are for the live 692-column layout (2026-10). The captures through `add-favorite/` have 688 columns (573/676/685): Costpoint inserts columns between releases. `direct.js` does not hard-code these: at launch it decodes the K0 `maObjId` name list from the OPEN_RS response (`protocol.columnNames()`) and resolves each column by name (`resolveParentColumns()`). A missing or repeated name, or a name list that does not match the row width, fails the launch. A Processed week whose `TS_CLOSED_FL` is not `Y` refuses to edit.
+
+`maObjId` arrives as `D.V(g,"maObjId","...")` in slot 5 of the OPEN_RS response. Names are separated by `\x0B`; `\x0E{n}` starts a name with the first n chars of the previous one; `\x12{n}` and `\x10{a}{b}` copy a prefix or substring of a source name (the previous one, or k back when the name ends in a small-number k). Numbers use `decodeSmallNumber`.
 
 Only row 0 comes back with its non-DB columns (everything past the first ~45 filled) from a plain `204 K0` fetch. The `R=AUTO` fetch fills rows 1-20 (see [Previous Period Fetch](#previous-period-fetch)).
 
@@ -773,7 +775,7 @@ Browser capture `captured/sign-capture/017+018` (active week). In the browser, S
    → No K1 PUT. Status becomes S.
 ```
 
-Setting ACTION_CD and running a plain save is not enough: without the CMD 300 the server ignores ACTION_CD="S". The active-week confirm returns no 204 data, so the client re-fetches and checks the status. `ENABLE_SIGN_FL` (col 573) is N once a week is signed; CMD 300 on such a week fails with "You do not have rights to execute this process".
+Setting ACTION_CD and running a plain save is not enough: without the CMD 300 the server ignores ACTION_CD="S". The active-week confirm returns no 204 data, so the client re-fetches and checks the status. `ENABLE_SIGN_FL` is N once a week is signed; CMD 300 on such a week fails with "You do not have rights to execute this process".
 
 Sign on a fresh session (launch → sign, or launch → select period → sign). On a session that has already edited and saved, the whole flow round-trips as success but the timesheet stays Open (see CLAUDE.md).
 

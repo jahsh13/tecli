@@ -24,24 +24,54 @@ const APP_ID = 'TMMTIMESHEET';
 const NUM_DAYS = 7;
 const USER_AGENT = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36';
 
-// Parent column indices (from production 204 data layout)
-const PARENT_COL = {
-  EMPL_FULL_NAME: 0,
-  EMPL_ID: 1,
-  SCHEDULE_DESC: 2,
-  END_DT: 3,
-  S_STATUS_CD: 4,
-  // Column the browser sets to 'S' when signing (verified byte-for-byte
-  // against captured/sign-capture/017+018; col 667 was wrong — the server
-  // silently ignores it)
-  ACTION_CD: 23,
-  // Indices from the K0 maObjId column list (captured/prev-period-edit/006),
-  // cross-checked against row values before/after a correction
-  ENABLE_SIGN_FL: 573,
-  ENABLE_CORRECT_FL: 676,
+// Parent (K0) columns the client reads, by maObjId name. Costpoint inserts
+// columns between releases (the 10/2026 update moved ENABLE_SIGN_FL 573 -> 575
+// and TS_CLOSED_FL 685 -> 689), so indices are resolved from the OPEN_RS name
+// list at launch (resolveParentColumns) rather than hard-coded.
+const PARENT_COL_NAMES = {
+  EMPL_FULL_NAME: 'EMPL_FULL_NAME',
+  EMPL_ID: 'EMPL_ID',
+  SCHEDULE_DESC: 'SCHEDULE_DESC_AND_P_TEXT',
+  END_DT: 'END_DT',
+  S_STATUS_CD: 'S_STATUS_CD',
+  // Column the browser sets to 'S' when signing (captured/sign-capture/017+018)
+  ACTION_CD: 'ACTION_CD',
+  ENABLE_SIGN_FL: 'ENABLE_SIGN_FL',
+  ENABLE_CORRECT_FL: 'ENABLE_CORRECT_FL',
   // 'Y' on a processed (closed) period; edits require TMMTS_CORRECT_TIMESHEET
-  TS_CLOSED_FL: 685,
+  TS_CLOSED_FL: 'TS_CLOSED_FL',
 };
+
+// Layout of the 688-column captures, for stub clients built without a launch
+const PARENT_COL = {
+  EMPL_FULL_NAME: 0, EMPL_ID: 1, SCHEDULE_DESC: 2, END_DT: 3, S_STATUS_CD: 4,
+  ACTION_CD: 23, ENABLE_SIGN_FL: 573, ENABLE_CORRECT_FL: 676, TS_CLOSED_FL: 685,
+};
+
+/**
+ * Map PARENT_COL_NAMES to indices in a K0 maObjId name list. Throws when a
+ * name is missing or repeated, or when the list does not match the row width,
+ * so a layout change fails loudly instead of reading the wrong flags.
+ */
+function resolveParentColumns(names, rowWidth) {
+  if (!Array.isArray(names) || names.length === 0) {
+    throw new Error('Costpoint sent no parent column names; cannot locate timesheet columns');
+  }
+  if (rowWidth !== undefined && names.length !== rowWidth) {
+    throw new Error('Parent column names (' + names.length + ') do not match the row width (' +
+      rowWidth + '); the Costpoint layout changed');
+  }
+  const cols = {};
+  for (const [key, name] of Object.entries(PARENT_COL_NAMES)) {
+    const idx = names.indexOf(name);
+    if (idx < 0 || names.indexOf(name, idx + 1) >= 0) {
+      throw new Error('Parent column ' + name + (idx < 0 ? ' not found' : ' is not unique') +
+        ' in the Costpoint layout');
+    }
+    cols[key] = idx;
+  }
+  return cols;
+}
 
 // Child column indices
 const CHILD_DAY_COL = { 1: 26, 2: 27, 3: 28, 4: 29, 5: 30, 6: 31, 7: 32 };
@@ -88,6 +118,15 @@ class DirectClient {
     // Keep-alive agents for connection reuse (like a browser)
     this._httpAgent = new http.Agent({ keepAlive: true });
     this._httpsAgent = new https.Agent({ keepAlive: true });
+  }
+
+  /** Parent column indices: resolved at launch, the capture layout otherwise. */
+  get parentCol() {
+    return this._parentCol || PARENT_COL;
+  }
+
+  set parentCol(cols) {
+    this._parentCol = cols;
   }
 
   /**
@@ -212,8 +251,8 @@ class DirectClient {
     if (!this.parentData || !this.parentData.rows) return [];
     return this.parentData.rows.map((row, i) => ({
       index: i,
-      endDate: row[PARENT_COL.END_DT],
-      scheduleDesc: row[PARENT_COL.SCHEDULE_DESC],
+      endDate: row[this.parentCol.END_DT],
+      scheduleDesc: row[this.parentCol.SCHEDULE_DESC],
     }));
   }
 
@@ -228,9 +267,9 @@ class DirectClient {
     if (!this.parentData || !this.parentData.rows) return [];
     return this.parentData.rows.map((row, idx) => ({
       idx,
-      endDate: row[PARENT_COL.END_DT],
-      statusCode: normalizeTimesheetStatus(row[PARENT_COL.S_STATUS_CD] || '').code,
-      editable: row[PARENT_COL.TS_CLOSED_FL] ? this._isRowEditable(row) : null,
+      endDate: row[this.parentCol.END_DT],
+      statusCode: normalizeTimesheetStatus(row[this.parentCol.S_STATUS_CD] || '').code,
+      editable: row[this.parentCol.TS_CLOSED_FL] ? this._isRowEditable(row) : null,
     }));
   }
 
@@ -240,7 +279,7 @@ class DirectClient {
    */
   getPayPeriodWeek() {
     const parentRow = this.parentData && this.parentData.rows && this.parentData.rows[this.periodIdx];
-    const desc = parentRow ? parentRow[PARENT_COL.SCHEDULE_DESC] : '';
+    const desc = parentRow ? parentRow[this.parentCol.SCHEDULE_DESC] : '';
     const match = desc && desc.match(/Wk\s+(\d+)\s+of\s+(\d+)/i);
     if (match) {
       return { week: parseInt(match[1], 10), of: parseInt(match[2], 10) };
@@ -250,7 +289,7 @@ class DirectClient {
 
   _getTimesheetStatusMeta() {
     const parentRow = this.parentData && this.parentData.rows && this.parentData.rows[this.periodIdx];
-    const rawStatus = parentRow ? parentRow[PARENT_COL.S_STATUS_CD] : '';
+    const rawStatus = parentRow ? parentRow[this.parentCol.S_STATUS_CD] : '';
     return normalizeTimesheetStatus(rawStatus);
   }
 
@@ -265,7 +304,7 @@ class DirectClient {
 
     // Full row from the init fetch; parentData.rows[1] lacks the flags
     const parentRow = this._prevParentRow || this.parentData.rows[1];
-    const endDate = moment(parentRow[PARENT_COL.END_DT]);
+    const endDate = moment(parentRow[this.parentCol.END_DT]);
     if (!endDate.isValid()) return null;
 
     const startDate = endDate.clone().subtract(NUM_DAYS - 1, 'days');
@@ -274,7 +313,7 @@ class DirectClient {
       dates.push(startDate.clone().add(i, 'days'));
     }
 
-    const statusMeta = normalizeTimesheetStatus(parentRow[PARENT_COL.S_STATUS_CD] || '');
+    const statusMeta = normalizeTimesheetStatus(parentRow[this.parentCol.S_STATUS_CD] || '');
 
     const projects = [];
     for (let i = 0; i < this.prevChildData.rows.length; i++) {
@@ -1103,7 +1142,7 @@ class DirectClient {
     const idx = this.periodIdx;
     // A signed (or otherwise locked) week otherwise fails later with
     // "You do not have rights to execute this process"
-    if (this.parentData.rows[idx][PARENT_COL.ENABLE_SIGN_FL] === 'N') {
+    if (this.parentData.rows[idx][this.parentCol.ENABLE_SIGN_FL] === 'N') {
       throw new Error('Costpoint does not allow signing this week (status ' +
         this._getTimesheetStatusMeta().label + ')');
     }
@@ -1131,7 +1170,7 @@ class DirectClient {
     // editFlag 18 + CMD 206. Deliberately NOT save()/_buildSaveBatch, whose
     // shape diverges from the browser (editFlag 65562, all K1 rows PUT) and
     // is the prime suspect for the session state that gets signs ignored.
-    this.parentData.rows[idx][PARENT_COL.ACTION_CD] = 'S';
+    this.parentData.rows[idx][this.parentCol.ACTION_CD] = 'S';
     const confirmResp = await this._postServlet(this._buildSignConfirmBatch());
     if (confirmResp.includes('onServletException')) {
       throw new Error('Server error during sign confirm. Please try again.');
@@ -1153,7 +1192,7 @@ class DirectClient {
     await this._refetchTimesheet();
     this._buildTableRows();
 
-    const status = this.parentData.rows[idx][PARENT_COL.S_STATUS_CD];
+    const status = this.parentData.rows[idx][this.parentCol.S_STATUS_CD];
     if (status !== 'S') {
       throw new Error('Sign did not take effect (status is still "' + status + '")');
     }
@@ -1175,7 +1214,7 @@ class DirectClient {
 
     // Frame 1 sends the parent as-is; frames 2-3 send it with ACTION_CD='S'
     const encodedParentPlain = protocol.encodePutRow(parentRow);
-    parentRow[PARENT_COL.ACTION_CD] = 'S';
+    parentRow[this.parentCol.ACTION_CD] = 'S';
     const encodedParentSigned = protocol.encodePutRow(parentRow);
 
     this._actionSeq = (this._actionSeq || 0) + 1;
@@ -1330,7 +1369,7 @@ class DirectClient {
       throw new Error('Period ' + idx + ' is not available');
     }
     const { parentData, childData } = await this._fetchPeriod(idx);
-    if (!parentData.rows[idx][PARENT_COL.TS_CLOSED_FL]) {
+    if (!parentData.rows[idx][this.parentCol.TS_CLOSED_FL]) {
       throw new Error('Period ' + idx + ' parent row came back without its detail columns');
     }
     this.parentData = parentData;
@@ -1360,12 +1399,20 @@ class DirectClient {
   }
 
   _isPeriodClosed() {
-    return this.parentData.rows[this.periodIdx][PARENT_COL.TS_CLOSED_FL] === 'Y';
+    const row = this.parentData.rows[this.periodIdx];
+    const closed = row[this.parentCol.TS_CLOSED_FL] === 'Y';
+    // A Processed week is always closed; anything else means the flag was
+    // read from the wrong column, and editing would skip Correct
+    if (!closed && normalizeTimesheetStatus(row[this.parentCol.S_STATUS_CD] || '').code === 'P') {
+      throw new Error('Week is Processed but TS_CLOSED_FL reads ' +
+        JSON.stringify(row[this.parentCol.TS_CLOSED_FL]) + '; refusing to edit');
+    }
+    return closed;
   }
 
   // A closed period can still be edited through a correction
   _isRowEditable(parentRow) {
-    return parentRow[PARENT_COL.TS_CLOSED_FL] !== 'Y' || parentRow[PARENT_COL.ENABLE_CORRECT_FL] === 'Y';
+    return parentRow[this.parentCol.TS_CLOSED_FL] !== 'Y' || parentRow[this.parentCol.ENABLE_CORRECT_FL] === 'Y';
   }
 
   /**
@@ -1375,7 +1422,7 @@ class DirectClient {
    * comes back Open; the next save asks for a revision explanation.
    */
   async _correctTimesheet() {
-    if (this.parentData.rows[this.periodIdx][PARENT_COL.ENABLE_CORRECT_FL] !== 'Y') {
+    if (this.parentData.rows[this.periodIdx][this.parentCol.ENABLE_CORRECT_FL] !== 'Y') {
       throw new Error('This timesheet is closed and Costpoint does not allow correcting it');
     }
     debug('Correcting closed period ' + this.periodIdx + '...');
@@ -1818,13 +1865,15 @@ class DirectClient {
     await this._postServlet(this._buildOpenApp());
 
     // OPEN_RS parent K0 (201+507) — must open before fetching data
-    await this._postServlet(this._buildOpenRsParent());
+    const openRsResp = await this._postServlet(this._buildOpenRsParent());
 
     // Parent data + OPEN_RS child (204+204+201+507)
     const parentResp = await this._postServlet(this._buildInitParent());
     const parentParsed = protocol.parseResponse(parentResp);
     this.parentData = protocol.extract204(parentParsed, 0);
     if (!this.parentData) throw new Error('Failed to decode parent data');
+    this.parentCol = resolveParentColumns(protocol.columnNames(openRsResp)[0],
+      this.parentData.rows[0] && this.parentData.rows[0].length);
 
     // Child data X=0 (204+204+507) — current period
     const childResp = await this._postServlet(this._buildInitChild());
@@ -2154,7 +2203,7 @@ class DirectClient {
   // =========================================================================
 
   _buildDates() {
-    const endDateStr = this.parentData.rows[this.periodIdx][PARENT_COL.END_DT];
+    const endDateStr = this.parentData.rows[this.periodIdx][this.parentCol.END_DT];
     const endDate = moment(endDateStr);
     if (!endDate.isValid()) {
       throw new Error('Could not parse END_DT from parent data: ' + endDateStr);
@@ -3159,4 +3208,5 @@ class DirectClient {
 }
 
 DirectClient.RevisionRequiredError = RevisionRequiredError;
+DirectClient.resolveParentColumns = resolveParentColumns;
 module.exports = DirectClient;

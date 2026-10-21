@@ -200,10 +200,27 @@ function query(cmd, env) {
 
 // ─── Open result set (201) ────────────────────────────────────────────────
 
+const PARENT_NAMES = {
+  [PARENT.NAME]: 'EMPL_FULL_NAME',
+  [PARENT.EMPL_ID]: 'EMPL_ID',
+  [PARENT.SCHEDULE_DESC]: 'SCHEDULE_DESC_AND_P_TEXT',
+  [PARENT.END_DT]: 'END_DT',
+  [PARENT.STATUS]: 'S_STATUS_CD',
+  [PARENT.ACTION_CD]: 'ACTION_CD',
+  [PARENT.ENABLE_SIGN_FL]: 'ENABLE_SIGN_FL',
+  [PARENT.ENABLE_CORRECT_FL]: 'ENABLE_CORRECT_FL',
+  [PARENT.TS_CLOSED_FL]: 'TS_CLOSED_FL',
+};
+
+function parentColumnNames(width) {
+  return Array.from({ length: width }, (_, i) => PARENT_NAMES[i] || 'COL' + i);
+}
+
 function openRs(cmd, env) {
   const k = int(cmd.codes.K);
   env.session.openRs[k] = cmd.codes.I;
   if (cmd.codes.I === 'TC_UDT02_CHARGE_LKP') env.session.favoritesPrimed = false;
+  if (k === 0) return [{ rsKey: k, cmdCd: 201, columnNames: parentColumnNames(env.db.cols.parent) }];
   return [{ rsKey: k, cmdCd: 201 }];
 }
 

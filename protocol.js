@@ -344,6 +344,61 @@ function checkRescds(parsed) {
   return false;
 }
 
+// ---------------------------------------------------------------------------
+// Column names (OPEN_RS maObjId lists)
+// ---------------------------------------------------------------------------
+// OPEN_RS answers with D.V(g,"maObjId","...") naming each column of the
+// result set, compressed against earlier names:
+//   \x0B        next name
+//   \x0E{n}     next name, starting with the first n chars of the previous one
+//   \x12{n}     first n chars of the source name
+//   \x10{a}{b}  b chars of the source name from offset a
+// The source name is the previous one unless a name using \x10/\x12 ends in
+// a back-reference count (a char outside [A-Z0-9_]).
+const NAME_NEXT = '\x0B';
+const NAME_PREFIX = '\x0E';
+const NAME_SRC_PREFIX = '\x12';
+const NAME_SRC_SUBSTR = '\x10';
+
+function decodeColumnNames(str) {
+  const entries = str.split(NAME_PREFIX).join(NAME_NEXT + NAME_PREFIX).split(NAME_NEXT);
+  const names = [];
+  entries.forEach((entry, k) => {
+    let s = entry;
+    let prefix = '';
+    if (s[0] === NAME_PREFIX) {
+      prefix = names[k - 1].substring(0, decodeSmallNumber(s.charCodeAt(1)));
+      s = s.substring(2);
+    }
+    if (s.includes(NAME_SRC_SUBSTR) || s[0] === NAME_SRC_PREFIX) {
+      let back = 1;
+      if (!/\x10..$/s.test(s) && /[^A-Z0-9_]$/.test(s)) {
+        back = decodeSmallNumber(s.charCodeAt(s.length - 1));
+        s = s.substring(0, s.length - 1);
+      }
+      const src = names[k - back] || '';
+      s = s.replace(/^\x12(.)/s, (_, n) => src.substring(0, decodeSmallNumber(n.charCodeAt(0))))
+        .replace(/\x10(.)(.)/gs, (_, a, b) => src.substr(decodeSmallNumber(a.charCodeAt(0)), decodeSmallNumber(b.charCodeAt(0))));
+    }
+    names.push(prefix + s);
+  });
+  return names;
+}
+
+/**
+ * Column name lists in a response, in order (one per OPEN_RS that sent one).
+ */
+function columnNames(responseText) {
+  const lists = [];
+  const re = /D\.V\(g,"maObjId","((?:[^"\\]|\\.)*)"/g;
+  let m;
+  while ((m = re.exec(responseText)) !== null) {
+    const literal = m[1].replace(/[\x00-\x1F]/g, c => '\\u' + c.charCodeAt(0).toString(16).padStart(4, '0'));
+    lists.push(decodeColumnNames(JSON.parse('"' + literal + '"')));
+  }
+  return lists;
+}
+
 module.exports = {
   // Constants
   ENCODE_COMMA,
@@ -359,6 +414,7 @@ module.exports = {
   extract204,
   checkErrors,
   checkRescds,
+  columnNames,
   // Request encoding
   encodePutRow,
   buildCommand,

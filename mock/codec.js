@@ -68,7 +68,14 @@ function buildResponse(items) {
   const rescds = items.map(f => String(f.rescd !== undefined ? f.rescd : (f.slot ? 1 : 0))).join(COMMA);
   const datas = items.map(f => f.slot || '<NO DATA>');
   const errors = items.map(f => (f.error ? [[f.error, []]] : '<OK>'));
-  return 'var responses=' + JSON.stringify([frames, rescds, datas, errors]) + ';';
+  const body = [frames, rescds, datas, errors].map(v => JSON.stringify(v));
+  // OPEN_RS column names ride in slot 5 as D.V(g,"maObjId",...), uncompressed
+  const named = items.filter(f => f.columnNames);
+  if (named.length > 0) {
+    body.push('[]', '[' + named.map(f =>
+      'function(g){D.V(g,"maObjId",' + JSON.stringify(f.columnNames.join(COMMA)) + ');}').join(',') + ']');
+  }
+  return 'var responses=[' + body.join(',') + '];';
 }
 
 function parseCommand(cmd) {

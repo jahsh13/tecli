@@ -16,31 +16,109 @@ te login
 
 `npm link` makes the `te` command available globally. `te login` prompts for your username and password and stores them in your OS keychain (macOS Keychain, GNOME Keyring on Linux, or an encrypted file as fallback). Nothing is saved in plaintext.
 
+Login goes through Okta SSO. Off the corporate network Okta first serves its desktop-SSO (Kerberos) page; tecli follows the same fallback the browser takes, so no extra step is needed.
+
 ## Usage
 
 ```
 te show                        # show timesheet, signed state and week total
 te set <line> <day> <hours>    # set hours (e.g. te set 1 4 8)
+te set 0 14 8 -c "on site"     # set hours with a cell comment (direct mode)
 te setm 1 1 8, 1 2 8, 1 3 8   # set multiple cells
 te show --prev                 # show the previous week
 te set --prev 0 25 8           # set hours on the previous week
 te add ZLEAVE.HOL              # add a project line
 te add ZLEAVE.FTB RHB          # add a multi-charge project line
 te add ZLEAVE.HOL --favorite   # also save the code to your Costpoint favorites
-te add G09118.A.3786.26B.500 --location 62226   # override the default work location (zip)
-te add G09118.A.3786.26B.500 --ask              # show Costpoint's defaults, then prompt (TTY)
+te add PROJ.M.400 RHB --location 20190   # override the default work location (zip)
+te add PROJ.M.400 RHB --ask              # show Costpoint's defaults, then prompt (TTY)
 te sign                        # sign timesheet
 te sign --prev                 # sign the previous week
 te show --back 3               # show the week 3 weeks back
 te add --back 2                # pick a favorite and add it to the week 2 weeks back
 te favorites --back 2          # list favorites as seen from that week
+te fav                         # alias of te favorites
 te leave                       # show leave balances
 te server                      # start the web UI (port 3000)
 te tui                         # start the interactive terminal UI
+te login                       # store credentials
 te logout                      # remove stored credentials
 ```
 
 `<day>` is the day of the month. `--prev` and `-b, --back <n>` (direct mode only) work on `show`, `set`, `setm`, `sign`, `add` and `favorites`. `--prev` is `--back 1`, and the two cannot be combined. `<n>` is an integer of 1 or more, capped at the weeks Costpoint lists (about 20); `add` and `favorites` on a past week work the same way as on the current one. Editing a processed previous week reopens it through Costpoint's Correct action and asks for a revision explanation. The week is Open afterwards and has to be signed again with `te sign --prev` (or `te sign --back <n>`). The web UI shows two weeks at a time and slides back through the loaded weeks with `‹ older`, `newer ›` and `Current`. It edits, adds projects to and signs either visible week (a banner shows for any visible past week that is Open), and the TUI walks back through the loaded weeks with `<` and `>` (`[w]` toggles to the last past week viewed), adds projects to the shown week and signs it with `[S]`.
+
+### Examples
+
+`te show` prints the status, then the signed state and the week total, then the grid:
+
+```
+$ te show --back 2
+  Status: ● Signed
+  Signed: yes | Week total: 40h
+```
+
+Signed, Approved and Processed weeks count as signed. The total adds every line and day.
+
+Fill the week and sign it:
+
+```bash
+te setm 0 13 8, 0 14 8, 0 15 8, 0 16 8, 0 17 8
+te set 1 17 0 -c "half day moved to Monday"
+te sign            # asks for confirmation; -y skips it
+```
+
+Favorites. `te favorites` lists them with a 0-based `#`; `te add` with no code shows the same list numbered from 1 and asks which one to add:
+
+```bash
+te fav
+te add                        # pick a favorite
+te add PROJ.M.400 RHB -f      # add a new code and save it to favorites
+te add pto                    # shortcut: pto, personal, flex, lwop, holiday, holdefer
+```
+
+On a TTY, `te add <code>` without `-f` asks `Also add ... to your favorites? (y/N)`. A favorite that cannot be saved is a warning; the line is still added.
+
+Fix a processed past week. Costpoint reopens the week (Correct) and asks why; the CLI prompts for it, then reminds you to sign:
+
+```
+$ te set --prev 0 5 4
+  Revision explanation required
+  Changes requiring explanation:
+    Line 1: Program support (PROJ.M.400)
+  Enter explanation: late correction
+  Saved
+  Previous week is Open again. Sign it with `te sign --prev`
+$ te sign --prev -y
+```
+
+`te show --back 25` and the other week commands fail with `Cannot go back 25 weeks. Costpoint offers N past weeks.` when the week is out of reach.
+
+## TUI
+
+`te tui` (or `npm run tui`) opens on the week holding today. A cache left from an earlier week shows as a past week, and `[CACHED]` marks data that has not been fetched yet.
+
+| Key | Action |
+|-----|--------|
+| arrows, Tab | Move between cells |
+| digits, Enter | Edit a cell; Enter confirms and moves right |
+| Backspace / Delete | Clear a cell |
+| `s` | Save the shown week (a needed revision explanation is prompted for) |
+| `S` | Sign the shown week, on a fresh login |
+| `C` | Comment on the current cell |
+| `c` | Copy Thursday to Friday (current week only) |
+| `<` / `>` | One week older / newer (blocked while changes are unsaved) |
+| `w` | Toggle between the current week and the last past week viewed |
+| `a` | Add a project: a numbered shortcut, `0` or `c` for a custom code (then pay type, work location, and "Also add to favorites? [y/N]") |
+| `f` | Favorites list: type its number to add it to the shown week (`1` waits when there are 10 or more, `13` or `1` + Enter picks), `e` asks pay type and work location for the next pick |
+| `l` | Leave balances |
+| `r` | Refresh |
+| `q` | Quit |
+
+Example: fix last week's Tuesday. Press `<`, move to the cell, type `4`, Enter, `s`, give the explanation, then `S` and `y` to sign it again.
+
+## Web UI
+
+`te server` serves http://localhost:3000 (`PORT` changes it). It shows two weeks side by side; `‹ older`, `newer ›` and `Current` slide the pair. Each editable unsigned week has its own Sign button, and the Add Project and Favorites dialogs ask which visible week to add to (Add Project has an "Also add to favorites" checkbox and a work location field). Past-week edits need direct mode.
 
 ## MCP Server
 
@@ -93,6 +171,14 @@ Every tool returns one text block. Success is plain text. Any other outcome star
 - About 20 weeks back, the weeks Costpoint loads.
 - Direct mode only. The MCP server always uses the direct protocol.
 
+### Prerequisites
+
+- Node.js 18 or later, and `npm install` in this repo (there is no build step).
+- Credentials: run `te login` once, or pass `COSTPOINT_URL`, `COSTPOINT_USERNAME` and `COSTPOINT_PASSWORD` (all three, see [Credentials](#credentials)). The server always uses direct mode, so `COSTPOINT_DIRECT` is not needed.
+- Optional: `COSTPOINT_TRACE` (see [Servlet trace](#servlet-trace)) and, for the mock only, `TECLI_MOCK=1` (see [Testing against the mock](#testing-against-the-mock)).
+
+`mcp-server.js` loads a `.env` from its working directory, which is the client's, not this repo's. Pass variables through the client config instead.
+
 ### Installing in Claude Code
 
 ```bash
@@ -105,11 +191,77 @@ Replace `/path/to/tecli` with the actual path to this repo. For example:
 claude mcp add tecli -- node ~/dev/tecli/mcp-server.js
 ```
 
+`-s user` makes it available in every project. Environment variables go in with `-e`:
+
+```bash
+claude mcp add tecli -e COSTPOINT_TRACE=1 -- node /path/to/tecli/mcp-server.js
+```
+
+To share it in a project instead, add a `.mcp.json` at that project's root:
+
+```json
+{
+  "mcpServers": {
+    "tecli": {
+      "type": "stdio",
+      "command": "node",
+      "args": ["/path/to/tecli/mcp-server.js"],
+      "env": {}
+    }
+  }
+}
+```
+
 To verify it was added:
 
 ```bash
 claude mcp list
 ```
+
+Then check it with a read-only call. Ask Claude Code "Show my timesheet" (it calls `show_timesheet`) or "Which weeks can I reach?" (`list_weeks`). The tools are named `mcp__tecli__show_timesheet` and so on.
+
+### Installing through code-mode-mcp
+
+code-mode-mcp (`@utcp/code-mode-mcp`, command `mcp-bridge`) is one MCP server that runs scripts calling other tools. tecli is registered in its UTCP config, not in Claude Code.
+
+1. Install it: `npm install -g @utcp/code-mode-mcp`.
+2. Add tecli to the UTCP config file's `manual_call_templates`:
+
+   ```json
+   {
+     "manual_call_templates": [
+       {
+         "name": "tecli",
+         "call_template_type": "mcp",
+         "config": {
+           "mcpServers": {
+             "tecli": {
+               "command": "node",
+               "args": ["/path/to/tecli/mcp-server.js"],
+               "transport": "stdio"
+             }
+           }
+         }
+       }
+     ]
+   }
+   ```
+
+   Environment variables for tecli go in an `env` object next to `args`, for example `"env": { "COSTPOINT_TRACE": "1" }`.
+3. Register code-mode-mcp in Claude Code and point it at that file:
+
+   ```bash
+   claude mcp add -s user code-mode-mcp -e UTCP_CONFIG_FILE=/path/to/utcp-config.json -- mcp-bridge
+   ```
+
+   Without `UTCP_CONFIG_FILE`, code-mode-mcp reads `.utcp_config.json` from its working directory.
+4. Check it with a read-only script through code-mode's `call_tool_chain`:
+
+   ```js
+   return tecli.tecli_show_timesheet({});
+   ```
+
+   The result is a string starting with `Current week (`. code-mode's `list_tools` should list `tecli.tecli_show_timesheet` and the other tools. The script rules are in [Using tecli via code-mode](#using-tecli-via-code-mode).
 
 ### Installing in Claude Desktop
 
@@ -147,6 +299,40 @@ node /path/to/tecli/mcp-server.js
 - code-mode drops `isError`, so check the leading marker (above) of each result, for example `if (r.indexOf('NOT SAVED:') === 0) ...`.
 - A script error still reports `success: true`. Look for `[ERROR]` in the returned `logs`.
 
+Examples:
+
+```js
+// Last week's grid
+return tecli.tecli_show_timesheet({ back: 1 });
+```
+
+```js
+// Fill the current week, then check it
+var r = tecli.tecli_set_hours_bulk({ changes: [
+  { line: 0, day: 13, hours: 8 }, { line: 0, day: 14, hours: 8 },
+  { line: 0, day: 15, hours: 8, comment: 'on site' },
+] });
+if (r.indexOf('ERROR:') === 0) return r;
+return tecli.tecli_show_timesheet({});
+```
+
+```js
+// Correct a processed past week and sign it again
+var r = tecli.tecli_set_hours({ line: 0, day: 5, hours: 4, back: 1 });
+if (r.indexOf('NOT SAVED:') === 0) r = tecli.tecli_save_with_explanation({ explanation: 'late correction' });
+if (r.indexOf('ERROR:') === 0) return r;
+return tecli.tecli_sign_timesheet({ back: 1 });
+```
+
+```js
+// Add the first favorite to this week
+var favs = tecli.tecli_list_favorites({});
+console.log(favs);
+return tecli.tecli_add_from_favorites({ index: 0 });
+```
+
+`console.log` output comes back in `logs`; the returned value is `result`. Wrapping these in `async function main() { ... }` returns `{}`.
+
 Installed directly (Claude Code, Claude Desktop, other MCP clients) nothing changes: errors also carry `isError`.
 
 ### Credentials
@@ -162,6 +348,13 @@ If you haven't run `te login` yet, do that first — the MCP server picks up sto
 
 Servlet tracing is off unless you turn it on. With `COSTPOINT_TRACE=1` (or `on`/`true`) every interface appends each Costpoint servlet request and response to `~/.tecli-trace.jsonl`. `COSTPOINT_TRACE=<file>` writes to that file instead. The file is owner-only (the bodies carry the session id) and moves to `<file>.1` once it reaches 10 MB. Login requests are not traced.
 
+```bash
+COSTPOINT_TRACE=1 te show                      # appends to ~/.tecli-trace.jsonl
+COSTPOINT_TRACE=/tmp/te-trace.jsonl te tui     # writes to that file
+```
+
+Empty, `0`, `off` and `false` mean off. For the MCP server, set it in the client config (`-e COSTPOINT_TRACE=1`, or the `env` object).
+
 ## Running tests
 
 `npm test` runs the unit and mock tests offline. Tests against live Costpoint are opt-in: `RUN_E2E=1 npm test` runs them with your stored `te login` or the `COSTPOINT_*` variables. They are read-only but reach te.leidos.com. They still skip without credentials, with `TECLI_MOCK` set or with `SKIP_E2E=1`.
@@ -175,6 +368,13 @@ export TECLI_MOCK=1 COSTPOINT_URL='http://localhost:4000/cpweb/cploginform.htm?s
 node cli.js show --back 1
 node cli.js sign -y
 npx @modelcontextprotocol/inspector node mcp-server.js
+```
+
+To try the MCP tools against the mock from Claude Code, register a second server with the mock variables:
+
+```bash
+claude mcp add tecli-mock -e TECLI_MOCK=1 -e COSTPOINT_URL='http://localhost:4000/cpweb/cploginform.htm?system=MOCK' \
+  -e COSTPOINT_USERNAME=mock -e COSTPOINT_PASSWORD=mock -- node /path/to/tecli/mcp-server.js
 ```
 
 Set `TECLI_MOCK=1` for any mock run. With it set, `COSTPOINT_URL`, `COSTPOINT_USERNAME` and `COSTPOINT_PASSWORD` must all be in the environment (the stored `te login` credentials are never used) and the URL must be `localhost`, `127.0.0.1` or `::1`. Otherwise credential lookup throws and `mcp-server.js` refuses to start (stderr message, exit code 2). It refuses rather than warns because a mock run that reaches real Costpoint can edit or sign a real timesheet. Any value other than empty, `0` or `false` turns it on. The mock tests set it themselves.

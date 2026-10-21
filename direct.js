@@ -12,12 +12,31 @@ const { normalizeTimesheetStatus } = require('./timesheet-status');
 
 const debug = process.env.DEBUG ? (...args) => console.error(...args) : () => {};
 
-// COSTPOINT_TRACE=<file> appends every servlet request/response as JSON lines.
-// The bodies carry the session id, so the file is created owner-only.
-const tracePath = process.env.COSTPOINT_TRACE;
+// Every servlet request/response is appended as a JSON line to
+// COSTPOINT_TRACE=<file>, or to the default file an entry point sets with
+// setDefaultTrace() (the CLI and MCP server do, so a failed live write leaves
+// evidence). COSTPOINT_TRACE=off disables both. The bodies carry the session
+// id, so the file is owner-only. Past TRACE_MAX_BYTES it moves to <file>.1.
+const TRACE_MAX_BYTES = 10 * 1024 * 1024;
+let defaultTracePath = null;
+
+function setDefaultTrace(file) {
+  defaultTracePath = file;
+}
+
+function tracePath() {
+  const env = (process.env.COSTPOINT_TRACE || '').trim();
+  if (['off', '0', 'false'].includes(env.toLowerCase())) return null;
+  return env || defaultTracePath;
+}
+
 function trace(entry) {
-  if (!tracePath) return;
-  fs.appendFileSync(tracePath, JSON.stringify(entry) + '\n', { mode: 0o600 });
+  const file = tracePath();
+  if (!file) return;
+  try {
+    if (fs.statSync(file).size >= TRACE_MAX_BYTES) fs.renameSync(file, file + '.1');
+  } catch (e) { /* no file yet */ }
+  fs.appendFileSync(file, JSON.stringify(entry) + '\n', { mode: 0o600 });
 }
 
 const APP_ID = 'TMMTIMESHEET';
@@ -3262,4 +3281,6 @@ class DirectClient {
 DirectClient.RevisionRequiredError = RevisionRequiredError;
 DirectClient.resolveParentColumns = resolveParentColumns;
 DirectClient.resolveChildColumns = resolveChildColumns;
+DirectClient.setDefaultTrace = setDefaultTrace;
+DirectClient.TRACE_MAX_BYTES = TRACE_MAX_BYTES;
 module.exports = DirectClient;

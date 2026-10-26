@@ -181,7 +181,7 @@ Every tool returns one text block. Success is plain text. Any other outcome star
 - Credentials: run `te login` once, or pass `COSTPOINT_URL`, `COSTPOINT_USERNAME` and `COSTPOINT_PASSWORD` (all three, see [Credentials](#credentials)). The server always uses direct mode, so `COSTPOINT_DIRECT` is not needed.
 - Optional: `COSTPOINT_TRACE` (see [Servlet trace](#servlet-trace)), `COSTPOINT_TIMEOUT_MS` (see [Request timeout](#request-timeout)) and, for the mock only, `TECLI_MOCK=1` (see [Testing against the mock](#testing-against-the-mock)).
 
-`mcp-server.js` loads a `.env` from its working directory, which is the client's, not this repo's. Pass variables through the client config instead.
+`mcp-server.js` loads a `.env` from its working directory, which is the client's, not this repo's. A `.env` there can set `COSTPOINT_URL` and the credentials, so start the client from a directory you trust, and pass variables through the client config instead. The server does not load this repo's `.env` on purpose: that file holds the production settings, and loading it would put them under every mock run.
 
 ### Installing in Claude Code
 
@@ -350,7 +350,7 @@ If you haven't run `te login` yet, do that first — the MCP server picks up sto
 
 ## Servlet trace
 
-Servlet tracing is off unless you turn it on. With `COSTPOINT_TRACE=1` (or `on`/`true`) every interface appends each Costpoint servlet request and response to `~/.tecli-trace.jsonl`. `COSTPOINT_TRACE=<file>` writes to that file instead. The file is owner-only (the bodies carry the session id) and moves to `<file>.1` once it reaches 10 MB. Login requests are not traced.
+Servlet tracing is off unless you turn it on. With `COSTPOINT_TRACE=1` (or `on`/`true`) every interface appends each Costpoint servlet request and response to `~/.tecli-trace.jsonl`. `COSTPOINT_TRACE=<file>` writes to that file instead. The file is owner-only (the bodies carry the session id) and moves to `<file>.1` once it reaches 10 MB. Login requests, including the SSO pages and the password exchange, are not traced.
 
 ```bash
 COSTPOINT_TRACE=1 te show                      # appends to ~/.tecli-trace.jsonl

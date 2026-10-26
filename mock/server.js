@@ -52,8 +52,10 @@ function send(res, status, body, headers = {}) {
  * or comma string), today (YYYY-MM-DD), user/password (unset accepts any
  * login), sessionTtlMs, stateFile.
  * Returns { server, port, url, db, sessions, reset(), failSave(period, error),
- * stall(count), expire(sid), close() }. failSave makes the next 206 for that
- * period fail. stall leaves the next count servlet requests unanswered.
+ * stall(count), dropSave(count), expire(sid), close() }. failSave makes the
+ * next 206 for that period fail. stall leaves the next count servlet requests
+ * unanswered. dropSave commits the next count saves and then drops the
+ * connection instead of answering.
  */
 async function createMockServer(options = {}) {
   const fixture = readFixture(options.fixture);
@@ -66,6 +68,9 @@ async function createMockServer(options = {}) {
   const faults = new Map();
   // Servlet requests left to hold open without an answer, set with stall()
   let stalls = 0;
+  // Saves left to commit and then answer by dropping the connection, set
+  // with dropSave()
+  let drops = 0;
   let clock = options.now || (() => Date.now());
 
   const freshDb = () => new Db(fixture, { today });
@@ -126,13 +131,18 @@ async function createMockServer(options = {}) {
     if (!session) return send(res, 200, SESSION_NOT_VALID);
     if (params.has('LOGININFO')) return send(res, 200, "var responseCd='ok';");
     let text;
+    let commands;
     try {
-      const { commands } = codec.parseRequest(body);
+      ({ commands } = codec.parseRequest(body));
       const env = { db, session, quirks, persist, faults, ctx: { stale: new Map(), suppress204: false } };
       text = handleRequest(env, commands);
     } catch (e) {
       console.error('mock: ' + e.stack);
       return send(res, 500, 'mock error: ' + e.message);
+    }
+    if (drops > 0 && commands.some(c => c.reqCd === 206)) {
+      drops--;
+      return res.socket.destroy();
     }
     return send(res, 200, text);
   }
@@ -219,12 +229,16 @@ async function createMockServer(options = {}) {
       sessions.clear();
       faults.clear();
       stalls = 0;
+      drops = 0;
     },
     failSave(period, error = SAVE_FAULT) {
       faults.set(period, error);
     },
     stall(count = 1) {
       stalls = count;
+    },
+    dropSave(count = 1) {
+      drops = count;
     },
     expire(sid) {
       if (sid) sessions.delete(sid);

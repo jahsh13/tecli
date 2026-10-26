@@ -48,19 +48,15 @@ async function listFavorites(creds) {
   }
 }
 
+// A lost session: the servlet's exception page (SessionExpiredError) or a
+// dropped connection. Matched by type and code, not by message text, so a
+// Costpoint business message that mentions a session is not one. A timeout
+// (ETIMEDOUT) is not either: the request may have reached Costpoint.
+const CONNECTION_ERRORS = new Set(['ECONNRESET', 'ECONNREFUSED']);
+
 function isSessionError(e) {
-  // A timed-out request may have reached Costpoint, and a retry could repeat
-  // a save or a sign
-  if (e.name === 'RequestTimeoutError') return false;
-  const msg = (e.message || '').toLowerCase();
-  return (
-    msg.includes('session') ||
-    msg.includes('not valid') ||
-    msg.includes('econnreset') ||
-    msg.includes('econnrefused') ||
-    msg.includes('socket hang up') ||
-    msg.includes('onservletexception')
-  );
+  if (!e) return false;
+  return e.name === 'SessionExpiredError' || CONNECTION_ERRORS.has(e.code);
 }
 
 // One client at a time, bound to one period; asking for another period
@@ -108,18 +104,26 @@ function createSessionManager({ launch, idleMs = DEFAULT_IDLE_MS, onLaunch, onLa
     return client;
   }
 
+  // fn is rerun once on a fresh session after a session error, but only if
+  // the client sent no write (writesSent): a save whose response was lost may
+  // have committed, and a replay would repeat it (tecli-4mz.10)
   async function withClient(fn, period = 0) {
+    let cp = null;
+    let writes = 0;
     try {
-      return await fn(await getClient(period));
+      cp = await getClient(period);
+      writes = cp.writesSent || 0;
+      return await fn(cp);
     } catch (e) {
-      if (isSessionError(e)) {
+      const wrote = cp !== null && (cp.writesSent || 0) !== writes;
+      if (isSessionError(e) && !wrote) {
         if (onRetry) onRetry(e);
         await releaseClient();
         return await fn(await getClient(period));
       }
-      // After a timeout the client may not match what Costpoint has: the
-      // next operation starts on a fresh session
-      if (e.name === 'RequestTimeoutError') await releaseClient();
+      // After a timeout or a lost session the client may not match what
+      // Costpoint has: the next operation starts on a fresh session
+      if (isSessionError(e) || e.name === 'RequestTimeoutError') await releaseClient();
       throw e;
     }
   }

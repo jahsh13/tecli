@@ -237,6 +237,23 @@ class ResponseTooLargeError extends Error {
 }
 
 /**
+ * Thrown when MasterServlet answers with its onServletException page instead
+ * of a response document: the sid is gone (mock: "Session not valid") or the
+ * server failed the request. The only servlet failure treated as a lost
+ * session; business errors come back inside a response document.
+ */
+class SessionExpiredError extends Error {
+  constructor(responseText = '') {
+    super('Costpoint session is not valid: ' + responseText.substring(0, 200));
+    this.name = 'SessionExpiredError';
+  }
+}
+
+// Commands that may change what Costpoint has stored: 206 save, 209 discard,
+// 300 action (sign, Correct, new line, add to favorites)
+const WRITE_COMMAND = /^(206|209|300)A/;
+
+/**
  * Thrown when a save attempt requires a revision explanation.
  * The auditDetails array describes what changed.
  */
@@ -258,6 +275,9 @@ class DirectClient {
     // Parent (K0) row the client edits: 0 = active week, 1 = previous week.
     // Sent as X on K1 commands and as the K0 cursor C.
     this.periodIdx = 0;
+    // Requests sent that may have committed something (WRITE_COMMAND),
+    // counted before sending: a lost response does not mean nothing landed
+    this.writesSent = 0;
     this.lastPutId = 0;
     this._actionSeq = 0;
     this.dates = null;
@@ -2116,10 +2136,15 @@ class DirectClient {
   }
 
   async _postServlet(body) {
+    const cmds = (new URLSearchParams(body).get('cmd') || '').split(protocol.DLM_RS);
+    if (cmds.some(c => WRITE_COMMAND.test(c))) this.writesSent++;
     const resp = await this._http('POST', '/cpweb/MasterServlet.cps', body, 'application/x-www-form-urlencoded', {
       headers: this._servletHeaders(),
     });
     trace({ time: new Date().toISOString(), request: body, response: resp.body });
+    if (resp.body.includes('onServletException') && !/var responses\s*=/.test(resp.body)) {
+      throw new SessionExpiredError(resp.body);
+    }
     return resp.body;
   }
 
@@ -3850,6 +3875,7 @@ class DirectClient {
 
 DirectClient.RevisionRequiredError = RevisionRequiredError;
 DirectClient.RequestTimeoutError = RequestTimeoutError;
+DirectClient.SessionExpiredError = SessionExpiredError;
 DirectClient.ResponseTooLargeError = ResponseTooLargeError;
 DirectClient.requestTimeoutMs = requestTimeoutMs;
 DirectClient.MAX_RESPONSE_BYTES = MAX_RESPONSE_BYTES;

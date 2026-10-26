@@ -1,6 +1,6 @@
 'use strict';
 
-const test = require('node:test');
+const { test, describe } = require('node:test');
 const assert = require('node:assert');
 const { launchForPeriod, isSessionError, createSessionManager } = require('../session');
 const DirectClient = require('../direct');
@@ -66,14 +66,14 @@ test('withClient retries once on a session error', async () => {
   let calls = 0;
   const result = await m.withClient(async () => {
     calls++;
-    if (calls === 1) throw new Error('Session expired');
+    if (calls === 1) throw new DirectClient.SessionExpiredError('gone');
     return 'ok';
   });
   assert.strictEqual(result, 'ok');
   assert.strictEqual(calls, 2);
   assert.strictEqual(launched.length, 2);
   assert.ok(launched[0].closed);
-  assert.deepStrictEqual(retried, ['Session expired']);
+  assert.deepStrictEqual(retried, ['Costpoint session is not valid: gone']);
   await m.releaseClient();
 });
 
@@ -100,9 +100,9 @@ test('withClient propagates a second session failure', async () => {
   await assert.rejects(
     m.withClient(async () => {
       calls++;
-      throw new Error('session gone');
+      throw new DirectClient.SessionExpiredError('gone');
     }),
-    /session gone/
+    /session is not valid: gone/
   );
   assert.strictEqual(calls, 2);
   await m.releaseClient();
@@ -130,14 +130,16 @@ test('launchForPeriod rejects past weeks outside direct mode', async () => {
   await assert.rejects(launchForPeriod({ useDirect: false, system: 'x' }, 1), /requires direct mode/);
 });
 
-test('isSessionError matches known messages, any case', () => {
-  const msgs = ['session', 'not valid', 'econnreset', 'econnrefused', 'socket hang up', 'onservletexception'];
-  for (const m of msgs) {
-    assert.ok(isSessionError(new Error(m)), m);
-    assert.ok(isSessionError(new Error(`x ${m.toUpperCase()} y`)), m.toUpperCase());
+test('isSessionError matches the servlet exception and dropped connections only', () => {
+  const dropped = code => Object.assign(new Error('socket hang up'), { code });
+  assert.ok(isSessionError(new DirectClient.SessionExpiredError('x')));
+  assert.ok(isSessionError(dropped('ECONNRESET')));
+  assert.ok(isSessionError(dropped('ECONNREFUSED')));
+  for (const m of ['session', 'Session not valid', 'not valid', 'socket hang up', 'onServletException']) {
+    assert.ok(!isSessionError(new Error(m)), m);
   }
-  assert.ok(!isSessionError(new Error('boom')));
   assert.ok(!isSessionError({}));
+  assert.ok(!isSessionError(undefined));
 });
 
 test('launchForPeriod rejects a period beyond the loaded weeks, with the CLI message', async () => {
@@ -175,4 +177,80 @@ test('a request timeout is not a session error and is not retried', async () => 
   assert.strictEqual(launched.length, 1);
   assert.ok(launched[0].closed);
   assert.strictEqual(m.current(), null);
+});
+
+// A replay after a request that may have committed (a save, a sign, an
+// action) could repeat it, e.g. add the same line twice (tecli-4mz.10)
+describe('withClient retry after a write', () => {
+  const expired = () => new DirectClient.SessionExpiredError();
+
+  test('does not rerun fn once a write was sent', async () => {
+    const { launch, launched } = fakeLauncher();
+    const m = createSessionManager({ launch });
+    let calls = 0;
+    await assert.rejects(
+      m.withClient(async cp => {
+        calls++;
+        cp.writesSent = (cp.writesSent || 0) + 1;
+        throw expired();
+      }),
+      /session/i
+    );
+    assert.strictEqual(calls, 1);
+    assert.ok(launched[0].closed);
+    assert.strictEqual(m.current(), null);
+  });
+
+  test('reruns fn once when the session failed before any write', async () => {
+    const { launch, launched } = fakeLauncher();
+    const m = createSessionManager({ launch });
+    let calls = 0;
+    const result = await m.withClient(async () => {
+      calls++;
+      if (calls === 1) throw expired();
+      return 'ok';
+    });
+    assert.strictEqual(result, 'ok');
+    assert.strictEqual(calls, 2);
+    assert.strictEqual(launched.length, 2);
+    await m.releaseClient();
+  });
+
+  test('a business message that mentions the session is not retried', async () => {
+    const { launch, launched } = fakeLauncher();
+    const m = createSessionManager({ launch });
+    let calls = 0;
+    await assert.rejects(
+      m.withClient(async () => {
+        calls++;
+        throw new Error('Charge is not valid for this session period');
+      }),
+      /not valid/
+    );
+    assert.strictEqual(calls, 1);
+    assert.strictEqual(launched.length, 1);
+    await m.releaseClient();
+  });
+
+  test('add + save whose save response is dropped leaves one line', async () => {
+    const { startMock } = require('./mock-helper');
+    const mock = await startMock();
+    try {
+      const creds = { url: mock.url, username: 'mock', password: 'mock', useDirect: true };
+      const m = createSessionManager({ launch: period => launchForPeriod(creds, period) });
+      mock.dropSave();
+      await assert.rejects(
+        m.withClient(async cp => {
+          await cp.add('PROJ.C.300');
+          await cp.save();
+        }),
+        /socket hang up|ECONNRESET/
+      );
+      await m.releaseClient();
+      const lines = (await mock.launch()).getData().projects.filter(p => p.code === 'PROJ.C.300');
+      assert.equal(lines.length, 1);
+    } finally {
+      await mock.stop();
+    }
+  });
 });

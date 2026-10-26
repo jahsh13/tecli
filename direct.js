@@ -237,6 +237,18 @@ class ResponseTooLargeError extends Error {
   }
 }
 
+// Short plain-text excerpt of a response for an error message: scripts and
+// tags dropped (a login page can carry the sid), whitespace collapsed. Login
+// errors reach the web UI's /api/status.
+function responseExcerpt(body, max = 200) {
+  const text = String(body)
+    .replace(/<(script|style)[\s\S]*?<\/\1>/gi, ' ')
+    .replace(/<[^>]*>/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  return text.length > max ? text.substring(0, max) + '...' : text;
+}
+
 /**
  * Thrown when MasterServlet answers with its onServletException page instead
  * of a response document: the sid is gone (mock: "Session not valid") or the
@@ -1118,7 +1130,7 @@ class DirectClient {
 
     // Detect server crash response before parsing
     if (respText.includes('onServletException')) {
-      console.error('Save response (first 500 chars):', respText.substring(0, 500));
+      debug('Save response (first 500 chars):', respText.substring(0, 500));
       throw new Error('Server error (session may be invalid). Please try again.');
     }
 
@@ -2224,7 +2236,7 @@ class DirectClient {
       loginInfoResp.body.includes('session not valid') ||
       (loginInfoResp.body.includes('returnCd') && loginInfoResp.body.includes('error'))
     ) {
-      throw new Error('LOGININFO failed: ' + loginInfoResp.body.substring(0, 300));
+      throw new Error('LOGININFO failed: ' + responseExcerpt(loginInfoResp.body));
     }
 
     // OPEN_APP (507+101+507)
@@ -2529,7 +2541,7 @@ class DirectClient {
         'PASSWORD=' + encodeURIComponent(hashedPassword)
       );
       if (pwdResp.body.includes('error')) {
-        throw new Error('Costpoint password login failed: ' + pwdResp.body);
+        throw new Error('Costpoint password login failed: ' + responseExcerpt(pwdResp.body));
       }
     } else {
       // Mock-backend or simple login — just send password directly

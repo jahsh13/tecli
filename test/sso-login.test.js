@@ -73,3 +73,34 @@ describe('_ssoStateToken', () => {
     );
   });
 });
+
+// The login error reaches the web UI's /api/status, so it carries a short
+// text excerpt of the response, not the whole page (tecli-4mz.13 L5).
+describe('_cpLogin password failure', () => {
+  function loginClient(errorBody) {
+    const client = Object.create(DirectClient.prototype);
+    client._encodePassword = () => 'hashed';
+    client._http = async (method, path, body) => {
+      if (body.startsWith('USER=')) return { body: 'copyAuthData{"userId":"u","nonce":"n"}' };
+      if (body.startsWith('PASSWORD=')) return { body: errorBody };
+      return { body: '' };
+    };
+    return client;
+  }
+
+  test('reports a short text excerpt of the response', async () => {
+    const page =
+      '<html><script>var sid="SECRETSID";</script><body><b>Login error:</b>   bad password</body></html>' +
+      'x'.repeat(5000);
+    const err = await loginClient(page)
+      ._cpLogin('user', 'pw')
+      .then(
+        () => null,
+        e => e
+      );
+    assert.ok(err, 'login should fail');
+    assert.match(err.message, /^Costpoint password login failed: Login error: bad password/);
+    assert.doesNotMatch(err.message, /<|SECRETSID/);
+    assert.ok(err.message.length <= 250, 'length ' + err.message.length);
+  });
+});

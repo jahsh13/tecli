@@ -80,7 +80,7 @@ for (const run of QUIRK_RUNS)
     test('the server instructions and edit tool descriptions name the markers', async () => {
       const instructions = client.getInstructions();
       for (const m of Object.values(MARKER)) assert.ok(instructions.includes(m), m);
-      assert.match(instructions, /no await/);
+      assert.match(instructions, /no TypeScript annotations/);
       const { tools } = await client.listTools();
       const setHours = tools.find(t => t.name === 'set_hours');
       assert.ok(setHours.description.includes(MARKER.revision));
@@ -90,7 +90,7 @@ for (const run of QUIRK_RUNS)
     // code-mode-mcp shows tool descriptions but never the server instructions
     test('every tool description carries the code-mode calling rule', async () => {
       const { tools } = await client.listTools();
-      for (const t of tools) assert.match(t.description, /Code-mode: .*no await or async.*\{\}.*console\.log/, t.name);
+      for (const t of tools) assert.match(t.description, /Code-mode: .*result string.*console\.log/, t.name);
     });
 
     test('list_weeks shows back numbers, end dates and status', async () => {

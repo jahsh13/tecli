@@ -110,7 +110,7 @@ describe('mcp server over stdio', () => {
     let codeMode;
     let quiet;
 
-    // Script results come back as { result, logs }; tool calls are synchronous.
+    // Script results come back as { result, logs }.
     const run = code => codeMode.callToolChain(code, 30000);
 
     before(async () => {
@@ -170,20 +170,19 @@ describe('mcp server over stdio', () => {
       assert.equal(cp.getData().projects[0].hours[5], 4);
     });
 
-    // code-mode JSON.stringifies the script result, and a Promise stringifies
-    // to {}. console.log still shows the text.
-    test('an async function result comes back as {} and only console.log shows it', async () => {
+    // code-mode awaits the script result (since @utcp/code-mode 1.2.13)
+    test('an async function result comes back as the text', async () => {
       const { result, logs } = await run(
         'async function main() { var r = tecli.tecli_show_timesheet({}); console.log(r); return r; } return main();'
       );
-      assert.deepEqual(result, {});
+      assert.match(result, /^Current week/);
       assert.match(logs.join('\n'), /^Current week/);
     });
 
-    test('await is a compile error reported only in the logs', async () => {
+    test('an awaited call returns the text', async () => {
       const { result, logs } = await run('var r = await tecli.tecli_show_timesheet({}); return r;');
-      assert.equal(result, null);
-      assert.match(logs.join('\n'), /\[ERROR\] Code execution failed/);
+      assert.deepEqual(logs, []);
+      assert.match(result, /^Current week/);
     });
   });
 });

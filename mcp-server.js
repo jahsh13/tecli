@@ -94,13 +94,10 @@ Every result is one text block. Success is plain text. Other outcomes start with
 - "${MARKER.error}" the call failed.
 - "${MARKER.revision}" the edit is held until save_with_explanation is called.
 - "${MARKER.warning}" the save went through but a side step failed.
-Code-mode clients (tecli.tecli_x({...})): calls are synchronous, so use plain JavaScript with no await, async or TypeScript annotations, and check the leading marker of the returned string.`;
+Code-mode clients (tecli.tecli_x({...})): calls return the result string, so use plain JavaScript with no TypeScript annotations, and check the leading marker of the returned string.`;
 
-// code-mode-mcp shows tool descriptions but not the server instructions. It
-// JSON.stringifies the script's return value, so a Promise from an async
-// function comes back as {} even though console.log shows the text.
-const CODE_MODE_RULE =
-  'Code-mode: tool calls are synchronous; use no await or async (an async result comes back as {}), return the string or console.log it.';
+// code-mode-mcp shows tool descriptions but not the server instructions.
+const CODE_MODE_RULE = 'Code-mode: tool calls return the result string; return it or console.log it.';
 
 const NOTE = {
   error: `Failures start with "${MARKER.error}".`,

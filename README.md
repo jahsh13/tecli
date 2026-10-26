@@ -297,8 +297,7 @@ node /path/to/tecli/mcp-server.js
 
 [code-mode-mcp](https://github.com/universal-tool-calling-protocol/utcp-mcp) (`@utcp/code-mode-mcp`) runs agent-written JavaScript that calls tools as `tecli.tecli_<tool>({...})`. Register tecli in its UTCP config as an `mcp` manual with the same `node /path/to/tecli/mcp-server.js` stdio command. Rules for the scripts:
 
-- Calls are synchronous and return the result string: `return tecli.tecli_show_timesheet({})`. Chain calls with plain `var` assignments.
-- No `await` or `async`. Top-level `await` is a compile error. code-mode `JSON.stringify`s the script's return value, so the Promise an async function returns comes back as `{}` even though `console.log(r)` inside it shows the text. Return the string itself. Each tool description repeats this rule, since code-mode does not show the server instructions.
+- Calls return the result string: `return tecli.tecli_show_timesheet({})`. Chain calls with plain `var` assignments. `await` is accepted but not needed (`@utcp/code-mode` 1.2.13 awaits the script's return value; 1.2.11 returned `{}` for a Promise). Each tool description repeats this rule, since code-mode does not show the server instructions.
 - Plain JavaScript only. TypeScript annotations (`const n: number`) do not compile, even though the code-mode tool description says TypeScript.
 - code-mode drops `isError`, so check the leading marker (above) of each result, for example `if (r.indexOf('NOT SAVED:') === 0) ...`.
 - A script error still reports `success: true`. Look for `[ERROR]` in the returned `logs`.
@@ -335,7 +334,7 @@ console.log(favs);
 return tecli.tecli_add_from_favorites({ index: 0 });
 ```
 
-`console.log` output comes back in `logs`; the returned value is `result`. Wrapping these in `async function main() { ... }` returns `{}`.
+`console.log` output comes back in `logs`; the returned value is `result`.
 
 Installed directly (Claude Code, Claude Desktop, other MCP clients) nothing changes: errors also carry `isError`.
 

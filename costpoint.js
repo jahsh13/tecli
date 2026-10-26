@@ -16,10 +16,12 @@ class Costpoint {
     this.timesheetStatusCode = '';
   }
 
-  static async launch(url, username, password, database) {
+  // The Costpoint system is the URL's ?system= parameter; the SSO login page
+  // has no database field to fill.
+  static async launch(url, username, password) {
     const costpoint = new Costpoint();
     await costpoint._launch();
-    await costpoint._login(url, username, password, database);
+    await costpoint._login(url, username, password);
     await costpoint._table();
     return costpoint;
   }
@@ -37,7 +39,7 @@ class Costpoint {
         fullDate: d.format('YYYY-MM-DD'),
         dayOfWeek: d.format('ddd'),
       })),
-      projects: this.table.map((row, index) => ({
+      projects: this.table.map(row => ({
         line: row[0],
         description: row[1],
         hours: Object.fromEntries(this.dates.map((d, i) => [d.date(), row[i + 2] === '' ? null : row[i + 2]])),
@@ -207,7 +209,7 @@ class Costpoint {
     this.page = await this.browser.newPage();
   }
 
-  async _login(url, username, password, database) {
+  async _login(url, username, password) {
     await this.page.goto(url);
 
     await this.page.locator('#acknowledgeBtn').click();

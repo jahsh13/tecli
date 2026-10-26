@@ -9,7 +9,6 @@
   let pendingComments = new Map();
   let originalValues = new Map();
   let originalComments = new Map();
-  let statusPollingInterval = null;
   let signPeriod = 0; // period of the week whose Sign button opened the sign modal
 
   // Project codes that require a comment when hours are entered
@@ -1097,9 +1096,9 @@
     }
   }
 
-  // Status polling
+  // Status polling runs for the life of the page
   function startStatusPolling() {
-    statusPollingInterval = setInterval(checkStatus, 5000);
+    setInterval(checkStatus, 5000);
   }
 
   async function checkStatus() {

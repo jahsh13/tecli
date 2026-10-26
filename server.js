@@ -147,37 +147,6 @@ function getActiveWeekData() {
   return activeWeekStart ? cachedWeeks[activeWeekStart] : null;
 }
 
-// Load cache from disk on startup
-function loadCache() {
-  try {
-    if (fs.existsSync(CACHE_FILE)) {
-      const raw = fs.readFileSync(CACHE_FILE, 'utf8');
-      const parsed = JSON.parse(raw);
-      // Support old single-week format: migrate to multi-week
-      if (parsed && parsed.dates && Array.isArray(parsed.dates)) {
-        const key = weekStartKey(parsed);
-        if (key) {
-          cachedWeeks = { [key]: parsed };
-          activeWeekStart = key;
-          console.log('Migrated single-week cache to multi-week format');
-          saveCache();
-          return true;
-        }
-      }
-      // New multi-week format
-      if (parsed && parsed.weeks) {
-        cachedWeeks = parsed.weeks;
-        activeWeekStart = parsed.activeWeekStart || null;
-        console.log('Loaded multi-week cache (' + Object.keys(cachedWeeks).length + ' weeks)');
-        return true;
-      }
-    }
-  } catch (e) {
-    console.error('Failed to load cache:', e.message);
-  }
-  return false;
-}
-
 // Save cache to disk
 function saveCache() {
   try {

@@ -11,12 +11,12 @@ const DEFAULT_IDLE_MS = 5 * 60 * 1000;
 // moved to its period before anything else runs (same rule as signing).
 // preloadPrevious only applies to the active week in direct mode.
 async function launchForPeriod(creds, period, { preloadPrevious = false } = {}) {
-  const { url, username, password, system, useDirect } = creds;
+  const { url, username, password, useDirect } = creds;
   if (!useDirect) {
     if (period !== 0) {
       throw new Error('Editing a past week requires direct mode (COSTPOINT_DIRECT=true)');
     }
-    return Costpoint.launch(url, username, password, system);
+    return Costpoint.launch(url, username, password);
   }
   if (period === 0) {
     return DirectClient.launch(url, username, password, preloadPrevious ? { loadPreviousPeriod: true } : undefined);

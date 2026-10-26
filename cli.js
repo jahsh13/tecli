@@ -60,9 +60,9 @@ function requireCredentials() {
 }
 
 function launchClient() {
-  const { url, username, password, system, useDirect } = requireCredentials();
+  const { url, username, password, useDirect } = requireCredentials();
   if (useDirect) return DirectClient.launch(url, username, password);
-  return Costpoint.launch(url, username, password, system);
+  return Costpoint.launch(url, username, password);
 }
 
 function parseBack(value) {

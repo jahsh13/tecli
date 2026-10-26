@@ -3,10 +3,9 @@
 
 const { test, describe } = require('node:test');
 const assert = require('node:assert/strict');
-const fs = require('fs');
-const path = require('path');
 const protocol = require('../protocol');
 const DirectClient = require('../direct');
+const codec = require('../mock/codec');
 
 // ─── Helpers ──────────────────────────────────────────────────────────────
 
@@ -28,11 +27,6 @@ function makeStubClient() {
   };
   client.parentData = { rowNums: ['0'], rowFlags: ['0'], rows: [new Array(100).fill('')] };
   return client;
-}
-
-function loadCapturedResponse(filename) {
-  const raw = fs.readFileSync(path.join(__dirname, '../captured', filename), 'utf8').trim();
-  return Buffer.from(raw.replace('data:application/octet-stream;base64,', ''), 'base64').toString('binary');
 }
 
 // Minimal OK response (single 507 keepalive, no errors)
@@ -163,45 +157,29 @@ describe('_resolveChargeOnServer charge selection', () => {
     const singleRow = new Array(40).fill('');
     singleRow[5] = 'ZLEAVE.CMP'; // charge code
     singleRow[15] = ''; // empty pay type = single-charge
+    const hlkpResponse = codec.buildResponse([
+      {
+        rsKey: 2,
+        cmdCd: 204,
+        start: 0,
+        end: 1,
+        slot: codec.encode204Slot({ rowNums: ['7'], rowFlags: [0], rows: [singleRow] }, 40),
+      },
+    ]);
 
-    let selectedRowPassed = null;
-    client._postServlet = async body => {
-      const decoded = decodeURIComponent(body.replace(/\+/g, ' '));
-      if (decoded.includes('OPEN_RS') || decoded.includes('201A')) {
-        return OK_RESPONSE;
-      }
-      if (decoded.includes('HLKP')) {
-        // Return captured real data that has single-charge rows for ZLEAVE.CMP
-        return loadCapturedResponse('favorites-filter-res.txt');
-      }
-      if (decoded.includes('TC_TS_CHARGE_LKP_OK')) {
-        selectedRowPassed = true;
-        return OK_RESPONSE;
-      }
-      return OK_RESPONSE;
+    client._buildOpenRsChargeLookup = () => 'OPEN_RS';
+    client._buildHlkpQuery = () => 'HLKP';
+    let selected = null;
+    client._buildChargeLkpOk = (k2Row, rowNum) => {
+      selected = { k2Row, rowNum };
+      return 'LKP_OK';
     };
-    // Patch out the TC_TS_CHARGE_LKP_OK step to avoid needing full K0/K1 responses
-    client._buildChargeLkpOk = () => 'CHARGE_LKP_OK_BODY';
+    client._postServlet = async body => (body === 'HLKP' ? hlkpResponse : OK_RESPONSE);
 
-    // Stub postServlet to intercept the lkpOk call
-    const calls = [];
-    const origPost = client._postServlet.bind(client);
-    client._postServlet = async body => {
-      calls.push(body);
-      return origPost(body);
-    };
-
-    // We can't easily run _resolveChargeOnServer end-to-end without full mocking.
-    // Instead test the selection logic directly by checking the selection code path.
-    // Test: given 1 K2 row with no payType, auto-select is used.
-    const k2Data = {
-      rows: [singleRow],
-      rowNums: ['1'],
-    };
-    const availablePayTypes = k2Data.rows.map(r => r[15] || '');
-    const hasDistinctPayTypes = availablePayTypes.some(pt => pt !== '');
-    const singleCharge = k2Data.rows.length === 1 || !hasDistinctPayTypes;
-    assert.ok(singleCharge, 'single-charge path taken when 1 row or no distinct pay types');
+    await client._resolveChargeOnServer('ZLEAVE.CMP', 'REG');
+    assert.ok(selected, 'TC_TS_CHARGE_LKP_OK was sent');
+    assert.equal(selected.rowNum, '7', 'the only K2 row is selected even though REG was asked for');
+    assert.equal(selected.k2Row[5], 'ZLEAVE.CMP');
   });
 
   test('multi-charge code: throws when no payType specified', () => {

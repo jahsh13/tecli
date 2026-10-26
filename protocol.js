@@ -362,6 +362,21 @@ function checkRescds(parsed) {
   return resultCodes(parsed).some(c => c < 0);
 }
 
+// Message of the 206 failure that asks for a revision explanation
+const REVISION_REQUIRED_ERROR = /Explanation or Reject Reason is required/i;
+
+/**
+ * True when the CMD 206 save failed on the revision explanation prompt
+ * (captured/prev-period-edit/017). Any other 206 failure is a real error.
+ */
+function isSaveRevisionRequired(parsed) {
+  const frames = parseFrames(parsed[0]);
+  const codes = resultCodes(parsed);
+  return frames.some(
+    (f, i) => f.cmdCd === 206 && codes[i] < 0 && REVISION_REQUIRED_ERROR.test(frameError(parsed, i) || '')
+  );
+}
+
 // ---------------------------------------------------------------------------
 // Column names (OPEN_RS maObjId lists)
 // ---------------------------------------------------------------------------
@@ -440,6 +455,7 @@ module.exports = {
   checkRescds,
   resultCodes,
   frameError,
+  isSaveRevisionRequired,
   columnNames,
   // Request encoding
   encodePutRow,

@@ -205,9 +205,6 @@ const REV_COL = {
 // Audit column indices (K3 = TMMTS_TS_AUDIT_EXP)
 const AUDIT_COL = { REVISION_NO: 0, LINE_NO: 1, DATE: 2, PROJECT: 3, ACCOUNT: 5, CHARGE_DESC: 6, DETAIL: 7 };
 
-// Message of the 206 failure that asks for a revision explanation
-const REVISION_REQUIRED_ERROR = /Explanation or Reject Reason is required/i;
-
 /**
  * Thrown when a save attempt requires a revision explanation.
  * The auditDetails array describes what changed.
@@ -1089,16 +1086,8 @@ class DirectClient {
     if (k1Data) this.childData = k1Data;
   }
 
-  /**
-   * True when the CMD 206 save failed on the revision explanation prompt
-   * (captured/prev-period-edit/017). Any other 206 failure is a real error.
-   */
   _isSaveRevisionRequired(parsed) {
-    const frames = protocol.parseFrames(parsed[0]);
-    const codes = protocol.resultCodes(parsed);
-    return frames.some(
-      (f, i) => f.cmdCd === 206 && codes[i] < 0 && REVISION_REQUIRED_ERROR.test(protocol.frameError(parsed, i) || '')
-    );
+    return protocol.isSaveRevisionRequired(parsed);
   }
 
   /**

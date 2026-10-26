@@ -6,7 +6,9 @@ const { startMock } = require('./mock-helper');
 
 describe('mock sign', () => {
   let mock;
-  beforeEach(async () => { mock = await startMock(); });
+  beforeEach(async () => {
+    mock = await startMock();
+  });
   afterEach(() => mock.stop());
 
   test('a fresh session signs the active week', async () => {

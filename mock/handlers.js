@@ -77,7 +77,13 @@ function queryParent(cmd, env) {
   for (let i = 0; i < count; i++) {
     rows.push(db.parentRow(i, { full: i === cursor, view: ctx.stale.get(i) }));
   }
-  return dataFrame(0, cmd, rows.map((_, i) => String(i)), rows, db.cols.parent);
+  return dataFrame(
+    0,
+    cmd,
+    rows.map((_, i) => String(i)),
+    rows,
+    db.cols.parent
+  );
 }
 
 function queryChild(cmd, env) {
@@ -88,8 +94,14 @@ function queryChild(cmd, env) {
   // the active week's lines
   if (quirks.has('auto-required') && !session.autoLoaded && idx > 0) idx = 0;
   const negative = int(cmd.codes.S) < 0;
-  const lines = linesOf(env, idx).filter(l => (int(l.rowNum) < 0) === negative);
-  return dataFrame(1, cmd, lines.map(l => l.rowNum), lines.map(l => l.row), db.cols.child);
+  const lines = linesOf(env, idx).filter(l => int(l.rowNum) < 0 === negative);
+  return dataFrame(
+    1,
+    cmd,
+    lines.map(l => l.rowNum),
+    lines.map(l => l.row),
+    db.cols.child
+  );
 }
 
 function chargeRows(env, charges) {
@@ -122,7 +134,13 @@ function queryChargeLookup(cmd, env) {
     if (session.favoritesPrimed || !quirks.has('favorites-primer')) charges = favoriteCharges(env);
   }
   const rows = chargeRows(env, charges);
-  return dataFrame(2, cmd, rows.map((_, i) => String(i)), rows, db.cols.charge);
+  return dataFrame(
+    2,
+    cmd,
+    rows.map((_, i) => String(i)),
+    rows,
+    db.cols.charge
+  );
 }
 
 function revisionMeta(db) {
@@ -156,14 +174,26 @@ function queryAudit(cmd, env) {
   const idx = session.revisionPeriod !== undefined ? session.revisionPeriod : 0;
   const pending = (session.pendingAudit.get(idx) || []).map(r => [String(db.nextRevisionNo(idx)), ...r]);
   const rows = [...db.period(idx).audit, ...pending];
-  return dataFrame(3, cmd, rows.map((_, i) => String(i)), rows, AUDIT_COLS);
+  return dataFrame(
+    3,
+    cmd,
+    rows.map((_, i) => String(i)),
+    rows,
+    AUDIT_COLS
+  );
 }
 
 function queryLeaveBalances(cmd, env) {
   const { db } = env;
   if (int(cmd.codes.S) < 0) return noData(2, cmd);
   const rows = db.leave.balances.map(b => [b.description, String(b.balance), b.code]);
-  return dataFrame(2, cmd, rows.map((_, i) => String(i)), rows, 3);
+  return dataFrame(
+    2,
+    cmd,
+    rows.map((_, i) => String(i)),
+    rows,
+    3
+  );
 }
 
 function queryLeaveDetails(cmd, env) {
@@ -172,7 +202,13 @@ function queryLeaveDetails(cmd, env) {
   const balance = db.leave.balances[int(cmd.codes.X)];
   const details = (balance && db.leave.details[balance.code]) || [];
   const rows = details.map(d => [d.date, d.type, String(d.hours), d.reason, d.code, d.desc]);
-  return dataFrame(3, cmd, rows.map((_, i) => String(i)), rows, 6);
+  return dataFrame(
+    3,
+    cmd,
+    rows.map((_, i) => String(i)),
+    rows,
+    6
+  );
 }
 
 const RS_QUERIES = {
@@ -214,16 +250,32 @@ const PARENT_NAMES = {
 
 // Child columns direct.js resolves by name, at the 402-column capture layout
 const CHILD_NAMES = {
-  0: 'S_APPROVE_STATUS_CD', [CHILD.LINE_NO]: 'DISPLAY_LINE_NO', [CHILD.DESC]: 'LINE_DESC',
-  [CHILD.CODE]: 'UDT02_ID', [CHILD.WORK_LOCATION]: 'UDT03_ID', [CHILD.PAY_TYPE]: 'UDT10_ID',
+  0: 'S_APPROVE_STATUS_CD',
+  [CHILD.LINE_NO]: 'DISPLAY_LINE_NO',
+  [CHILD.DESC]: 'LINE_DESC',
+  [CHILD.CODE]: 'UDT02_ID',
+  [CHILD.WORK_LOCATION]: 'UDT03_ID',
+  [CHILD.PAY_TYPE]: 'UDT10_ID',
   ...Object.fromEntries(CHILD.DAYS.map((c, i) => [c, 'DAY' + (i + 1) + '_HRS'])),
   ...Object.fromEntries(CHILD.COMMENTS.map((c, i) => [c, 'COMMENT___DAY' + (i + 1) + '_HRS'])),
-  [CHILD.CHARGE_PROJECT]: 'CHARGE_BRANCH_CD_U2_CHG_LKUP', [CHILD.CHARGE_COMBINED]: 'CHARGE_CD_U2_CHG_LKUP',
-  [CHILD.CHARGE_FLAG]: 'CHARGE_TREE_CD_U2_CHG_LKUP', [CHILD.CHARGE_PAY_TYPE]: 'UDT10_ID_U2_CHG_LKUP',
-  [CHILD.CHARGE_PROJECT_ID]: 'UDT02_DISPLAY', [CHILD.SEQ]: 'LINE_NO',
-  150: 'COST_FL', 151: 'COUNT_ROW', 187: 'EMPL_ID', 193: 'HRS_INCREMENT_CD', 194: 'HRS_MODIFY_FL',
-  196: 'IS_AMBIGUOUS_LKP', 197: 'IS_PROCESSED_FL', 234: 'OT_FL', 235: 'PERIOD_NO_CD',
-  336: 'TS_SCHEDULE_CD', 393: 'UDT_FROM_LKP_FL', 398: 'YEAR_NO_CD',
+  [CHILD.CHARGE_PROJECT]: 'CHARGE_BRANCH_CD_U2_CHG_LKUP',
+  [CHILD.CHARGE_COMBINED]: 'CHARGE_CD_U2_CHG_LKUP',
+  [CHILD.CHARGE_FLAG]: 'CHARGE_TREE_CD_U2_CHG_LKUP',
+  [CHILD.CHARGE_PAY_TYPE]: 'UDT10_ID_U2_CHG_LKUP',
+  [CHILD.CHARGE_PROJECT_ID]: 'UDT02_DISPLAY',
+  [CHILD.SEQ]: 'LINE_NO',
+  150: 'COST_FL',
+  151: 'COUNT_ROW',
+  187: 'EMPL_ID',
+  193: 'HRS_INCREMENT_CD',
+  194: 'HRS_MODIFY_FL',
+  196: 'IS_AMBIGUOUS_LKP',
+  197: 'IS_PROCESSED_FL',
+  234: 'OT_FL',
+  235: 'PERIOD_NO_CD',
+  336: 'TS_SCHEDULE_CD',
+  393: 'UDT_FROM_LKP_FL',
+  398: 'YEAR_NO_CD',
 };
 
 function columnNames(named, width) {
@@ -419,7 +471,12 @@ function changedCells(db, idx, buf) {
 // charge description, detail
 function auditRow(c) {
   return [
-    c.row[CHILD.LINE_NO], c.date, c.row[CHILD.CODE], '', c.row[CHILD.ACCOUNT], c.row[CHILD.DESC],
+    c.row[CHILD.LINE_NO],
+    c.date,
+    c.row[CHILD.CODE],
+    '',
+    c.row[CHILD.ACCOUNT],
+    c.row[CHILD.DESC],
     'Hours changed from ' + c.before + ' to ' + c.after,
   ];
 }

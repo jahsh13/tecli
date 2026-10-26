@@ -19,8 +19,8 @@ function makeStubClient() {
   // Template row with enough columns for _validateUdt02 (reads col 6) and
   // _stagePendingLine (reads cols up to ~400)
   const row = new Array(420).fill('');
-  row[0] = 'FY26 Greenhs LabEnv Labor';   // description
-  row[6] = 'G09118.A.3778.026.005';        // CHILD_UDT02_ID
+  row[0] = 'FY26 Greenhs LabEnv Labor'; // description
+  row[6] = 'G09118.A.3778.026.005'; // CHILD_UDT02_ID
   client.childData = {
     rowNums: ['1'],
     rowFlags: ['0'],
@@ -66,10 +66,15 @@ describe('add() pending-row management', () => {
     const client = makeStubClient();
     // Pre-stage a pending row (e.g. left over from getFavorites)
     client._stagePendingLine();
-    assert.ok(client.childData.rowNums.some(n => parseInt(n, 10) < 0), 'pending row exists');
+    assert.ok(
+      client.childData.rowNums.some(n => parseInt(n, 10) < 0),
+      'pending row exists'
+    );
 
     let newLineCalled = 0;
-    client._newTimesheetLine = async () => { newLineCalled++; };
+    client._newTimesheetLine = async () => {
+      newLineCalled++;
+    };
     client._validateUdt02 = async () => {};
     client._resolveChargeOnServer = async () => {};
     client._buildTableRows = () => {};
@@ -85,7 +90,9 @@ describe('add() pending-row management', () => {
     let resolved = null;
     client._newTimesheetLine = async () => {};
     client._validateUdt02 = async () => {};
-    client._resolveChargeOnServer = async (code, pt) => { resolved = { code, payType: pt }; };
+    client._resolveChargeOnServer = async (code, pt) => {
+      resolved = { code, payType: pt };
+    };
     client._buildTableRows = () => {};
 
     await client.add('ZLEAVE.CMP', 'REG');
@@ -104,7 +111,9 @@ describe('add() work location', () => {
     client._resolveChargeOnServer = async () => {};
     client._buildTableRows = () => {};
     const validated = [];
-    client._validateObject = async id => { validated.push(id); };
+    client._validateObject = async id => {
+      validated.push(id);
+    };
     return { client, validated };
   }
 
@@ -126,7 +135,10 @@ describe('add() work location', () => {
     const client = makeStubClient();
     client._stagePendingLine();
     let body;
-    client._postServlet = async b => { body = b; return OK_RESPONSE; };
+    client._postServlet = async b => {
+      body = b;
+      return OK_RESPONSE;
+    };
     await client._validateObject('UDT03_ID');
     const params = new URLSearchParams(body);
     const cmds = params.get('cmd').split(protocol.DLM_RS);
@@ -169,11 +181,11 @@ describe('_resolveChargeOnServer charge selection', () => {
     client._stagePendingLine();
 
     const singleRow = new Array(40).fill('');
-    singleRow[5] = 'ZLEAVE.CMP';   // charge code
-    singleRow[15] = '';             // empty pay type = single-charge
+    singleRow[5] = 'ZLEAVE.CMP'; // charge code
+    singleRow[15] = ''; // empty pay type = single-charge
 
     let selectedRowPassed = null;
-    client._postServlet = async (body) => {
+    client._postServlet = async body => {
       const decoded = decodeURIComponent(body.replace(/\+/g, ' '));
       if (decoded.includes('OPEN_RS') || decoded.includes('201A')) {
         return OK_RESPONSE;
@@ -194,7 +206,7 @@ describe('_resolveChargeOnServer charge selection', () => {
     // Stub postServlet to intercept the lkpOk call
     const calls = [];
     const origPost = client._postServlet.bind(client);
-    client._postServlet = async (body) => {
+    client._postServlet = async body => {
       calls.push(body);
       return origPost(body);
     };
@@ -218,8 +230,12 @@ describe('_resolveChargeOnServer charge selection', () => {
       Object.assign(new Array(40).fill(''), { 5: '62226', 15: 'RHB' }),
     ];
     // Fix the array assignment syntax:
-    const row0 = new Array(40).fill(''); row0[5] = '62226'; row0[15] = 'REG';
-    const row1 = new Array(40).fill(''); row1[5] = '62226'; row1[15] = 'RHB';
+    const row0 = new Array(40).fill('');
+    row0[5] = '62226';
+    row0[15] = 'REG';
+    const row1 = new Array(40).fill('');
+    row1[5] = '62226';
+    row1[15] = 'RHB';
     const rows = [row0, row1];
 
     const availablePayTypes = rows.map(r => r[15] || '');
@@ -234,8 +250,12 @@ describe('_resolveChargeOnServer charge selection', () => {
   });
 
   test('multi-charge code: selects correct row by payType', () => {
-    const row0 = new Array(40).fill(''); row0[5] = '62226'; row0[15] = 'REG';
-    const row1 = new Array(40).fill(''); row1[5] = '62226'; row1[15] = 'RHB';
+    const row0 = new Array(40).fill('');
+    row0[5] = '62226';
+    row0[15] = 'REG';
+    const row1 = new Array(40).fill('');
+    row1[5] = '62226';
+    row1[15] = 'RHB';
     const rows = [row0, row1];
     const rowNums = ['1', '2'];
 
@@ -251,7 +271,7 @@ describe('_resolveChargeOnServer charge selection', () => {
     // Key gotcha: childRow[376] = selectedK2Row[15], not the payType argument.
     // This ensures multi-charge codes never get a manually-entered pay type.
     const k2Row = new Array(40).fill('');
-    k2Row[15] = 'RHB';   // pay type in K2 row
+    k2Row[15] = 'RHB'; // pay type in K2 row
 
     const client = makeStubClient();
     client._stagePendingLine();
@@ -285,7 +305,10 @@ describe('add builders take the period from periodIdx', () => {
 
   async function allBodies(client) {
     const bodies = [];
-    client._postServlet = async b => { bodies.push(b); return OK_RESPONSE; };
+    client._postServlet = async b => {
+      bodies.push(b);
+      return OK_RESPONSE;
+    };
     await client._newTimesheetLine();
     await client._validateUdt02();
     bodies.push(client._buildOpenRsChargeLookup(), client._buildChargeLkpOk(new Array(40).fill(''), '10'));
@@ -293,9 +316,13 @@ describe('add builders take the period from periodIdx', () => {
   }
 
   function paramTokens(bodies) {
-    return bodies.flatMap(b => new URLSearchParams(b.replace(/&reqIdx=\d+$/, '')).get('cmd')
-      .split(protocol.DLM_RS).filter(Boolean)
-      .flatMap(cmd => cmd.split(protocol.DLM_CMD)[1].split(protocol.DLM_PARAM)));
+    return bodies.flatMap(b =>
+      new URLSearchParams(b.replace(/&reqIdx=\d+$/, ''))
+        .get('cmd')
+        .split(protocol.DLM_RS)
+        .filter(Boolean)
+        .flatMap(cmd => cmd.split(protocol.DLM_CMD)[1].split(protocol.DLM_PARAM))
+    );
   }
 
   test('period 1 sends no X0 and no K0 cursor 0', async () => {
@@ -322,10 +349,15 @@ describe('add() work location callback', () => {
     client._resolveChargeOnServer = async () => {};
     client._buildTableRows = () => {};
     const validated = [];
-    client._validateObject = async id => { validated.push(id); };
+    client._validateObject = async id => {
+      validated.push(id);
+    };
     let seen;
     await client.add('ZLEAVE.CMP', 'REG', {
-      workLocation: async pending => { seen = pending; return '62221'; },
+      workLocation: async pending => {
+        seen = pending;
+        return '62221';
+      },
     });
     assert.deepEqual(seen, { payType: '', workLocation: '' });
     assert.deepEqual(validated, ['UDT03_ID']);

@@ -62,13 +62,14 @@ describe('_ssoStateToken', () => {
 
   test('fails when the fallback page has no stateToken', async () => {
     const client = stubClient({ '/login/agentlessDsso/idx': '<html></html>' });
-    await assert.rejects(client._ssoStateToken(dssoPage('t'), DSSO_URL),
-      /Could not extract stateToken/);
+    await assert.rejects(client._ssoStateToken(dssoPage('t'), DSSO_URL), /Could not extract stateToken/);
   });
 
   test('fails when the page has no stateToken', async () => {
     const client = stubClient({});
-    await assert.rejects(client._ssoStateToken('<html></html>', DSSO_URL),
-      /Could not extract stateToken from SSO page/);
+    await assert.rejects(
+      client._ssoStateToken('<html></html>', DSSO_URL),
+      /Could not extract stateToken from SSO page/
+    );
   });
 });

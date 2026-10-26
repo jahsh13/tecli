@@ -22,8 +22,18 @@ const OUT_FIXTURE = path.join(__dirname, 'fixture.json');
 const OUT_DENY = path.join(__dirname, 'deny.json');
 
 // Columns the mock computes or sets itself; never copied as defaults
-const PARENT_OWN = new Set([PARENT.NAME, PARENT.EMPL_ID, PARENT.SCHEDULE_DESC, PARENT.END_DT, PARENT.STATUS, 20,
-  PARENT.ACTION_CD, PARENT.ENABLE_SIGN_FL, PARENT.ENABLE_CORRECT_FL, PARENT.TS_CLOSED_FL]);
+const PARENT_OWN = new Set([
+  PARENT.NAME,
+  PARENT.EMPL_ID,
+  PARENT.SCHEDULE_DESC,
+  PARENT.END_DT,
+  PARENT.STATUS,
+  20,
+  PARENT.ACTION_CD,
+  PARENT.ENABLE_SIGN_FL,
+  PARENT.ENABLE_CORRECT_FL,
+  PARENT.TS_CLOSED_FL,
+]);
 const CHILD_OWN = new Set([1, 2, 4, 6, 8, 16, 96, 97, 198, 26, 27, 28, 29, 30, 31, 32, 61, 62, 63, 64, 65, 66, 67]);
 // Timestamps and per-row ids vary row to row and are not defaults
 const SKIP_PATTERN = /^\d{4}-\d{2}-\d{2}/;
@@ -81,7 +91,13 @@ function main() {
     const code = an.code(row[5]);
     if (seen.has(code)) continue;
     seen.add(code);
-    fixture.charges.push({ code, payType: row[15] || 'REG', desc: 'Charge ' + code, project: 'PROJ', account: 'ZTC-IL-000-0000' });
+    fixture.charges.push({
+      code,
+      payType: row[15] || 'REG',
+      desc: 'Charge ' + code,
+      project: 'PROJ',
+      account: 'ZTC-IL-000-0000',
+    });
   }
   fixture.employee.zip = '12345';
   fixture.defaults.child[8] = '12345';

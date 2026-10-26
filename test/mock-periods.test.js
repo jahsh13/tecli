@@ -6,14 +6,19 @@ const { startMock } = require('./mock-helper');
 
 describe('mock periods', () => {
   let mock;
-  before(async () => { mock = await startMock(); });
+  before(async () => {
+    mock = await startMock();
+  });
   after(() => mock.stop());
 
   test('getPeriods lists about 20 weeks, detail columns only for the cursor row', async () => {
     const cp = await mock.launch();
     const periods = cp.getPeriods();
     assert.equal(periods.length, 20);
-    assert.deepEqual(periods.slice(0, 4).map(p => p.statusCode), ['O', 'P', 'S', 'P']);
+    assert.deepEqual(
+      periods.slice(0, 4).map(p => p.statusCode),
+      ['O', 'P', 'S', 'P']
+    );
     assert.equal(periods[0].editable, true);
     assert.equal(periods[1].editable, null);
     assert.equal(periods[1].endDate, '2026-10-11');
@@ -55,7 +60,10 @@ describe('auto-required quirk', () => {
       const protocol = require('../protocol');
       const k1 = protocol.extract204(protocol.parseResponse(resp), 1);
       const active = cp.childData.rows.map(r => r[26] + r[27]);
-      assert.deepEqual(k1.rows.map(r => r[26] + r[27]), active);
+      assert.deepEqual(
+        k1.rows.map(r => r[26] + r[27]),
+        active
+      );
       assert.notEqual(active[0], '7.57.5');
     } finally {
       await mock.stop();

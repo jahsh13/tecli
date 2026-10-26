@@ -16,7 +16,11 @@ require('dotenv').config();
 
 const { RevisionRequiredError } = DirectClient;
 
-const backSchema = z.number().int().min(0).optional()
+const backSchema = z
+  .number()
+  .int()
+  .min(0)
+  .optional()
   .describe('Weeks back from the current week (0 or omitted = current week, 1 = previous week). See list_weeks.');
 
 // ── Format helpers ─────────────────────────────────────────────
@@ -72,7 +76,10 @@ const errorResult = message => text(`${MARKER.error} ${message}`, true);
 function revisionResult(e, summary) {
   const details = e.auditDetails.map(d => `Line ${d.lineNo}: ${d.description} (${d.project})`).join('\n');
   const body = details ? `\n\nChanges requiring explanation:\n${details}` : '';
-  return text(`${MARKER.revision} ${summary} but save requires a revision explanation.${body}\n\nUse save_with_explanation to complete the save.`, true);
+  return text(
+    `${MARKER.revision} ${summary} but save requires a revision explanation.${body}\n\nUse save_with_explanation to complete the save.`,
+    true
+  );
 }
 
 const INSTRUCTIONS = `Costpoint timesheet tools. Weeks are picked with back (0 = current week, see list_weeks).
@@ -85,7 +92,8 @@ Code-mode clients (tecli.tecli_x({...})): calls are synchronous, so use plain Ja
 // code-mode-mcp shows tool descriptions but not the server instructions. It
 // JSON.stringifies the script's return value, so a Promise from an async
 // function comes back as {} even though console.log shows the text.
-const CODE_MODE_RULE = 'Code-mode: tool calls are synchronous; use no await or async (an async result comes back as {}), return the string or console.log it.';
+const CODE_MODE_RULE =
+  'Code-mode: tool calls are synchronous; use no await or async (an async result comes back as {}), return the string or console.log it.';
 
 const NOTE = {
   error: `Failures start with "${MARKER.error}".`,
@@ -106,7 +114,9 @@ function buildServer(options = {}) {
     const creds = options.creds || getCredentials();
     assertMockSafe(creds);
     if (!creds) {
-      throw new Error('No credentials found. Run `te login` to configure credentials, or set COSTPOINT_URL, COSTPOINT_USERNAME, and COSTPOINT_PASSWORD environment variables.');
+      throw new Error(
+        'No credentials found. Run `te login` to configure credentials, or set COSTPOINT_URL, COSTPOINT_USERNAME, and COSTPOINT_PASSWORD environment variables.'
+      );
     }
     // The MCP tools speak the direct protocol only
     return { ...creds, useDirect: true };
@@ -115,7 +125,9 @@ function buildServer(options = {}) {
   const manager = createSessionManager({
     launch: period => launchForPeriod(credentials(), period),
     idleMs: options.idleMs,
-    onRelease: () => { pendingRevisionBack = null; },
+    onRelease: () => {
+      pendingRevisionBack = null;
+    },
   });
   const { withClient, releaseClient } = manager;
 
@@ -133,7 +145,9 @@ function buildServer(options = {}) {
   function guardRevision(back) {
     if (pendingRevisionBack === null) return;
     if (back !== pendingRevisionBack) {
-      throw new Error(`Week back=${pendingRevisionBack} has edits waiting for a revision explanation. Call save_with_explanation first; using another week now would discard them.`);
+      throw new Error(
+        `Week back=${pendingRevisionBack} has edits waiting for a revision explanation. Call save_with_explanation first; using another week now would discard them.`
+      );
     }
   }
 
@@ -142,7 +156,7 @@ function buildServer(options = {}) {
   // (a pending line, unsaved cells) survives into the next call.
   async function editWeek(back, summary, mutate) {
     guardRevision(back);
-    return withClient(async (cp) => {
+    return withClient(async cp => {
       try {
         const done = await mutate(cp);
         await cp.save();
@@ -172,12 +186,12 @@ function buildServer(options = {}) {
     async () => {
       const periods = await withThrowaway(async cp => cp.getPeriods());
       const lines = periods.map(p => {
-        const editable = p.editable === null ? 'unknown' : (p.editable ? 'yes' : 'no');
+        const editable = p.editable === null ? 'unknown' : p.editable ? 'yes' : 'no';
         const status = normalizeTimesheetStatus(p.statusCode).label;
         return `back=${p.idx} | week ending ${p.endDate} | ${status} | editable: ${editable}`;
       });
       return text(lines.join('\n'));
-    },
+    }
   );
 
   tool(
@@ -187,7 +201,7 @@ function buildServer(options = {}) {
     async ({ back = 0 }) => {
       guardRevision(back);
       return withClient(async cp => text(formatTimesheet(cp.getData(), back)), back);
-    },
+    }
   );
 
   tool(
@@ -200,30 +214,36 @@ function buildServer(options = {}) {
       comment: z.string().optional().describe('Optional comment for the cell'),
       back: backSchema,
     },
-    async ({ line, day, hours, comment, back = 0 }) => editWeek(back, 'Hours set', async (cp) => {
-      await cp.set(line, day, hours, comment);
-      return `Set line ${line}, day ${day} to ${hours}h`;
-    }),
+    async ({ line, day, hours, comment, back = 0 }) =>
+      editWeek(back, 'Hours set', async cp => {
+        await cp.set(line, day, hours, comment);
+        return `Set line ${line}, day ${day} to ${hours}h`;
+      })
   );
 
   tool(
     'set_hours_bulk',
     `Set hours for multiple cells of one week at once. Each change is a {line, day, hours, comment?} object. Saves after all changes. ${NOTE.error} ${NOTE.revision}`,
     {
-      changes: z.array(z.object({
-        line: z.number().int().describe('Project line number'),
-        day: z.number().int().describe('Day of month'),
-        hours: z.number().describe('Hours to set'),
-        comment: z.string().optional().describe('Optional comment'),
-      })).describe('Array of cell changes'),
+      changes: z
+        .array(
+          z.object({
+            line: z.number().int().describe('Project line number'),
+            day: z.number().int().describe('Day of month'),
+            hours: z.number().describe('Hours to set'),
+            comment: z.string().optional().describe('Optional comment'),
+          })
+        )
+        .describe('Array of cell changes'),
       back: backSchema,
     },
-    async ({ changes, back = 0 }) => editWeek(back, `${changes.length} cells updated`, async (cp) => {
-      for (const c of changes) {
-        await cp.set(c.line, c.day, c.hours, c.comment);
-      }
-      return `Updated ${changes.length} cell(s)`;
-    }),
+    async ({ changes, back = 0 }) =>
+      editWeek(back, `${changes.length} cells updated`, async cp => {
+        for (const c of changes) {
+          await cp.set(c.line, c.day, c.hours, c.comment);
+        }
+        return `Updated ${changes.length} cell(s)`;
+      })
   );
 
   tool(
@@ -231,8 +251,14 @@ function buildServer(options = {}) {
     `Add a project/charge code to a timesheet. Saves after adding. ${NOTE.error} ${NOTE.revision} Starts with "${MARKER.warning}" when the line was saved but adding it to favorites failed.\n\nShortcuts: ${COMMON_CODES.map(c => `${c.alias} (${c.label} → ${c.code})`).join(', ')}`,
     {
       code: z.string().describe('Project charge code (e.g. "ZLEAVE.CMP") or shortcut (e.g. "pto", "flex", "personal")'),
-      payType: z.string().optional().describe('Pay type (e.g. "REG", "RHB"). Required for multi-charge codes, auto-resolved for shortcuts.'),
-      workLocation: z.string().optional().describe('Work location zip code (5 digits or ZIP+4). Omit to keep the Costpoint default.'),
+      payType: z
+        .string()
+        .optional()
+        .describe('Pay type (e.g. "REG", "RHB"). Required for multi-charge codes, auto-resolved for shortcuts.'),
+      workLocation: z
+        .string()
+        .optional()
+        .describe('Work location zip code (5 digits or ZIP+4). Omit to keep the Costpoint default.'),
       favorite: z.boolean().optional().describe('Also add the code to your Costpoint favorites'),
       back: backSchema,
     },
@@ -245,7 +271,7 @@ function buildServer(options = {}) {
       }
       const label = payType ? `${code} (${payType})` : code;
       let warning = '';
-      const result = await editWeek(back, `Added ${label}`, async (cp) => {
+      const result = await editWeek(back, `Added ${label}`, async cp => {
         await cp.add(code, payType, { workLocation: zip });
         if (favorite) {
           try {
@@ -262,7 +288,7 @@ function buildServer(options = {}) {
         result.content[0].text = result.isError ? `${t}\n\n${warning}` : `${warning}\n\n${t}`;
       }
       return result;
-    },
+    }
   );
 
   tool(
@@ -273,7 +299,7 @@ function buildServer(options = {}) {
       const favs = await withThrowaway(cp => cp.getFavorites());
       if (favs.length === 0) return text('No favorites found.');
       return text(favs.map((f, i) => `${i} | ${f.code} | ${f.description || ''} | ${f.payType || ''}`).join('\n'));
-    },
+    }
   );
 
   tool(
@@ -281,12 +307,15 @@ function buildServer(options = {}) {
     `Add a favorite charge code (by index from list_favorites) to a timesheet. Saves after adding. ${NOTE.error} ${NOTE.revision}`,
     {
       index: z.number().int().min(0).describe('Favorite index from list_favorites'),
-      workLocation: z.string().optional().describe('Work location zip code (5 digits or ZIP+4). Omit to keep the Costpoint default.'),
+      workLocation: z
+        .string()
+        .optional()
+        .describe('Work location zip code (5 digits or ZIP+4). Omit to keep the Costpoint default.'),
       back: backSchema,
     },
     async ({ index, workLocation, back = 0 }) => {
       const zip = normalizeWorkLocation(workLocation);
-      return editWeek(back, 'Favorite added', async (cp) => {
+      return editWeek(back, 'Favorite added', async cp => {
         const favs = await cp.getFavorites();
         if (index >= favs.length) {
           throw new Error(`Favorite index ${index} out of range (0-${favs.length - 1})`);
@@ -295,7 +324,7 @@ function buildServer(options = {}) {
         await cp.add(fav.code, fav.payType || undefined, { workLocation: zip });
         return `Added ${fav.payType ? `${fav.code} (${fav.payType})` : fav.code}`;
       });
-    },
+    }
   );
 
   tool(
@@ -304,7 +333,9 @@ function buildServer(options = {}) {
     { back: backSchema },
     async ({ back = 0 }) => {
       if (pendingRevisionBack !== null) {
-        throw new Error(`Week back=${pendingRevisionBack} has edits waiting for a revision explanation. Call save_with_explanation first; signing now would discard them.`);
+        throw new Error(
+          `Week back=${pendingRevisionBack} has edits waiting for a revision explanation. Call save_with_explanation first; signing now would discard them.`
+        );
       }
       await releaseClient();
       const cp = await launchForPeriod(credentials(), back);
@@ -314,7 +345,7 @@ function buildServer(options = {}) {
       } finally {
         await cp.close().catch(() => {});
       }
-    },
+    }
   );
 
   tool(
@@ -325,7 +356,9 @@ function buildServer(options = {}) {
     },
     async ({ explanation }) => {
       if (pendingRevisionBack === null || !manager.current()) {
-        throw new Error('No revision explanation is pending. The session that held the edits was released, so redo the edit and save again.');
+        throw new Error(
+          'No revision explanation is pending. The session that held the edits was released, so redo the edit and save again.'
+        );
       }
       const back = pendingRevisionBack;
       const cp = await manager.getClient(back);
@@ -339,7 +372,7 @@ function buildServer(options = {}) {
       pendingRevisionBack = null;
       const data = cp.getData();
       return text(`Saved with explanation.\n\n${formatTimesheet(data, back)}${signHint(data, back)}`);
-    },
+    }
   );
 
   tool(
@@ -349,7 +382,7 @@ function buildServer(options = {}) {
     async () => {
       // Reuse whatever session is open so a pending revision is not dropped
       const period = manager.current() ? manager.period : 0;
-      return withClient(async (cp) => {
+      return withClient(async cp => {
         const { balances, details } = await cp.getLeaveBalances();
         const lines = ['Leave Balances:'];
         if (balances.length === 0) {
@@ -370,7 +403,7 @@ function buildServer(options = {}) {
 
         return text(lines.join('\n'));
       }, period);
-    },
+    }
   );
 
   return { server, shutdown: releaseClient };
@@ -394,7 +427,7 @@ async function main() {
 }
 
 if (require.main === module) {
-  main().catch((e) => {
+  main().catch(e => {
     console.error(e);
     process.exit(1);
   });

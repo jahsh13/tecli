@@ -27,21 +27,27 @@ describe('te show', () => {
   });
 
   // Async so the in-process mock keeps serving while the CLI runs
-  const show = (...args) => new Promise((resolve, reject) => {
-    execFile(process.execPath, [CLI, 'show', ...args], {
-      cwd: home,
-      env: {
-        PATH: process.env.PATH,
-        HOME: home,
-        TECLI_MOCK: '1',
-        COSTPOINT_URL: mock.url,
-        COSTPOINT_USERNAME: 'mock',
-        COSTPOINT_PASSWORD: 'mock',
-        COSTPOINT_DIRECT: 'true',
-      },
-      timeout: 20000,
-    }, (err, stdout, stderr) => (err ? reject(new Error(`${err.message}\n${stderr}`)) : resolve(stdout)));
-  });
+  const show = (...args) =>
+    new Promise((resolve, reject) => {
+      execFile(
+        process.execPath,
+        [CLI, 'show', ...args],
+        {
+          cwd: home,
+          env: {
+            PATH: process.env.PATH,
+            HOME: home,
+            TECLI_MOCK: '1',
+            COSTPOINT_URL: mock.url,
+            COSTPOINT_USERNAME: 'mock',
+            COSTPOINT_PASSWORD: 'mock',
+            COSTPOINT_DIRECT: 'true',
+          },
+          timeout: 20000,
+        },
+        (err, stdout, stderr) => (err ? reject(new Error(`${err.message}\n${stderr}`)) : resolve(stdout))
+      );
+    });
 
   test('prints the week total and that the current week is not signed', async () => {
     assert.match(await show(), /Signed: no \| Week total: 41\.5h/);

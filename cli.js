@@ -1,20 +1,20 @@
 #!/usr/bin/env node
-"use strict";
+'use strict';
 
-const chalk = require("chalk");
-const Table = require("cli-table");
-const Costpoint = require("./costpoint");
-const DirectClient = require("./direct");
-const { program, InvalidArgumentError } = require("commander");
-const readline = require("readline");
-const ora = require("ora");
-const { normalizeTimesheetStatus } = require("./timesheet-status");
-const { getCredentials, login, logout } = require("./credentials");
-const { COMMON_CODES, resolveAlias } = require("./charge-codes");
-const { normalizeWorkLocation } = require("./add-options");
-const { weekLabel, assertBackReachable, weekSummary } = require("./week-label");
+const chalk = require('chalk');
+const Table = require('cli-table');
+const Costpoint = require('./costpoint');
+const DirectClient = require('./direct');
+const { program, InvalidArgumentError } = require('commander');
+const readline = require('readline');
+const ora = require('ora');
+const { normalizeTimesheetStatus } = require('./timesheet-status');
+const { getCredentials, login, logout } = require('./credentials');
+const { COMMON_CODES, resolveAlias } = require('./charge-codes');
+const { normalizeWorkLocation } = require('./add-options');
+const { weekLabel, assertBackReachable, weekSummary } = require('./week-label');
 
-require("dotenv").config();
+require('dotenv').config();
 
 const { RevisionRequiredError } = DirectClient;
 
@@ -22,7 +22,7 @@ const { RevisionRequiredError } = DirectClient;
 
 function spin(text) {
   process.stdout.write(`  ${text}\r`);
-  return ora({ text, color: "cyan", spinner: "dots" }).start();
+  return ora({ text, color: 'cyan', spinner: 'dots' }).start();
 }
 
 function statusBadge(statusStr) {
@@ -47,16 +47,14 @@ function requireCredentials() {
   if (_creds) return _creds;
   _creds = getCredentials();
   if (!_creds) {
-    console.error(
-      chalk.red("No credentials found. Run `te login` to set up."),
-    );
+    console.error(chalk.red('No credentials found. Run `te login` to set up.'));
     process.exit(1);
   }
   if (!_creds.useDirect && !_creds.system) {
     console.error(
       chalk.red(
-        "COSTPOINT_SYSTEM is required when not using direct mode. Set COSTPOINT_DIRECT=true for direct protocol.",
-      ),
+        'COSTPOINT_SYSTEM is required when not using direct mode. Set COSTPOINT_DIRECT=true for direct protocol.'
+      )
     );
     process.exit(1);
   }
@@ -71,7 +69,7 @@ function launchClient() {
 
 function parseBack(value) {
   if (!/^\d+$/.test(value) || Number(value) < 1) {
-    throw new InvalidArgumentError("must be an integer >= 1.");
+    throw new InvalidArgumentError('must be an integer >= 1.');
   }
   return Number(value);
 }
@@ -79,7 +77,7 @@ function parseBack(value) {
 // Weeks back from the current one: 0 = current, 1 = --prev or --back 1
 function resolveBack(options = {}) {
   if (options.prev && options.back !== undefined) {
-    throw new Error("Use either --prev or --back <n>, not both.");
+    throw new Error('Use either --prev or --back <n>, not both.');
   }
   if (options.prev) return 1;
   return options.back || 0;
@@ -87,12 +85,8 @@ function resolveBack(options = {}) {
 
 function withWeekOptions(command, verb) {
   return command
-    .option("-p, --prev", `${verb} the previous week (direct mode only)`)
-    .option(
-      "-b, --back <n>",
-      `${verb} the week <n> weeks back, n >= 1 (direct mode only)`,
-      parseBack,
-    );
+    .option('-p, --prev', `${verb} the previous week (direct mode only)`)
+    .option('-b, --back <n>', `${verb} the week <n> weeks back, n >= 1 (direct mode only)`, parseBack);
 }
 
 // Selects the requested past week right after launch, before anything else
@@ -100,15 +94,15 @@ function withWeekOptions(command, verb) {
 async function connect(options = {}) {
   const back = resolveBack(options);
   if (back && !requireCredentials().useDirect) {
-    throw new Error("--prev and --back are only supported in direct mode (COSTPOINT_DIRECT=true).");
+    throw new Error('--prev and --back are only supported in direct mode (COSTPOINT_DIRECT=true).');
   }
-  const s = spin("Authenticating...");
+  const s = spin('Authenticating...');
   let cp;
   try {
     cp = await launchClient();
-    s.succeed("Authenticated");
+    s.succeed('Authenticated');
   } catch (e) {
-    s.fail("Authentication failed");
+    s.fail('Authentication failed');
     throw e;
   }
   if (back) {
@@ -131,7 +125,7 @@ async function askLine(prompt) {
     input: process.stdin,
     output: process.stdout,
   });
-  const answer = await new Promise((resolve) => rl.question(prompt, resolve));
+  const answer = await new Promise(resolve => rl.question(prompt, resolve));
   rl.close();
   return answer;
 }
@@ -141,23 +135,21 @@ async function askYesNo(prompt) {
 }
 
 async function saveWithSpinner(cp) {
-  const s = spin("Saving...");
+  const s = spin('Saving...');
   try {
     await cp.save();
-    s.succeed("Saved");
+    s.succeed('Saved');
   } catch (e) {
-    if (e.name !== "RevisionRequiredError") {
-      s.fail("Save failed");
+    if (e.name !== 'RevisionRequiredError') {
+      s.fail('Save failed');
       throw e;
     }
-    s.warn("Revision explanation required");
+    s.warn('Revision explanation required');
 
     if (e.auditDetails.length > 0) {
-      console.log(chalk.dim("  Changes requiring explanation:"));
+      console.log(chalk.dim('  Changes requiring explanation:'));
       for (const d of e.auditDetails) {
-        console.log(
-          chalk.dim(`    Line ${d.lineNo}: ${d.description} (${d.project})`),
-        );
+        console.log(chalk.dim(`    Line ${d.lineNo}: ${d.description} (${d.project})`));
       }
     }
 
@@ -165,23 +157,23 @@ async function saveWithSpinner(cp) {
       input: process.stdin,
       output: process.stdout,
     });
-    const explanation = await new Promise((resolve) => {
-      rl.question(chalk.yellow("  Enter explanation: "), (answer) => {
+    const explanation = await new Promise(resolve => {
+      rl.question(chalk.yellow('  Enter explanation: '), answer => {
         rl.close();
         resolve(answer.trim());
       });
     });
 
     if (!explanation) {
-      throw new Error("Revision explanation is required. Save cancelled.");
+      throw new Error('Revision explanation is required. Save cancelled.');
     }
 
-    const s2 = spin("Saving...");
+    const s2 = spin('Saving...');
     try {
       await cp.saveWithExplanation(explanation);
-      s2.succeed("Saved");
+      s2.succeed('Saved');
     } catch (e2) {
-      s2.fail("Save failed");
+      s2.fail('Save failed');
       throw e2;
     }
   }
@@ -196,200 +188,189 @@ function showStatus(cp) {
 function hintSignPrev(cp, options) {
   const back = resolveBack(options);
   if (!back) return;
-  if (normalizeTimesheetStatus(cp.getData().timesheetStatusCode).tone !== "open") return;
-  const flag = back === 1 ? "--prev" : `--back ${back}`;
+  if (normalizeTimesheetStatus(cp.getData().timesheetStatusCode).tone !== 'open') return;
+  const flag = back === 1 ? '--prev' : `--back ${back}`;
   const label = weekLabel(back);
-  console.log(chalk.yellow(`\n  ${label[0].toUpperCase()}${label.slice(1)} is Open again. Sign it with \`te sign ${flag}\``));
+  console.log(
+    chalk.yellow(`\n  ${label[0].toUpperCase()}${label.slice(1)} is Open again. Sign it with \`te sign ${flag}\``)
+  );
 }
 
 // ── Commands ─────────────────────────────────────────────────────
 
-program
-  .name("te")
-  .version(require("./package.json").version)
-  .description("Time entry CLI for Costpoint.");
+program.name('te').version(require('./package.json').version).description('Time entry CLI for Costpoint.');
 
-withWeekOptions(program
-  .command("show")
-  .description("show timesheet"), "show")
-  .action(async (options) => {
-    try {
-      const cp = await connect(options);
-      showStatus(cp);
-      console.log(`  ${weekSummary(cp.getData())}`);
-      console.log();
-      cp.display();
-      await cp.close();
-    } catch (e) {
-      console.error(chalk.red(`\n  ${e.message}`));
-      process.exit(1);
+withWeekOptions(program.command('show').description('show timesheet'), 'show').action(async options => {
+  try {
+    const cp = await connect(options);
+    showStatus(cp);
+    console.log(`  ${weekSummary(cp.getData())}`);
+    console.log();
+    cp.display();
+    await cp.close();
+  } catch (e) {
+    console.error(chalk.red(`\n  ${e.message}`));
+    process.exit(1);
+  }
+});
+
+withWeekOptions(
+  program.command('sign').description('sign timesheet').option('-y, --yes', 'skip confirmation prompt'),
+  'sign'
+).action(async options => {
+  try {
+    // connect() runs nothing but the period select before the sign, which
+    // keeps the session fresh as signing requires
+    const cp = await connect(options);
+    showStatus(cp);
+    console.log();
+    cp.display();
+
+    let shouldSign = options.yes;
+    if (!shouldSign) {
+      const back = resolveBack(options);
+      const which = back ? `the ${weekLabel(back)}` : 'this timesheet';
+      shouldSign = await askYesNo(`\n  Sign ${which}? (y/n): `);
     }
-  });
 
-withWeekOptions(program
-  .command("sign")
-  .description("sign timesheet")
-  .option("-y, --yes", "skip confirmation prompt"), "sign")
-  .action(async (options) => {
-    try {
-      // connect() runs nothing but the period select before the sign, which
-      // keeps the session fresh as signing requires
-      const cp = await connect(options);
-      showStatus(cp);
-      console.log();
-      cp.display();
-
-      let shouldSign = options.yes;
-      if (!shouldSign) {
-        const back = resolveBack(options);
-        const which = back ? `the ${weekLabel(back)}` : "this timesheet";
-        shouldSign = await askYesNo(`\n  Sign ${which}? (y/n): `);
-      }
-
-      if (shouldSign) {
-        const s = spin("Signing...");
-        try {
-          await cp.sign();
-          s.succeed("Signed");
-        } catch (e) {
-          s.fail("Signing failed");
-          throw e;
-        }
-      } else {
-        console.log(chalk.dim("  Signing cancelled."));
-      }
-
-      await cp.close();
-    } catch (e) {
-      console.error(chalk.red(`\n  ${e.message}`));
-      process.exit(1);
-    }
-  });
-
-withWeekOptions(program
-  .command("set <line> <day> <hours>")
-  .description("set hours for given project line and day")
-  .option("-c, --comment <text>", "comment for the cell (direct mode only)"), "edit")
-  .action(async (line, day, hours, options) => {
-    const lineNum = parseInt(line, 10);
-    const dayNum = parseInt(day, 10);
-    const hrs = Number(hours);
-    if (Number.isNaN(lineNum) || Number.isNaN(dayNum) || Number.isNaN(hrs)) {
-      console.error(
-        chalk.red("  Invalid arguments: line, day, and hours must be numeric."),
-      );
-      process.exit(1);
-    }
-    if (options.comment && !requireCredentials().useDirect) {
-      console.error(
-        chalk.red(
-          "  --comment is only supported in direct mode (COSTPOINT_DIRECT=true).",
-        ),
-      );
-      process.exit(1);
-    }
-    try {
-      const cp = await connect(options);
-
-      const s = spin(`Setting line ${lineNum}, day ${dayNum} → ${hrs}h...`);
+    if (shouldSign) {
+      const s = spin('Signing...');
       try {
-        await cp.set(lineNum, dayNum, hrs, options.comment);
+        await cp.sign();
+        s.succeed('Signed');
       } catch (e) {
-        s.fail(`Could not set line ${lineNum}, day ${dayNum}`);
+        s.fail('Signing failed');
         throw e;
       }
-      s.succeed(`Line ${lineNum}, day ${dayNum} → ${hrs}h`);
-
-      await saveWithSpinner(cp);
-      showStatus(cp);
-      console.log();
-      cp.display();
-      hintSignPrev(cp, options);
-      await cp.close();
-    } catch (e) {
-      console.error(chalk.red(`\n  ${e.message}`));
-      process.exit(1);
-    }
-  });
-
-withWeekOptions(program
-  .command("setm <values...>")
-  .description("set hours for multiple project lines and days")
-  .usage("[--prev | --back <n>] <line> <day> <hours>, <line> <day> <hours>, ..."), "edit")
-  .action(async (xs, options) => {
-    xs = xs.map((x) => x.replace(/,/g, "")).filter(Boolean);
-
-    if (xs.length % 3 !== 0) {
-      console.error(
-        chalk.red(
-          "  Invalid input: values must be provided in groups of three (line day hours).",
-        ),
-      );
-      process.exit(1);
+    } else {
+      console.log(chalk.dim('  Signing cancelled.'));
     }
 
-    for (let i = 0; i < xs.length; i += 3) {
-      const line = parseInt(xs[i], 10);
-      const day = parseInt(xs[i + 1], 10);
-      const hours = Number(xs[i + 2]);
-      if (Number.isNaN(line) || Number.isNaN(day) || Number.isNaN(hours)) {
-        console.error(
-          chalk.red(
-            `  Invalid arguments at position ${i / 3 + 1}: line, day, and hours must be numeric.`,
-          ),
-        );
-        process.exit(1);
-      }
-    }
+    await cp.close();
+  } catch (e) {
+    console.error(chalk.red(`\n  ${e.message}`));
+    process.exit(1);
+  }
+});
 
+withWeekOptions(
+  program
+    .command('set <line> <day> <hours>')
+    .description('set hours for given project line and day')
+    .option('-c, --comment <text>', 'comment for the cell (direct mode only)'),
+  'edit'
+).action(async (line, day, hours, options) => {
+  const lineNum = parseInt(line, 10);
+  const dayNum = parseInt(day, 10);
+  const hrs = Number(hours);
+  if (Number.isNaN(lineNum) || Number.isNaN(dayNum) || Number.isNaN(hrs)) {
+    console.error(chalk.red('  Invalid arguments: line, day, and hours must be numeric.'));
+    process.exit(1);
+  }
+  if (options.comment && !requireCredentials().useDirect) {
+    console.error(chalk.red('  --comment is only supported in direct mode (COSTPOINT_DIRECT=true).'));
+    process.exit(1);
+  }
+  try {
+    const cp = await connect(options);
+
+    const s = spin(`Setting line ${lineNum}, day ${dayNum} → ${hrs}h...`);
     try {
-      const cp = await connect(options);
-
-      const count = xs.length / 3;
-      const s = spin(`Updating ${count} cell${count > 1 ? "s" : ""}...`);
-      try {
-        for (let i = 0; i < xs.length; i += 3) {
-          const line = parseInt(xs[i], 10);
-          const day = parseInt(xs[i + 1], 10);
-          const hours = Number(xs[i + 2]);
-          await cp.set(line, day, hours);
-          s.text = `Updating cells... (${i / 3 + 1}/${count})`;
-        }
-      } catch (e) {
-        s.fail("Update failed");
-        throw e;
-      }
-      s.succeed(`${count} cell${count > 1 ? "s" : ""} updated`);
-
-      await saveWithSpinner(cp);
-      showStatus(cp);
-      console.log();
-      cp.display();
-      hintSignPrev(cp, options);
-      await cp.close();
+      await cp.set(lineNum, dayNum, hrs, options.comment);
     } catch (e) {
-      console.error(chalk.red(`\n  ${e.message}`));
+      s.fail(`Could not set line ${lineNum}, day ${dayNum}`);
+      throw e;
+    }
+    s.succeed(`Line ${lineNum}, day ${dayNum} → ${hrs}h`);
+
+    await saveWithSpinner(cp);
+    showStatus(cp);
+    console.log();
+    cp.display();
+    hintSignPrev(cp, options);
+    await cp.close();
+  } catch (e) {
+    console.error(chalk.red(`\n  ${e.message}`));
+    process.exit(1);
+  }
+});
+
+withWeekOptions(
+  program
+    .command('setm <values...>')
+    .description('set hours for multiple project lines and days')
+    .usage('[--prev | --back <n>] <line> <day> <hours>, <line> <day> <hours>, ...'),
+  'edit'
+).action(async (xs, options) => {
+  xs = xs.map(x => x.replace(/,/g, '')).filter(Boolean);
+
+  if (xs.length % 3 !== 0) {
+    console.error(chalk.red('  Invalid input: values must be provided in groups of three (line day hours).'));
+    process.exit(1);
+  }
+
+  for (let i = 0; i < xs.length; i += 3) {
+    const line = parseInt(xs[i], 10);
+    const day = parseInt(xs[i + 1], 10);
+    const hours = Number(xs[i + 2]);
+    if (Number.isNaN(line) || Number.isNaN(day) || Number.isNaN(hours)) {
+      console.error(chalk.red(`  Invalid arguments at position ${i / 3 + 1}: line, day, and hours must be numeric.`));
       process.exit(1);
     }
-  });
+  }
+
+  try {
+    const cp = await connect(options);
+
+    const count = xs.length / 3;
+    const s = spin(`Updating ${count} cell${count > 1 ? 's' : ''}...`);
+    try {
+      for (let i = 0; i < xs.length; i += 3) {
+        const line = parseInt(xs[i], 10);
+        const day = parseInt(xs[i + 1], 10);
+        const hours = Number(xs[i + 2]);
+        await cp.set(line, day, hours);
+        s.text = `Updating cells... (${i / 3 + 1}/${count})`;
+      }
+    } catch (e) {
+      s.fail('Update failed');
+      throw e;
+    }
+    s.succeed(`${count} cell${count > 1 ? 's' : ''} updated`);
+
+    await saveWithSpinner(cp);
+    showStatus(cp);
+    console.log();
+    cp.display();
+    hintSignPrev(cp, options);
+    await cp.close();
+  } catch (e) {
+    console.error(chalk.red(`\n  ${e.message}`));
+    process.exit(1);
+  }
+});
 
 async function askWorkLocation(pending) {
-  const current = pending.workLocation || "none";
-  const answer = await askLine(
-    `  Pay type: ${pending.payType || "?"}. Work location [${current}]: `);
+  const current = pending.workLocation || 'none';
+  const answer = await askLine(`  Pay type: ${pending.payType || '?'}. Work location [${current}]: `);
   return normalizeWorkLocation(answer);
 }
 
-withWeekOptions(program
-  .command("add [code] [payType]")
-  .description(
-    "add project code to timesheet (pick from favorites if no code given)\n" +
-    "  Shortcuts: " + COMMON_CODES.map(c => c.alias).join(", ") + "\n" +
-    "  e.g. 'te add pto' → ZLEAVE.CMP (REG)",
-  ), "add to")
-  .option("-f, --favorite", "also add the code to your Costpoint favorites")
-  .option("-l, --location <zip>", "work location zip code (default: Costpoint's)")
-  .option("-i, --ask", "show Costpoint's default work location and ask for one (TTY)")
+withWeekOptions(
+  program
+    .command('add [code] [payType]')
+    .description(
+      'add project code to timesheet (pick from favorites if no code given)\n' +
+        '  Shortcuts: ' +
+        COMMON_CODES.map(c => c.alias).join(', ') +
+        '\n' +
+        "  e.g. 'te add pto' → ZLEAVE.CMP (REG)"
+    ),
+  'add to'
+)
+  .option('-f, --favorite', 'also add the code to your Costpoint favorites')
+  .option('-l, --location <zip>', "work location zip code (default: Costpoint's)")
+  .option('-i, --ask', "show Costpoint's default work location and ask for one (TTY)")
   .action(async (code, payType, options) => {
     try {
       const explicitLocation = normalizeWorkLocation(options.location);
@@ -398,7 +379,10 @@ withWeekOptions(program
 
       if (!code) {
         const picked = await pickFromFavorites(cp);
-        if (!picked) { await cp.close(); return; }
+        if (!picked) {
+          await cp.close();
+          return;
+        }
         code = picked.code;
         fromFavorites = true;
         if (!payType) payType = picked.payType || undefined;
@@ -419,9 +403,9 @@ withWeekOptions(program
       if (s) s.succeed(`Added ${label}`);
       else console.log(chalk.green(`  Added ${label}`));
 
-      const wantFavorite = options.favorite ||
-        (!fromFavorites && process.stdin.isTTY &&
-          await askYesNo(`  Also add ${label} to your favorites? (y/N): `));
+      const wantFavorite =
+        options.favorite ||
+        (!fromFavorites && process.stdin.isTTY && (await askYesNo(`  Also add ${label} to your favorites? (y/N): `)));
       if (wantFavorite) await addToFavoritesWithSpinner(cp);
 
       await saveWithSpinner(cp);
@@ -437,19 +421,19 @@ withWeekOptions(program
   });
 
 async function addToFavoritesWithSpinner(cp) {
-  const s = spin("Adding to favorites...");
+  const s = spin('Adding to favorites...');
   try {
     await cp.addToFavorites();
-    s.succeed("Added to favorites");
+    s.succeed('Added to favorites');
   } catch (e) {
     s.warn(`Could not add to favorites: ${e.message}`);
   }
 }
 
 async function pickFromFavorites(cp) {
-  const s = spin("Loading favorites...");
+  const s = spin('Loading favorites...');
   const favs = await cp.getFavorites();
-  s.succeed("Favorites loaded");
+  s.succeed('Favorites loaded');
   console.log();
 
   if (favs.length === 0) {
@@ -458,9 +442,9 @@ async function pickFromFavorites(cp) {
   }
 
   const t = new Table({
-    head: [chalk.cyan("#"), chalk.cyan("Code"), chalk.cyan("Description"), chalk.cyan("Pay Type")],
+    head: [chalk.cyan('#'), chalk.cyan('Code'), chalk.cyan('Description'), chalk.cyan('Pay Type')],
   });
-  favs.forEach((f, i) => t.push([i + 1, f.code, f.description || "", f.payType || ""]));
+  favs.forEach((f, i) => t.push([i + 1, f.code, f.description || '', f.payType || '']));
   console.log(t.toString());
   console.log();
 
@@ -470,7 +454,7 @@ async function pickFromFavorites(cp) {
   });
   rl.close();
 
-  const trimmed = (answer || "").trim();
+  const trimmed = (answer || '').trim();
   if (!trimmed) return null;
   const n = parseInt(trimmed, 10);
   if (!Number.isFinite(n) || n < 1 || n > favs.length) {
@@ -480,53 +464,52 @@ async function pickFromFavorites(cp) {
   return favs[n - 1];
 }
 
-withWeekOptions(program
-  .command("favorites")
-  .alias("fav")
-  .description("list favorite charge codes saved in Costpoint"), "list favorites for")
-  .action(async (options) => {
-    try {
-      const cp = await connect(options);
-      const s = spin("Loading favorites...");
-      const favs = await cp.getFavorites();
-      s.succeed("Favorites loaded");
-      console.log();
+withWeekOptions(
+  program.command('favorites').alias('fav').description('list favorite charge codes saved in Costpoint'),
+  'list favorites for'
+).action(async options => {
+  try {
+    const cp = await connect(options);
+    const s = spin('Loading favorites...');
+    const favs = await cp.getFavorites();
+    s.succeed('Favorites loaded');
+    console.log();
 
-      if (favs.length === 0) {
-        console.log(chalk.dim("  No favorites found. Add them in the Costpoint web UI."));
-      } else {
-        const t = new Table({
-          head: [chalk.cyan("#"), chalk.cyan("Code"), chalk.cyan("Description"), chalk.cyan("Pay Type")],
-        });
-        favs.forEach((f, i) => t.push([i, f.code, f.description || '', f.payType || '']));
-        console.log(t.toString());
-      }
-      console.log();
-      await cp.close();
-    } catch (e) {
-      console.error(chalk.red(`\n  ${e.message}`));
-      process.exit(1);
+    if (favs.length === 0) {
+      console.log(chalk.dim('  No favorites found. Add them in the Costpoint web UI.'));
+    } else {
+      const t = new Table({
+        head: [chalk.cyan('#'), chalk.cyan('Code'), chalk.cyan('Description'), chalk.cyan('Pay Type')],
+      });
+      favs.forEach((f, i) => t.push([i, f.code, f.description || '', f.payType || '']));
+      console.log(t.toString());
     }
-  });
+    console.log();
+    await cp.close();
+  } catch (e) {
+    console.error(chalk.red(`\n  ${e.message}`));
+    process.exit(1);
+  }
+});
 
 program
-  .command("leave")
-  .description("show leave balances")
+  .command('leave')
+  .description('show leave balances')
   .action(async () => {
     try {
       const cp = await connect();
 
-      const s = spin("Loading balances...");
+      const s = spin('Loading balances...');
       const { balances, details } = await cp.getLeaveBalances();
-      s.succeed("Balances loaded");
+      s.succeed('Balances loaded');
       console.log();
 
       if (balances.length === 0) {
-        console.log(chalk.dim("  No leave balances found."));
+        console.log(chalk.dim('  No leave balances found.'));
       } else {
         const balTable = new Table({
-          head: [chalk.cyan("Leave Type"), chalk.cyan("Balance")],
-          colAligns: ["left", "right"],
+          head: [chalk.cyan('Leave Type'), chalk.cyan('Balance')],
+          colAligns: ['left', 'right'],
         });
         for (const b of balances) {
           balTable.push([b.description, b.balance.toFixed(4)]);
@@ -535,23 +518,13 @@ program
       }
 
       if (details.length > 0) {
-        console.log(chalk.dim("\n  Recent Leave Activity:"));
+        console.log(chalk.dim('\n  Recent Leave Activity:'));
         const detTable = new Table({
-          head: [
-            chalk.cyan("Date"),
-            chalk.cyan("Type"),
-            chalk.cyan("Hours"),
-            chalk.cyan("Leave Type"),
-          ],
-          colAligns: ["left", "left", "right", "left"],
+          head: [chalk.cyan('Date'), chalk.cyan('Type'), chalk.cyan('Hours'), chalk.cyan('Leave Type')],
+          colAligns: ['left', 'left', 'right', 'left'],
         });
         for (const d of details) {
-          detTable.push([
-            d.date,
-            d.type,
-            d.hours.toFixed(4),
-            d.leaveTypeDesc || d.leaveTypeCode,
-          ]);
+          detTable.push([d.date, d.type, d.hours.toFixed(4), d.leaveTypeDesc || d.leaveTypeCode]);
         }
         console.log(detTable.toString());
       }
@@ -564,22 +537,22 @@ program
   });
 
 program
-  .command("server")
-  .description("start the web UI")
+  .command('server')
+  .description('start the web UI')
   .action(() => {
-    require("./server");
+    require('./server');
   });
 
 program
-  .command("tui")
-  .description("start the interactive terminal UI")
+  .command('tui')
+  .description('start the interactive terminal UI')
   .action(() => {
-    require("./tui");
+    require('./tui');
   });
 
 program
-  .command("login")
-  .description("store credentials in OS keychain")
+  .command('login')
+  .description('store credentials in OS keychain')
   .action(async () => {
     try {
       const creds = await login();
@@ -591,11 +564,11 @@ program
   });
 
 program
-  .command("logout")
-  .description("remove stored credentials")
+  .command('logout')
+  .description('remove stored credentials')
   .action(() => {
     logout();
-    console.log(chalk.green("  Credentials removed."));
+    console.log(chalk.green('  Credentials removed.'));
   });
 
 if (require.main === module) {

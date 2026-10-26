@@ -39,7 +39,7 @@ describe('CLI: node cli.js favorites', { skip: SKIP }, () => {
     const output = result.stdout + result.stderr;
     const hasExpected =
       output.includes('No favorites found') ||
-      output.includes('Code') ||  // table header
+      output.includes('Code') || // table header
       output.includes('Favorites loaded');
     assert.ok(hasExpected, 'output should contain favorites result\ngot: ' + output.substring(0, 300));
   });
@@ -57,7 +57,9 @@ describe('Web UI: GET /api/favorites', { skip: SKIP }, () => {
     await new Promise((resolve, reject) => {
       const req = http.get(baseUrl + '/api/favorites', res => {
         let body = '';
-        res.on('data', d => { body += d; });
+        res.on('data', d => {
+          body += d;
+        });
         res.on('end', () => {
           try {
             const data = JSON.parse(body);

@@ -33,8 +33,8 @@ describe('cli --back option', () => {
 
   test('show, set, setm, sign, add and favorites all take --back and --prev', () => {
     for (const name of ['show', 'set', 'setm', 'sign', 'add', 'favorites']) {
-      const cmd = program.commands.find((c) => c.name() === name);
-      const flags = cmd.options.map((o) => o.long);
+      const cmd = program.commands.find(c => c.name() === name);
+      const flags = cmd.options.map(o => o.long);
       assert.ok(flags.includes('--back'), `${name} --back`);
       assert.ok(flags.includes('--prev'), `${name} --prev`);
     }

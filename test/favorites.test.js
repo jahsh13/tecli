@@ -90,24 +90,28 @@ describe('protocol.extract204', () => {
     assert.equal(protocol.extract204(parsed, 2), null);
   });
 
-  test('extracts rows from captured favorites filter response', { skip: skipWithout('favorites-filter-res.txt') }, () => {
-    // This uses real captured server data to verify end-to-end decoding.
-    const responseText = loadCapturedResponse('favorites-filter-res.txt');
-    const parsed = protocol.parseResponse(responseText);
+  test(
+    'extracts rows from captured favorites filter response',
+    { skip: skipWithout('favorites-filter-res.txt') },
+    () => {
+      // This uses real captured server data to verify end-to-end decoding.
+      const responseText = loadCapturedResponse('favorites-filter-res.txt');
+      const parsed = protocol.parseResponse(responseText);
 
-    // Should not throw, checkErrors should be null
-    const err = protocol.checkErrors(parsed);
-    assert.equal(err, null, 'no errors in captured response');
+      // Should not throw, checkErrors should be null
+      const err = protocol.checkErrors(parsed);
+      assert.equal(err, null, 'no errors in captured response');
 
-    // The captured response is a regular HLKP (seeding K2) — should have rows at K2
-    const k2 = protocol.extract204(parsed, 2);
-    assert.ok(k2 !== null, 'K2 data should be present');
-    assert.ok(k2.rows.length > 0, 'should have at least one row');
+      // The captured response is a regular HLKP (seeding K2) — should have rows at K2
+      const k2 = protocol.extract204(parsed, 2);
+      assert.ok(k2 !== null, 'K2 data should be present');
+      assert.ok(k2.rows.length > 0, 'should have at least one row');
 
-    // Each row should have a charge code at column 5
-    const codes = k2.rows.map(r => r[5]).filter(Boolean);
-    assert.ok(codes.length > 0, 'at least one row should have a charge code');
-  });
+      // Each row should have a charge code at column 5
+      const codes = k2.rows.map(r => r[5]).filter(Boolean);
+      assert.ok(codes.length > 0, 'at least one row should have a charge code');
+    }
+  );
 });
 
 // ─── DirectClient._buildFavoritesQuery ────────────────────────────────────

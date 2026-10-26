@@ -56,18 +56,23 @@ function commands(body) {
   const split = k => (params.get(k) || '').split(protocol.DLM_RS);
   const flags = split('editFlag');
   const rowNums = split('rowNumber');
-  return split('cmd').filter(Boolean).map((cmd, i) => {
-    const reqCd = cmd.substring(0, cmd.indexOf('A'));
-    const paramStr = cmd.substring(cmd.indexOf(protocol.DLM_CMD) + 3, cmd.length - protocol.DLM_CMD.length);
-    const tokens = paramStr.split(protocol.DLM_PARAM).filter(Boolean).map(p => {
-      if (p.startsWith('$')) {
-        const [name, value] = p.split(protocol.DLM_NAMED);
-        return name === '$lastPutId$' ? name : name + '=' + value;
-      }
-      return /^[SE]/.test(p) ? p[0] : p;
+  return split('cmd')
+    .filter(Boolean)
+    .map((cmd, i) => {
+      const reqCd = cmd.substring(0, cmd.indexOf('A'));
+      const paramStr = cmd.substring(cmd.indexOf(protocol.DLM_CMD) + 3, cmd.length - protocol.DLM_CMD.length);
+      const tokens = paramStr
+        .split(protocol.DLM_PARAM)
+        .filter(Boolean)
+        .map(p => {
+          if (p.startsWith('$')) {
+            const [name, value] = p.split(protocol.DLM_NAMED);
+            return name === '$lastPutId$' ? name : name + '=' + value;
+          }
+          return /^[SE]/.test(p) ? p[0] : p;
+        });
+      return { cmd: [reqCd, ...tokens].join(' '), editFlag: flags[i], rowNumber: rowNums[i] };
     });
-    return { cmd: [reqCd, ...tokens].join(' '), editFlag: flags[i], rowNumber: rowNums[i] };
-  });
 }
 
 function cmdStrings(body) {
@@ -84,27 +89,53 @@ const K0_REFRESH_C1 = [
   '204 $rsType$=M RABS S E K0 C1 Vtrue $nonDBSize$=1 $nonDBStart$=0',
   '204 $rsType$=M RABS S E K0 C1 Vtrue',
 ];
-const K1_REFRESH_X1 = [
-  '204 $rsType$=M RABS S E X1 K1 C0 P0 Vtrue',
-  '204 $rsType$=M RABS S E X1 K1 C0 P0 Vtrue',
-];
+const K1_REFRESH_X1 = ['204 $rsType$=M RABS S E X1 K1 C0 P0 Vtrue', '204 $rsType$=M RABS S E X1 K1 C0 P0 Vtrue'];
 
 const REPORT_BOILERPLATE = [
-  '$rptPrintAllPages$=Y', '$rptInclCoverPage$=Y', '$printRpt$=N', '$rptScalingFactor$=DFLT',
-  '$rptPrnNofC$=1', '$downloadRpt$=Y', '$emailRpt$=N', '$printToFileRpt$=N',
-  '$rptLocale$=VIEW_AS_BUILT', '$runAfterRptFl$=Y', '$archiveRpt$=N', '$rptArchRelativeAbsDt$=Y',
-  '$rptArchNeverDelete$=Y', '$syncRequest$=true', '$rptFormat$=pdf', '$printLocalRpt$=N',
-  '$printSendEmail1$=N', '$printHomePage1$=N', '$printPopupAlert1$=N',
-  '$printSendEmail2$=N', '$printHomePage2$=N', '$printPopupAlert2$=N',
-  '$printSendEmail3$=N', '$printHomePage3$=N', '$printPopupAlert3$=N',
-  '$printSendEmail4$=N', '$printHomePage4$=N', '$printPopupAlert4$=N',
+  '$rptPrintAllPages$=Y',
+  '$rptInclCoverPage$=Y',
+  '$printRpt$=N',
+  '$rptScalingFactor$=DFLT',
+  '$rptPrnNofC$=1',
+  '$downloadRpt$=Y',
+  '$emailRpt$=N',
+  '$printToFileRpt$=N',
+  '$rptLocale$=VIEW_AS_BUILT',
+  '$runAfterRptFl$=Y',
+  '$archiveRpt$=N',
+  '$rptArchRelativeAbsDt$=Y',
+  '$rptArchNeverDelete$=Y',
+  '$syncRequest$=true',
+  '$rptFormat$=pdf',
+  '$printLocalRpt$=N',
+  '$printSendEmail1$=N',
+  '$printHomePage1$=N',
+  '$printPopupAlert1$=N',
+  '$printSendEmail2$=N',
+  '$printHomePage2$=N',
+  '$printPopupAlert2$=N',
+  '$printSendEmail3$=N',
+  '$printHomePage3$=N',
+  '$printPopupAlert3$=N',
+  '$printSendEmail4$=N',
+  '$printHomePage4$=N',
+  '$printPopupAlert4$=N',
   '$rptEmailAttachmentCount$=0',
 ];
 
 function signAction(period) {
-  return ['300', ...REPORT_BOILERPLATE, '$actionId$=TMMTS_SIGN_TIMESHEET', '$restartFl$=false', 'C' + period,
-    '$longRunActionFl$=0', '$procUniqueId$=TMMTIMESHEET:A:SID:1', '$psSchWorkflowNotifyFl$=false',
-    'K0', 'Vtrue'].join(' ');
+  return [
+    '300',
+    ...REPORT_BOILERPLATE,
+    '$actionId$=TMMTS_SIGN_TIMESHEET',
+    '$restartFl$=false',
+    'C' + period,
+    '$longRunActionFl$=0',
+    '$procUniqueId$=TMMTIMESHEET:A:SID:1',
+    '$psSchWorkflowNotifyFl$=false',
+    'K0',
+    'Vtrue',
+  ].join(' ');
 }
 
 // ─── Batch shapes for the previous week (periodIdx = 1) ───────────────────
@@ -113,13 +144,16 @@ describe('previous-week batches match the browser capture', () => {
   test('cell edit (capture 016)', () => {
     const client = makeStubClient(1);
     const cmds = commands(client._buildCellEditBatch(0, 0, 5));
-    assert.deepEqual(cmds.map(c => c.cmd), [
-      '205 X1 K1 C0 P0 Vtrue $lastPutId$',
-      '208 $objectId$=DAY5_HRS K1 C0 P0 Vtrue',
-      ...K0_REFRESH_C1,
-      ...K1_REFRESH_X1,
-      '507 Vtrue',
-    ]);
+    assert.deepEqual(
+      cmds.map(c => c.cmd),
+      [
+        '205 X1 K1 C0 P0 Vtrue $lastPutId$',
+        '208 $objectId$=DAY5_HRS K1 C0 P0 Vtrue',
+        ...K0_REFRESH_C1,
+        ...K1_REFRESH_X1,
+        '507 Vtrue',
+      ]
+    );
     assert.equal(cmds[0].editFlag, '18,');
     assert.equal(cmds[0].rowNumber, '0,');
   });
@@ -127,16 +161,18 @@ describe('previous-week batches match the browser capture', () => {
   test('save (capture 017): parent row 1, editFlag 18, 206 on cursor 1', () => {
     const client = makeStubClient(1);
     const cmds = commands(client._buildSaveBatch());
-    assert.deepEqual(cmds.slice(0, 3).map(c => c.cmd), [
-      '205 K0 C1 Vtrue $lastPutId$',
-      '205 X1 K1 C0 P0 Vtrue $lastPutId$',
-      '206 Gfalse C1 Utrue K0 Vtrue',
-    ]);
+    assert.deepEqual(
+      cmds.slice(0, 3).map(c => c.cmd),
+      ['205 K0 C1 Vtrue $lastPutId$', '205 X1 K1 C0 P0 Vtrue $lastPutId$', '206 Gfalse C1 Utrue K0 Vtrue']
+    );
     assert.equal(cmds[0].editFlag, '18,');
     assert.equal(cmds[0].rowNumber, '1,');
     assert.equal(cmds[1].editFlag, '18,');
     assert.equal(cmds[1].rowNumber, '0,');
-    assert.deepEqual(cmds.slice(3).map(c => c.cmd), [...K0_REFRESH_C1, ...K1_REFRESH_X1, '507 Vtrue']);
+    assert.deepEqual(
+      cmds.slice(3).map(c => c.cmd),
+      [...K0_REFRESH_C1, ...K1_REFRESH_X1, '507 Vtrue']
+    );
   });
 
   test('save puts the previous week parent row, not the active one', () => {
@@ -151,33 +187,54 @@ describe('previous-week batches match the browser capture', () => {
     const body = client._buildCorrectEvent();
     assert.match(body, /&reqIdx=1$/);
     const cmds = commands(body);
-    assert.deepEqual(cmds.map(c => c.cmd), [
-      '205 $rsRowSelectedFlOnly$=true K0 C1 Vtrue',
-      '205 $rsContextOnly$=Y K0 C1 Vtrue $lastPutId$',
-      '205 X1 $rsContextOnly$=Y K1 C0 P0 Vtrue $lastPutId$',
-      ['300', ...REPORT_BOILERPLATE, '$actionId$=TMMTS_CORRECT_TIMESHEET', '$restartFl$=false', 'C1',
-        '$longRunActionFl$=0', '$procUniqueId$=TMMTIMESHEET:A:SID:1', '$psSchWorkflowNotifyFl$=false',
-        'K0', 'Vtrue'].join(' '),
-      ...K0_REFRESH_C1,
-      ...K1_REFRESH_X1,
-      '507 Vtrue',
-    ]);
-    assert.deepEqual(cmds.slice(0, 3).map(c => [c.editFlag, c.rowNumber]),
-      [['64,', '1,'], ['64,', '1,'], ['0,', '0,']]);
+    assert.deepEqual(
+      cmds.map(c => c.cmd),
+      [
+        '205 $rsRowSelectedFlOnly$=true K0 C1 Vtrue',
+        '205 $rsContextOnly$=Y K0 C1 Vtrue $lastPutId$',
+        '205 X1 $rsContextOnly$=Y K1 C0 P0 Vtrue $lastPutId$',
+        [
+          '300',
+          ...REPORT_BOILERPLATE,
+          '$actionId$=TMMTS_CORRECT_TIMESHEET',
+          '$restartFl$=false',
+          'C1',
+          '$longRunActionFl$=0',
+          '$procUniqueId$=TMMTIMESHEET:A:SID:1',
+          '$psSchWorkflowNotifyFl$=false',
+          'K0',
+          'Vtrue',
+        ].join(' '),
+        ...K0_REFRESH_C1,
+        ...K1_REFRESH_X1,
+        '507 Vtrue',
+      ]
+    );
+    assert.deepEqual(
+      cmds.slice(0, 3).map(c => [c.editFlag, c.rowNumber]),
+      [
+        ['64,', '1,'],
+        ['64,', '1,'],
+        ['0,', '0,'],
+      ]
+    );
   });
 
   test('correct save (capture 015)', () => {
     const client = makeStubClient(1);
     const cmds = commands(client._buildCorrectSaveBatch());
-    assert.deepEqual(cmds.map(c => c.cmd), [
-      '205 K0 C1 Vtrue $lastPutId$',
-      '206 Gfalse C1 Utrue K0 Vtrue',
-      ...K0_REFRESH_C1,
-      '204 $rsType$=M RS&C S E W K0 C1 Vtrue',
-      ...K1_REFRESH_X1,
-      '204 $rsType$=M RS&C S E X0 W K1 C0 P0 Vtrue',
-      '507 Vtrue',
-    ]);
+    assert.deepEqual(
+      cmds.map(c => c.cmd),
+      [
+        '205 K0 C1 Vtrue $lastPutId$',
+        '206 Gfalse C1 Utrue K0 Vtrue',
+        ...K0_REFRESH_C1,
+        '204 $rsType$=M RS&C S E W K0 C1 Vtrue',
+        ...K1_REFRESH_X1,
+        '204 $rsType$=M RS&C S E X0 W K1 C0 P0 Vtrue',
+        '507 Vtrue',
+      ]
+    );
     assert.equal(cmds[0].editFlag, '82,');
     assert.equal(cmds[0].rowNumber, '1,');
   });
@@ -187,18 +244,28 @@ describe('previous-week batches match the browser capture', () => {
     const body = client._buildSignEvent();
     assert.match(body, /&reqIdx=1$/);
     const cmds = commands(body);
-    assert.deepEqual(cmds.map(c => c.cmd), [
-      '205 $rsRowSelectedFlOnly$=true K0 C1 Vtrue',
-      '205 K0 C1 Vtrue $lastPutId$',
-      '205 $rsContextOnly$=Y K0 C1 Vtrue $lastPutId$',
-      '205 X1 $rsContextOnly$=Y K1 C0 P0 Vtrue $lastPutId$',
-      signAction(1),
-      ...K0_REFRESH_C1,
-      ...K1_REFRESH_X1,
-      '507 Vtrue',
-    ]);
-    assert.deepEqual(cmds.slice(0, 4).map(c => [c.editFlag, c.rowNumber]),
-      [['64,', '1,'], ['82,', '1,'], ['82,', '1,'], ['0,', '0,']]);
+    assert.deepEqual(
+      cmds.map(c => c.cmd),
+      [
+        '205 $rsRowSelectedFlOnly$=true K0 C1 Vtrue',
+        '205 K0 C1 Vtrue $lastPutId$',
+        '205 $rsContextOnly$=Y K0 C1 Vtrue $lastPutId$',
+        '205 X1 $rsContextOnly$=Y K1 C0 P0 Vtrue $lastPutId$',
+        signAction(1),
+        ...K0_REFRESH_C1,
+        ...K1_REFRESH_X1,
+        '507 Vtrue',
+      ]
+    );
+    assert.deepEqual(
+      cmds.slice(0, 4).map(c => [c.editFlag, c.rowNumber]),
+      [
+        ['64,', '1,'],
+        ['82,', '1,'],
+        ['82,', '1,'],
+        ['0,', '0,'],
+      ]
+    );
   });
 
   test('sign event marks the previous week parent row, not the active one', () => {
@@ -211,15 +278,18 @@ describe('previous-week batches match the browser capture', () => {
   test('sign confirm (prev-period-sign 015): K1 S&C keeps X=0 like the browser', () => {
     const client = makeStubClient(1);
     const cmds = commands(client._buildSignConfirmBatch());
-    assert.deepEqual(cmds.map(c => c.cmd), [
-      '205 K0 C1 Vtrue $lastPutId$',
-      '206 Gfalse C1 Utrue K0 Vtrue',
-      ...K0_REFRESH_C1,
-      '204 $rsType$=M RS&C S E W K0 C1 Vtrue',
-      ...K1_REFRESH_X1,
-      '204 $rsType$=M RS&C S E X0 W K1 C0 P0 Vtrue',
-      '507 Vtrue',
-    ]);
+    assert.deepEqual(
+      cmds.map(c => c.cmd),
+      [
+        '205 K0 C1 Vtrue $lastPutId$',
+        '206 Gfalse C1 Utrue K0 Vtrue',
+        ...K0_REFRESH_C1,
+        '204 $rsType$=M RS&C S E W K0 C1 Vtrue',
+        ...K1_REFRESH_X1,
+        '204 $rsType$=M RS&C S E X0 W K1 C0 P0 Vtrue',
+        '507 Vtrue',
+      ]
+    );
     assert.equal(cmds[0].editFlag, '18,');
     assert.equal(cmds[0].rowNumber, '1,');
   });
@@ -241,12 +311,15 @@ describe('previous-week batches match the browser capture', () => {
     client._revisionNumber = 3;
     client._revisionRowNum = '-59999';
     const cmds = commands(client._buildRevisionSaveBatch('why'));
-    assert.deepEqual(cmds.slice(0, 4).map(c => c.cmd), [
-      '205 $rsRowSelectedFlOnly$=true X1 K2 C-59999 P0 Vtrue',
-      '205 X1 K2 C-59999 P0 Vtrue $lastPutId$',
-      '205 X1 K2 C-59999 P0 Vtrue $lastPutId$',
-      '206 Gfalse C1 Utrue K0 Vtrue',
-    ]);
+    assert.deepEqual(
+      cmds.slice(0, 4).map(c => c.cmd),
+      [
+        '205 $rsRowSelectedFlOnly$=true X1 K2 C-59999 P0 Vtrue',
+        '205 X1 K2 C-59999 P0 Vtrue $lastPutId$',
+        '205 X1 K2 C-59999 P0 Vtrue $lastPutId$',
+        '206 Gfalse C1 Utrue K0 Vtrue',
+      ]
+    );
     assert.ok(cmds.slice(0, 3).every(c => c.editFlag === '65619,' && c.rowNumber === '-59999,'));
   });
 
@@ -262,9 +335,11 @@ describe('previous-week batches match the browser capture', () => {
 
   test('AUTO parent fetch matches the browser byte for byte (capture 009)', () => {
     const client = makeStubClient(0);
-    assert.equal(client._buildAutoParentFetch(),
+    assert.equal(
+      client._buildAutoParentFetch(),
       'sid=SID&cmd=204ATMMTIMESHEETC%05D%24rsType%24N%08MP%07RAUTOP%07X0P%07W%24N%24%7C1%3A20%7C0%7CP%07K0P%07C0P%07VtrueP%07C%05K%01' +
-      '&objId=K%01&editFlag=K%01&rowNumber=K%01&data=K%01&autocompletefl=Y');
+        '&objId=K%01&editFlag=K%01&rowNumber=K%01&data=K%01&autocompletefl=Y'
+    );
   });
 });
 
@@ -287,11 +362,10 @@ describe('active-week batches are unchanged', () => {
   test('save keeps parent row 0 and editFlag 65562', () => {
     const client = makeStubClient(0);
     const cmds = commands(client._buildSaveBatch());
-    assert.deepEqual(cmds.slice(0, 3).map(c => c.cmd), [
-      '205 K0 C0 Vtrue $lastPutId$',
-      '205 X0 K1 C0 P0 Vtrue $lastPutId$',
-      '206 Gfalse C0 Utrue K0 Vtrue',
-    ]);
+    assert.deepEqual(
+      cmds.slice(0, 3).map(c => c.cmd),
+      ['205 K0 C0 Vtrue $lastPutId$', '205 X0 K1 C0 P0 Vtrue $lastPutId$', '206 Gfalse C0 Utrue K0 Vtrue']
+    );
     assert.equal(cmds[0].editFlag, '65562,');
     assert.equal(cmds[0].rowNumber, '0,');
   });
@@ -301,29 +375,39 @@ describe('active-week batches are unchanged', () => {
     const body = client._buildSignEvent();
     assert.match(body, /&reqIdx=1$/);
     const cmds = commands(body);
-    assert.deepEqual(cmds.map(c => c.cmd), [
-      '205 $rsRowSelectedFlOnly$=true K0 C0 Vtrue',
-      '205 K0 C0 Vtrue $lastPutId$',
-      '205 $rsContextOnly$=Y K0 C0 Vtrue $lastPutId$',
-      '205 X0 $rsContextOnly$=Y K1 C0 P0 Vtrue $lastPutId$',
-      signAction(0),
-      '204 $rsType$=M RABS S E K0 C0 Vtrue $nonDBSize$=1 $nonDBStart$=0',
-      '204 $rsType$=M RABS S E K0 C0 Vtrue',
-      '204 $rsType$=M RABS S E X0 K1 C0 P0 Vtrue',
-      '204 $rsType$=M RABS S E X0 K1 C0 P0 Vtrue',
-      '507 Vtrue',
-    ]);
-    assert.deepEqual(cmds.slice(0, 4).map(c => [c.editFlag, c.rowNumber]),
-      [['64,', '0,'], ['82,', '0,'], ['82,', '0,'], ['0,', '0,']]);
+    assert.deepEqual(
+      cmds.map(c => c.cmd),
+      [
+        '205 $rsRowSelectedFlOnly$=true K0 C0 Vtrue',
+        '205 K0 C0 Vtrue $lastPutId$',
+        '205 $rsContextOnly$=Y K0 C0 Vtrue $lastPutId$',
+        '205 X0 $rsContextOnly$=Y K1 C0 P0 Vtrue $lastPutId$',
+        signAction(0),
+        '204 $rsType$=M RABS S E K0 C0 Vtrue $nonDBSize$=1 $nonDBStart$=0',
+        '204 $rsType$=M RABS S E K0 C0 Vtrue',
+        '204 $rsType$=M RABS S E X0 K1 C0 P0 Vtrue',
+        '204 $rsType$=M RABS S E X0 K1 C0 P0 Vtrue',
+        '507 Vtrue',
+      ]
+    );
+    assert.deepEqual(
+      cmds.slice(0, 4).map(c => [c.editFlag, c.rowNumber]),
+      [
+        ['64,', '0,'],
+        ['82,', '0,'],
+        ['82,', '0,'],
+        ['0,', '0,'],
+      ]
+    );
   });
 
   test('sign confirm keeps cursor 0 and editFlag 18', () => {
     const client = makeStubClient(0);
     const cmds = commands(client._buildSignConfirmBatch());
-    assert.deepEqual(cmds.slice(0, 2).map(c => c.cmd), [
-      '205 K0 C0 Vtrue $lastPutId$',
-      '206 Gfalse C0 Utrue K0 Vtrue',
-    ]);
+    assert.deepEqual(
+      cmds.slice(0, 2).map(c => c.cmd),
+      ['205 K0 C0 Vtrue $lastPutId$', '206 Gfalse C0 Utrue K0 Vtrue']
+    );
     assert.equal(cmds[0].editFlag, '18,');
     assert.equal(cmds[0].rowNumber, '0,');
     assert.equal(cmds[4].cmd, '204 $rsType$=M RS&C S E W K0 C0 Vtrue');
@@ -359,24 +443,47 @@ describe('past-week add and favorites batches (captured/past-week-add 014-019)',
   test('TMMTS_NEW_TS_LINE (capture 014)', () => {
     const client = withPendingLine(makeStubClient(1));
     let body;
-    client._postServlet = async b => { body = b; return OK_RESPONSE; };
+    client._postServlet = async b => {
+      body = b;
+      return OK_RESPONSE;
+    };
     return client._newTimesheetLine().then(() => {
       assert.match(body, /&reqIdx=1$/);
       const cmds = commands(body);
-      assert.deepEqual(cmds.map(c => c.cmd), [
-        '205 K0 C1 Vtrue $lastPutId$',
-        '205 X1 K1 C-59999 P0 Vtrue $lastPutId$',
-        '205 $rsContextOnly$=Y K0 C1 Vtrue $lastPutId$',
-        '205 X1 $rsContextOnly$=Y K1 C-59999 P0 Vtrue $lastPutId$',
-        ['300', ...REPORT_BOILERPLATE, '$actionId$=TMMTS_NEW_TS_LINE', '$restartFl$=false', 'C-59999',
-          '$longRunActionFl$=0', '$procUniqueId$=TMMTIMESHEET:A:SID:1', '$psSchWorkflowNotifyFl$=false',
-          'K1', 'P0', 'Vtrue'].join(' '),
-        ...K0_REFRESH_C1,
-        ...K1_REFRESH_X1_PENDING,
-        '507 Vtrue',
-      ]);
-      assert.deepEqual(cmds.slice(0, 4).map(c => [c.editFlag, c.rowNumber]),
-        [['18,', '1,'], ['19,', '-59999,'], ['18,', '1,'], ['19,', '-59999,']]);
+      assert.deepEqual(
+        cmds.map(c => c.cmd),
+        [
+          '205 K0 C1 Vtrue $lastPutId$',
+          '205 X1 K1 C-59999 P0 Vtrue $lastPutId$',
+          '205 $rsContextOnly$=Y K0 C1 Vtrue $lastPutId$',
+          '205 X1 $rsContextOnly$=Y K1 C-59999 P0 Vtrue $lastPutId$',
+          [
+            '300',
+            ...REPORT_BOILERPLATE,
+            '$actionId$=TMMTS_NEW_TS_LINE',
+            '$restartFl$=false',
+            'C-59999',
+            '$longRunActionFl$=0',
+            '$procUniqueId$=TMMTIMESHEET:A:SID:1',
+            '$psSchWorkflowNotifyFl$=false',
+            'K1',
+            'P0',
+            'Vtrue',
+          ].join(' '),
+          ...K0_REFRESH_C1,
+          ...K1_REFRESH_X1_PENDING,
+          '507 Vtrue',
+        ]
+      );
+      assert.deepEqual(
+        cmds.slice(0, 4).map(c => [c.editFlag, c.rowNumber]),
+        [
+          ['18,', '1,'],
+          ['19,', '-59999,'],
+          ['18,', '1,'],
+          ['19,', '-59999,'],
+        ]
+      );
     });
   });
 
@@ -384,7 +491,10 @@ describe('past-week add and favorites batches (captured/past-week-add 014-019)',
     const client = withPendingLine(makeStubClient(1));
     client.parentData.rows[1][0] = 'PREV';
     let body;
-    client._postServlet = async b => { body = b; return OK_RESPONSE; };
+    client._postServlet = async b => {
+      body = b;
+      return OK_RESPONSE;
+    };
     return client._newTimesheetLine().then(() => {
       const parentData = new URLSearchParams(body).get('data').split(protocol.DLM_RS)[0];
       assert.equal(parentData, protocol.encodePutRow(client.parentData.rows[1]) + protocol.DLM_ROW);
@@ -394,48 +504,68 @@ describe('past-week add and favorites batches (captured/past-week-add 014-019)',
   test('UDT02 validate (capture 019)', () => {
     const client = withPendingLine(makeStubClient(1));
     let body;
-    client._postServlet = async b => { body = b; return OK_RESPONSE; };
+    client._postServlet = async b => {
+      body = b;
+      return OK_RESPONSE;
+    };
     return client._validateUdt02().then(() => {
       const cmds = commands(body);
-      assert.deepEqual(cmds.map(c => c.cmd), [
-        '205 X1 K1 C-59999 P0 Vtrue $lastPutId$',
-        '205 X1 $rsContextOnly$=Y K1 C-59999 P0 Vtrue $lastPutId$',
-        '208 $objectId$=UDT02_ID K1 C-59999 P0 Vtrue',
-        ...K0_REFRESH_C1,
-        ...K1_REFRESH_X1_PENDING,
-        '507 Vtrue',
-      ]);
+      assert.deepEqual(
+        cmds.map(c => c.cmd),
+        [
+          '205 X1 K1 C-59999 P0 Vtrue $lastPutId$',
+          '205 X1 $rsContextOnly$=Y K1 C-59999 P0 Vtrue $lastPutId$',
+          '208 $objectId$=UDT02_ID K1 C-59999 P0 Vtrue',
+          ...K0_REFRESH_C1,
+          ...K1_REFRESH_X1_PENDING,
+          '507 Vtrue',
+        ]
+      );
     });
   });
 
   test('charge lookup OPEN_RS PUTs the pending row on X=1', () => {
     const client = withPendingLine(makeStubClient(1));
-    assert.deepEqual(cmdStrings(client._buildOpenRsChargeLookup()).slice(0, 1),
-      ['205 X1 K1 C-59999 P0 Vtrue $lastPutId$']);
+    assert.deepEqual(cmdStrings(client._buildOpenRsChargeLookup()).slice(0, 1), [
+      '205 X1 K1 C-59999 P0 Vtrue $lastPutId$',
+    ]);
   });
 
   test('TC_TS_CHARGE_LKP_OK (capture 018)', () => {
     const client = withPendingLine(makeStubClient(1));
-    client._actionSeq = 1;  // NEW_TS_LINE was the first action of the add
+    client._actionSeq = 1; // NEW_TS_LINE was the first action of the add
     const k2Row = new Array(40).fill('');
     const cmds = commands(client._buildChargeLkpOk(k2Row, '10'));
-    assert.deepEqual(cmds.map(c => c.cmd), [
-      '205 $rsRowSelectedFlOnly$=true X-59999 K2 C0 P1 Vtrue',
-      '205 X1 K1 C-59999 P0 Vtrue $lastPutId$',
-      '205 X-59999 K2 C0 P1 Vtrue $lastPutId$',
-      '205 X1 $rsContextOnly$=Y K1 C-59999 P0 Vtrue $lastPutId$',
-      '205 $rsContextOnly$=Y K0 C1 Vtrue $lastPutId$',
-      '205 X-59999 $rsContextOnly$=Y K2 C0 P1 Vtrue $lastPutId$',
-      ['300', ...REPORT_BOILERPLATE, '$actionId$=TC_TS_CHARGE_LKP_OK', '$restartFl$=false', 'C0',
-        '$longRunActionFl$=0', '$procUniqueId$=TMMTIMESHEET:A:SID:2', '$psSchWorkflowNotifyFl$=false',
-        'K2', 'P1', 'Vtrue'].join(' '),
-      ...K0_REFRESH_C1,
-      '204 $rsType$=M RABS S E X1 K1 C-59999 P0 Vtrue',
-      '204 $rsType$=M RABS S E X1 K1 C-59999 P0 Vtrue',
-      '204 $rsType$=L RABS S E X-59999 $objectId$=UDT02_ID K2 C0 P1 Vtrue',
-      '204 $rsType$=L RABS S E X-59999 K2 C0 P1 Vtrue',
-      '507 Vtrue',
-    ]);
+    assert.deepEqual(
+      cmds.map(c => c.cmd),
+      [
+        '205 $rsRowSelectedFlOnly$=true X-59999 K2 C0 P1 Vtrue',
+        '205 X1 K1 C-59999 P0 Vtrue $lastPutId$',
+        '205 X-59999 K2 C0 P1 Vtrue $lastPutId$',
+        '205 X1 $rsContextOnly$=Y K1 C-59999 P0 Vtrue $lastPutId$',
+        '205 $rsContextOnly$=Y K0 C1 Vtrue $lastPutId$',
+        '205 X-59999 $rsContextOnly$=Y K2 C0 P1 Vtrue $lastPutId$',
+        [
+          '300',
+          ...REPORT_BOILERPLATE,
+          '$actionId$=TC_TS_CHARGE_LKP_OK',
+          '$restartFl$=false',
+          'C0',
+          '$longRunActionFl$=0',
+          '$procUniqueId$=TMMTIMESHEET:A:SID:2',
+          '$psSchWorkflowNotifyFl$=false',
+          'K2',
+          'P1',
+          'Vtrue',
+        ].join(' '),
+        ...K0_REFRESH_C1,
+        '204 $rsType$=M RABS S E X1 K1 C-59999 P0 Vtrue',
+        '204 $rsType$=M RABS S E X1 K1 C-59999 P0 Vtrue',
+        '204 $rsType$=L RABS S E X-59999 $objectId$=UDT02_ID K2 C0 P1 Vtrue',
+        '204 $rsType$=L RABS S E X-59999 K2 C0 P1 Vtrue',
+        '507 Vtrue',
+      ]
+    );
     assert.equal(cmds[4].editFlag, '65562,');
     assert.equal(cmds[4].rowNumber, '1,');
     assert.equal(cmds[0].rowNumber, '10,');
@@ -444,7 +574,10 @@ describe('past-week add and favorites batches (captured/past-week-add 014-019)',
   test('getFavorites() registers the line on period 1, then runs the K2 lookups', async () => {
     const client = makeStubClient(1);
     const bodies = [];
-    client._postServlet = async b => { bodies.push(b); return OK_RESPONSE; };
+    client._postServlet = async b => {
+      bodies.push(b);
+      return OK_RESPONSE;
+    };
     assert.deepEqual(await client.getFavorites(), []);
     assert.equal(bodies.length, 4);
     assert.equal(cmdStrings(bodies[0])[0], '205 K0 C1 Vtrue $lastPutId$');
@@ -487,15 +620,25 @@ const hasPastAddCapture = fs.existsSync(path.join(PAST_ADD_DIR, '025-req.txt'));
 
 function rangeBounds(body) {
   const params = new URLSearchParams(body.replace(/&reqIdx=\d+$/, ''));
-  return params.get('cmd').split(protocol.DLM_RS).filter(Boolean).map(cmd => {
-    const tokens = cmd.split(protocol.DLM_CMD)[1].split(protocol.DLM_PARAM);
-    return tokens.filter(t => /^[SE]-?\d+$/.test(t));
-  }).filter(b => b.length);
+  return params
+    .get('cmd')
+    .split(protocol.DLM_RS)
+    .filter(Boolean)
+    .map(cmd => {
+      const tokens = cmd.split(protocol.DLM_CMD)[1].split(protocol.DLM_PARAM);
+      return tokens.filter(t => /^[SE]-?\d+$/.test(t));
+    })
+    .filter(b => b.length);
 }
 
-describe('period fetch for older weeks (captured/past-week-add 024, 025)',
-  { skip: !hasPastAddCapture && 'captured/past-week-add not present' }, () => {
-    for (const [idx, file] of [[2, '024-req.txt'], [3, '025-req.txt']]) {
+describe(
+  'period fetch for older weeks (captured/past-week-add 024, 025)',
+  { skip: !hasPastAddCapture && 'captured/past-week-add not present' },
+  () => {
+    for (const [idx, file] of [
+      [2, '024-req.txt'],
+      [3, '025-req.txt'],
+    ]) {
       test(`X=${idx}: K1 commands match the browser arrow fetch`, () => {
         const client = makeStubClient(0);
         const browser = cmdStrings(readCapture(file, PAST_ADD_DIR));
@@ -513,10 +656,18 @@ describe('period fetch for older weeks (captured/past-week-add 024, 025)',
     test('known differences: browser sends no K0 fetch and wider E bounds', () => {
       const browser = rangeBounds(readCapture('024-req.txt', PAST_ADD_DIR));
       const ours = rangeBounds(makeStubClient(0)._buildPeriodFetch(2));
-      assert.deepEqual(browser, [['S0', 'E45'], ['S-59999', 'E-59954']]);
-      assert.deepEqual(ours, [['S0', 'E20'], ['S0', 'E40'], ['S-59999', 'E-59959']]);
+      assert.deepEqual(browser, [
+        ['S0', 'E45'],
+        ['S-59999', 'E-59954'],
+      ]);
+      assert.deepEqual(ours, [
+        ['S0', 'E20'],
+        ['S0', 'E40'],
+        ['S-59999', 'E-59959'],
+      ]);
     });
-  });
+  }
+);
 
 // ─── Guards and flow ──────────────────────────────────────────────────────
 
@@ -533,9 +684,15 @@ describe('previous-week guards', () => {
         order.push('correct');
         client.parentData.rows[1][TS_CLOSED_FL] = 'N';
       };
-      client._newTimesheetLine = async () => { order.push('newLine'); };
-      client._validateUdt02 = async () => { order.push('validate'); };
-      client._resolveChargeOnServer = async () => { order.push('resolve'); };
+      client._newTimesheetLine = async () => {
+        order.push('newLine');
+      };
+      client._validateUdt02 = async () => {
+        order.push('validate');
+      };
+      client._resolveChargeOnServer = async () => {
+        order.push('resolve');
+      };
       client._buildTableRows = () => {};
       client._postServlet = async () => OK_RESPONSE;
       await call(client);
@@ -546,7 +703,9 @@ describe('previous-week guards', () => {
 
     test(`${name} does not correct an open past week`, async () => {
       const client = makeStubClient(1);
-      client._correctTimesheet = async () => { throw new Error('must not correct'); };
+      client._correctTimesheet = async () => {
+        throw new Error('must not correct');
+      };
       client._newTimesheetLine = async () => {};
       client._validateUdt02 = async () => {};
       client._resolveChargeOnServer = async () => {};
@@ -559,7 +718,9 @@ describe('previous-week guards', () => {
       const client = makeStubClient(1);
       client.parentData.rows[1][TS_CLOSED_FL] = 'Y';
       client.parentData.rows[1][ENABLE_CORRECT_FL] = 'N';
-      client._postServlet = async () => { throw new Error('must not reach the server'); };
+      client._postServlet = async () => {
+        throw new Error('must not reach the server');
+      };
       await assert.rejects(call(client), /does not allow correcting/);
     });
   }
@@ -568,14 +729,18 @@ describe('previous-week guards', () => {
     const client = makeStubClient(1);
     client.parentData.rows[1][S_STATUS_CD] = 'S';
     client.parentData.rows[1][ENABLE_SIGN_FL] = 'N';
-    client._postServlet = async () => { throw new Error('must not reach the server'); };
+    client._postServlet = async () => {
+      throw new Error('must not reach the server');
+    };
     await assert.rejects(client.sign(), /does not allow signing this week \(status Signed\)/);
   });
 
   test('set() rejects a day outside the selected week', async () => {
     const client = makeStubClient(1);
     client._buildDates();
-    client._postServlet = async () => { throw new Error('must not reach the server'); };
+    client._postServlet = async () => {
+      throw new Error('must not reach the server');
+    };
     await assert.rejects(client.set(0, 28, 8), /not in this week/);
   });
 
@@ -584,7 +749,10 @@ describe('previous-week guards', () => {
     client._buildDates(); // 2026-09-28 .. 2026-10-04
     client._buildTableRows = () => {};
     let body = null;
-    client._postServlet = async b => { body = b; return OK_RESPONSE; };
+    client._postServlet = async b => {
+      body = b;
+      return OK_RESPONSE;
+    };
     await client.set(0, 2, 7.5);
     assert.equal(client.childData.rows[0][30], '7.5'); // Fri Oct 2 = DAY5
     assert.match(cmdStrings(body)[1], /^208 \$objectId\$=DAY5_HRS /);
@@ -610,98 +778,122 @@ describe('previous-week guards', () => {
     const client = makeStubClient(1);
     client.parentData.rows[1][TS_CLOSED_FL] = 'Y';
     client.parentData.rows[1][ENABLE_CORRECT_FL] = 'N';
-    client._postServlet = async () => { throw new Error('must not reach the server'); };
+    client._postServlet = async () => {
+      throw new Error('must not reach the server');
+    };
     await assert.rejects(client._correctTimesheet(), /does not allow correcting/);
   });
 });
 
 // ─── Against captured responses ───────────────────────────────────────────
 
-describe('previous-week flow against captured responses', { skip: !hasCapture && 'captured/prev-period-edit not present' }, () => {
-  test('selectPeriod(1) loads the previous week', async () => {
-    const client = makeStubClient(0);
-    client.childData = { rowNums: [], rowFlags: [], rows: [] };
-    const sent = [];
-    const responses = [readCapture('009-res.txt'), readCapture('015-res.txt')];
-    client._postServlet = async body => { sent.push(body); return responses.shift(); };
+describe(
+  'previous-week flow against captured responses',
+  { skip: !hasCapture && 'captured/prev-period-edit not present' },
+  () => {
+    test('selectPeriod(1) loads the previous week', async () => {
+      const client = makeStubClient(0);
+      client.childData = { rowNums: [], rowFlags: [], rows: [] };
+      const sent = [];
+      const responses = [readCapture('009-res.txt'), readCapture('015-res.txt')];
+      client._postServlet = async body => {
+        sent.push(body);
+        return responses.shift();
+      };
 
-    await client.selectPeriod(1);
+      await client.selectPeriod(1);
 
-    assert.equal(sent[0], client._buildAutoParentFetch());
-    assert.equal(client.periodIdx, 1);
-    assert.equal(client.dates[0].format('YYYY-MM-DD'), '2026-09-21');
-    assert.equal(client.dates[6].format('YYYY-MM-DD'), '2026-09-27');
-    assert.equal(client.childData.rows.length, 1);
-    assert.equal(client.childData.rows[0][6], 'G09118.A.3786.26B.200');
-    const data = client.getData();
-    assert.equal(data.timesheetStatusCode, 'O');
-    assert.equal(data.editable, true);
-    assert.equal(data.projects[0].hours[21], 9.25);
-  });
+      assert.equal(sent[0], client._buildAutoParentFetch());
+      assert.equal(client.periodIdx, 1);
+      assert.equal(client.dates[0].format('YYYY-MM-DD'), '2026-09-21');
+      assert.equal(client.dates[6].format('YYYY-MM-DD'), '2026-09-27');
+      assert.equal(client.childData.rows.length, 1);
+      assert.equal(client.childData.rows[0][6], 'G09118.A.3786.26B.200');
+      const data = client.getData();
+      assert.equal(data.timesheetStatusCode, 'O');
+      assert.equal(data.editable, true);
+      assert.equal(data.projects[0].hours[21], 9.25);
+    });
 
-  test('_correctTimesheet() sends the Correct flow and reopens the week', async () => {
-    const client = makeStubClient(1);
-    // Parent state right after the Correct action (processed, closed)
-    client.parentData = protocol.extract204(protocol.parseResponse(readCapture('014-res.txt')), 0);
-    assert.equal(client.parentData.rows[1][TS_CLOSED_FL], 'Y');
-    client._buildTableRows = () => {};
-    const sent = [];
-    const responses = [readCapture('014-res.txt'), readCapture('015-res.txt')];
-    client._postServlet = async body => { sent.push(body); return responses.shift(); };
+    test('_correctTimesheet() sends the Correct flow and reopens the week', async () => {
+      const client = makeStubClient(1);
+      // Parent state right after the Correct action (processed, closed)
+      client.parentData = protocol.extract204(protocol.parseResponse(readCapture('014-res.txt')), 0);
+      assert.equal(client.parentData.rows[1][TS_CLOSED_FL], 'Y');
+      client._buildTableRows = () => {};
+      const sent = [];
+      const responses = [readCapture('014-res.txt'), readCapture('015-res.txt')];
+      client._postServlet = async body => {
+        sent.push(body);
+        return responses.shift();
+      };
 
-    await client._correctTimesheet();
+      await client._correctTimesheet();
 
-    assert.equal(sent.length, 2);
-    assert.match(cmdStrings(sent[0])[3], /\$actionId\$=TMMTS_CORRECT_TIMESHEET/);
-    assert.equal(commands(sent[1])[0].editFlag, '82,');
-    assert.equal(client.parentData.rows[1][TS_CLOSED_FL], 'N');
-    assert.equal(client.parentData.rows[1][4], 'O');
-  });
+      assert.equal(sent.length, 2);
+      assert.match(cmdStrings(sent[0])[3], /\$actionId\$=TMMTS_CORRECT_TIMESHEET/);
+      assert.equal(commands(sent[1])[0].editFlag, '82,');
+      assert.equal(client.parentData.rows[1][TS_CLOSED_FL], 'N');
+      assert.equal(client.parentData.rows[1][4], 'O');
+    });
 
-  // Replays the save with the event's response (week still closed) to stand
-  // in for a stale save response
-  function correctWithStaleSave(refetchResponse) {
-    const client = makeStubClient(1);
-    client.parentData = protocol.extract204(protocol.parseResponse(readCapture('014-res.txt')), 0);
-    client._buildTableRows = () => {};
-    const sent = [];
-    const responses = ['014-res.txt', '014-res.txt', '009-res.txt', refetchResponse].map(f => readCapture(f));
-    client._postServlet = async body => { sent.push(body); return responses.shift(); };
-    return { client, sent };
+    // Replays the save with the event's response (week still closed) to stand
+    // in for a stale save response
+    function correctWithStaleSave(refetchResponse) {
+      const client = makeStubClient(1);
+      client.parentData = protocol.extract204(protocol.parseResponse(readCapture('014-res.txt')), 0);
+      client._buildTableRows = () => {};
+      const sent = [];
+      const responses = ['014-res.txt', '014-res.txt', '009-res.txt', refetchResponse].map(f => readCapture(f));
+      client._postServlet = async body => {
+        sent.push(body);
+        return responses.shift();
+      };
+      return { client, sent };
+    }
+
+    test('_correctTimesheet() re-fetches when the save response still shows the week closed', async () => {
+      const { client, sent } = correctWithStaleSave('015-res.txt');
+
+      await client._correctTimesheet();
+
+      assert.equal(sent.length, 4);
+      assert.equal(sent[2], client._buildAutoParentFetch());
+      assert.equal(client.parentData.rows[1][TS_CLOSED_FL], 'N');
+      assert.equal(client.childData.rows[0][6], 'G09118.A.3786.26B.200');
+    });
+
+    test('_correctTimesheet() still fails when the re-fetch shows the week closed', async () => {
+      const { client } = correctWithStaleSave('014-res.txt');
+      await assert.rejects(client._correctTimesheet(), /Correct did not take effect/);
+    });
   }
+);
 
-  test('_correctTimesheet() re-fetches when the save response still shows the week closed', async () => {
-    const { client, sent } = correctWithStaleSave('015-res.txt');
+describe(
+  'previous-week sign against captured responses',
+  { skip: !hasSignCapture && 'captured/prev-period-sign not present' },
+  () => {
+    test('sign() signs period 1 and sends the browser confirm row', async () => {
+      const client = makeStubClient(1);
+      client._buildTableRows = () => {};
+      const sent = [];
+      const responses = ['014-res.txt', '015-res.txt', '015-res.txt'].map(f => readCapture(f, SIGN_CAPTURE_DIR));
+      client._postServlet = async body => {
+        sent.push(body);
+        return responses.shift();
+      };
 
-    await client._correctTimesheet();
+      await client.sign();
 
-    assert.equal(sent.length, 4);
-    assert.equal(sent[2], client._buildAutoParentFetch());
-    assert.equal(client.parentData.rows[1][TS_CLOSED_FL], 'N');
-    assert.equal(client.childData.rows[0][6], 'G09118.A.3786.26B.200');
-  });
-
-  test('_correctTimesheet() still fails when the re-fetch shows the week closed', async () => {
-    const { client } = correctWithStaleSave('014-res.txt');
-    await assert.rejects(client._correctTimesheet(), /Correct did not take effect/);
-  });
-});
-
-describe('previous-week sign against captured responses', { skip: !hasSignCapture && 'captured/prev-period-sign not present' }, () => {
-  test('sign() signs period 1 and sends the browser confirm row', async () => {
-    const client = makeStubClient(1);
-    client._buildTableRows = () => {};
-    const sent = [];
-    const responses = ['014-res.txt', '015-res.txt', '015-res.txt'].map(f => readCapture(f, SIGN_CAPTURE_DIR));
-    client._postServlet = async body => { sent.push(body); return responses.shift(); };
-
-    await client.sign();
-
-    assert.equal(sent.length, 3);
-    assert.equal(cmdStrings(sent[0])[4], signAction(1));
-    const confirmData = new URLSearchParams(sent[1]).get('data').split(protocol.DLM_RS)[0];
-    const browserData = new URLSearchParams(readCapture('015-req.txt', SIGN_CAPTURE_DIR)).get('data').split(protocol.DLM_RS)[0];
-    assert.equal(confirmData, browserData);
-    assert.equal(client.parentData.rows[1][S_STATUS_CD], 'S');
-  });
-});
+      assert.equal(sent.length, 3);
+      assert.equal(cmdStrings(sent[0])[4], signAction(1));
+      const confirmData = new URLSearchParams(sent[1]).get('data').split(protocol.DLM_RS)[0];
+      const browserData = new URLSearchParams(readCapture('015-req.txt', SIGN_CAPTURE_DIR))
+        .get('data')
+        .split(protocol.DLM_RS)[0];
+      assert.equal(confirmData, browserData);
+      assert.equal(client.parentData.rows[1][S_STATUS_CD], 'S');
+    });
+  }
+);

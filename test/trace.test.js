@@ -23,7 +23,12 @@ function stubClient() {
   return client;
 }
 
-const lines = file => fs.readFileSync(file, 'utf8').trim().split('\n').map(l => JSON.parse(l));
+const lines = file =>
+  fs
+    .readFileSync(file, 'utf8')
+    .trim()
+    .split('\n')
+    .map(l => JSON.parse(l));
 const defaultFile = () => path.join(dir, '.tecli-trace.jsonl');
 
 beforeEach(() => {
@@ -36,7 +41,10 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-  for (const [key, value] of [['COSTPOINT_TRACE', saved.trace], ['HOME', saved.home]]) {
+  for (const [key, value] of [
+    ['COSTPOINT_TRACE', saved.trace],
+    ['HOME', saved.home],
+  ]) {
     if (value === undefined) delete process.env[key];
     else process.env[key] = value;
   }
@@ -71,7 +79,10 @@ test('COSTPOINT_TRACE=<file> set after load still traces, owner-only', async () 
   const file = path.join(dir, 'env.jsonl');
   process.env.COSTPOINT_TRACE = file;
   await stubClient()._postServlet('REQ');
-  assert.deepEqual(lines(file).map(e => [e.request, e.response]), [['REQ', 'var responses=[];']]);
+  assert.deepEqual(
+    lines(file).map(e => [e.request, e.response]),
+    [['REQ', 'var responses=[];']]
+  );
   assert.equal(fs.statSync(file).mode & 0o777, 0o600);
 });
 

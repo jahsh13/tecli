@@ -15,7 +15,19 @@ const MIN_PIECE = 5;
 // Codes every Costpoint site has; they are not identifying
 const GENERIC = /^ZLEAVE\./;
 // Generic words that appear in synthetic data and must never become deny terms
-const ALLOW = new Set(['mock', 'proj', 'zleave', 'doe', 'jane', 'dummy', 'account', 'regular', 'leave', 'ind_lab', 'xxx']);
+const ALLOW = new Set([
+  'mock',
+  'proj',
+  'zleave',
+  'doe',
+  'jane',
+  'dummy',
+  'account',
+  'regular',
+  'leave',
+  'ind_lab',
+  'xxx',
+]);
 
 function tokens(value) {
   const out = new Set();
@@ -81,12 +93,7 @@ class Anonymizer {
 
 // Patterns that look like real project codes or employee ids, whatever the
 // deny list says
-const SUSPECT = [
-  /\b[A-Z]\d{5}\.[A-Z]\.[A-Z0-9]+/,
-  /\b\d{6}\.\d{2}\.[A-Z0-9]/,
-  /\b(?!100001\b)\d{6}\b/,
-  /\bLEIDOS\b/i,
-];
+const SUSPECT = [/\b[A-Z]\d{5}\.[A-Z]\.[A-Z0-9]+/, /\b\d{6}\.\d{2}\.[A-Z0-9]/, /\b(?!100001\b)\d{6}\b/, /\bLEIDOS\b/i];
 
 /**
  * Returns the problems found in a fixture: strings whose tokens hash into the

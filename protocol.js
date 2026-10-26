@@ -3,19 +3,19 @@
 // ---------------------------------------------------------------------------
 // Binary encoding/decoding constants (from MasterPage.js lines 126-139)
 // ---------------------------------------------------------------------------
-const ENCODE_COMMA       = '\x0B';  // field separator
-const ENCODE_NULL        = '\x06';  // empty string marker
-const ENCODE_PREV_FOUND  = '\x07';  // reference to previous row value
-const ENCODE_RUN_LEN     = '\x05';  // run-length marker
-const ENCODE_PREV_SUBSTR = '\x0E';  // substring of previous row
-const ENCODE_RANGE_DELIM = '\x0F';  // range delimiter in sequences
+const ENCODE_COMMA = '\x0B'; // field separator
+const ENCODE_NULL = '\x06'; // empty string marker
+const ENCODE_PREV_FOUND = '\x07'; // reference to previous row value
+const ENCODE_RUN_LEN = '\x05'; // run-length marker
+const ENCODE_PREV_SUBSTR = '\x0E'; // substring of previous row
+const ENCODE_RANGE_DELIM = '\x0F'; // range delimiter in sequences
 
 // Command/request delimiters
-const DLM_RS    = 'K\x01';  // command delimiter in batch
-const DLM_CMD   = 'C\x05';  // parameter delimiter within command
-const DLM_ROW   = 'R\x02';  // row separator in PUT data
-const DLM_PARAM = 'P\x07';  // parameter separator
-const DLM_NAMED = 'N\x08';  // named parameter separator
+const DLM_RS = 'K\x01'; // command delimiter in batch
+const DLM_CMD = 'C\x05'; // parameter delimiter within command
+const DLM_ROW = 'R\x02'; // row separator in PUT data
+const DLM_PARAM = 'P\x07'; // parameter separator
+const DLM_NAMED = 'N\x08'; // named parameter separator
 
 // ---------------------------------------------------------------------------
 // Response decoding (ported from mock-backend/db.js lines 37-174)
@@ -23,10 +23,10 @@ const DLM_NAMED = 'N\x08';  // named parameter separator
 
 function decodeSmallNumber(charCode) {
   let idx = charCode;
-  if (idx >= 92) idx--;   // skip backslash
-  if (idx >= 60) idx--;   // skip '<'
-  if (idx >= 39) idx--;   // skip single quote
-  if (idx >= 34) idx--;   // skip double quote
+  if (idx >= 92) idx--; // skip backslash
+  if (idx >= 60) idx--; // skip '<'
+  if (idx >= 39) idx--; // skip single quote
+  if (idx >= 34) idx--; // skip double quote
   return idx - 32;
 }
 
@@ -131,13 +131,12 @@ function parseResponse(responseText) {
     get: (_, prop) => (prop === Symbol.toPrimitive ? () => '' : noop),
     apply: () => noop,
   };
-  const noop = new Proxy(function(){}, handler);
+  const noop = new Proxy(function () {}, handler);
   try {
     const fn = new Function('parent', 'D', 'g', responseText + '\nreturn responses;');
     return fn(noop, noop, noop);
   } catch (e) {
-    throw new Error('parseResponse failed: ' + e.message +
-      ' | response preview: ' + responseText.substring(0, 300));
+    throw new Error('parseResponse failed: ' + e.message + ' | response preview: ' + responseText.substring(0, 300));
   }
 }
 
@@ -252,12 +251,20 @@ function buildRequestBody(sid, commands) {
     dataField += (c.data || '') + DLM_RS;
   }
 
-  return 'sid=' + sid +
-    '&cmd=' + encodeURIComponent(cmdField) +
-    '&objId=' + encodeURIComponent(objIdField) +
-    '&editFlag=' + encodeURIComponent(editFlagField) +
-    '&rowNumber=' + encodeURIComponent(rowNumberField) +
-    '&data=' + encodeURIComponent(dataField);
+  return (
+    'sid=' +
+    sid +
+    '&cmd=' +
+    encodeURIComponent(cmdField) +
+    '&objId=' +
+    encodeURIComponent(objIdField) +
+    '&editFlag=' +
+    encodeURIComponent(editFlagField) +
+    '&rowNumber=' +
+    encodeURIComponent(rowNumberField) +
+    '&data=' +
+    encodeURIComponent(dataField)
+  );
 }
 
 /**
@@ -372,7 +379,10 @@ const NAME_SRC_PREFIX = '\x12';
 const NAME_SRC_SUBSTR = '\x10';
 
 function decodeColumnNames(str) {
-  const entries = str.split(NAME_PREFIX).join(NAME_NEXT + NAME_PREFIX).split(NAME_NEXT);
+  const entries = str
+    .split(NAME_PREFIX)
+    .join(NAME_NEXT + NAME_PREFIX)
+    .split(NAME_NEXT);
   const names = [];
   entries.forEach((entry, k) => {
     let s = entry;
@@ -388,8 +398,11 @@ function decodeColumnNames(str) {
         s = s.substring(0, s.length - 1);
       }
       const src = names[k - back] || '';
-      s = s.replace(/^\x12(.)/s, (_, n) => src.substring(0, decodeSmallNumber(n.charCodeAt(0))))
-        .replace(/\x10(.)(.)/gs, (_, a, b) => src.substr(decodeSmallNumber(a.charCodeAt(0)), decodeSmallNumber(b.charCodeAt(0))));
+      s = s
+        .replace(/^\x12(.)/s, (_, n) => src.substring(0, decodeSmallNumber(n.charCodeAt(0))))
+        .replace(/\x10(.)(.)/gs, (_, a, b) =>
+          src.substr(decodeSmallNumber(a.charCodeAt(0)), decodeSmallNumber(b.charCodeAt(0)))
+        );
     }
     names.push(prefix + s);
   });

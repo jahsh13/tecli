@@ -34,10 +34,13 @@ describe('mcp server against the mock', () => {
     return { text, isError };
   }
 
-  const status = async back => (await mock.launch().then(async cp => {
-    if (back) await cp.selectPeriod(back);
-    return cp.getData();
-  })).timesheetStatusCode;
+  const status = async back =>
+    (
+      await mock.launch().then(async cp => {
+        if (back) await cp.selectPeriod(back);
+        return cp.getData();
+      })
+    ).timesheetStatusCode;
 
   beforeEach(async () => {
     mock = await startMock();
@@ -53,8 +56,16 @@ describe('mcp server against the mock', () => {
   test('lists every tool', async () => {
     const { tools } = await client.listTools();
     assert.deepEqual(tools.map(t => t.name).sort(), [
-      'add_from_favorites', 'add_project', 'get_leave_balances', 'list_favorites', 'list_weeks',
-      'save_with_explanation', 'set_hours', 'set_hours_bulk', 'show_timesheet', 'sign_timesheet',
+      'add_from_favorites',
+      'add_project',
+      'get_leave_balances',
+      'list_favorites',
+      'list_weeks',
+      'save_with_explanation',
+      'set_hours',
+      'set_hours_bulk',
+      'show_timesheet',
+      'sign_timesheet',
     ]);
   });
 
@@ -116,7 +127,12 @@ describe('mcp server against the mock', () => {
   });
 
   test('set_hours_bulk saves every change', async () => {
-    await call('set_hours_bulk', { changes: [{ line: 0, day: 15, hours: 5 }, { line: 1, day: 16, hours: 2 }] });
+    await call('set_hours_bulk', {
+      changes: [
+        { line: 0, day: 15, hours: 5 },
+        { line: 1, day: 16, hours: 2 },
+      ],
+    });
     const data = (await mock.launch()).getData();
     assert.equal(data.projects[0].hours[15], 5);
     assert.equal(data.projects[1].hours[16], 2);
@@ -147,7 +163,10 @@ describe('mcp server against the mock', () => {
   test('editing a processed week asks for an explanation, then save_with_explanation finishes it', async () => {
     const edit = await call('set_hours', { line: 0, day: 5, hours: 4, back: 1 });
     assert.equal(edit.isError, true);
-    assert.ok(edit.text.startsWith(`${MARKER.revision} Hours set but save requires a revision explanation.`), edit.text);
+    assert.ok(
+      edit.text.startsWith(`${MARKER.revision} Hours set but save requires a revision explanation.`),
+      edit.text
+    );
     assert.match(edit.text, /Line .*Hours changed/);
     const saved = await call('save_with_explanation', { explanation: 'wrong hours' });
     assert.equal(saved.isError, false, saved.text);
@@ -183,7 +202,9 @@ describe('mcp server against the mock', () => {
   test('a failed save_with_explanation drops the session and the pending explanation', async () => {
     await call('set_hours', { line: 0, day: 5, hours: 4, back: 1 });
     const original = DirectClient.prototype.saveWithExplanation;
-    DirectClient.prototype.saveWithExplanation = async () => { throw new Error('Timesheet is read only'); };
+    DirectClient.prototype.saveWithExplanation = async () => {
+      throw new Error('Timesheet is read only');
+    };
     let res;
     try {
       res = await call('save_with_explanation', { explanation: 'wrong hours' });
@@ -240,8 +261,10 @@ describe('mcp server against the mock', () => {
     assert.ok(mock.db.favorites.some(f => f.code === 'PROJ.C.300'));
   });
 
-  test('add_project leads with a warning when the favorites step fails, and the line is still saved', async (t) => {
-    t.mock.method(DirectClient.prototype, 'addToFavorites', async () => { throw new Error('boom'); });
+  test('add_project leads with a warning when the favorites step fails, and the line is still saved', async t => {
+    t.mock.method(DirectClient.prototype, 'addToFavorites', async () => {
+      throw new Error('boom');
+    });
     const res = await call('add_project', { code: 'PROJ.C.300', favorite: true });
     assert.equal(res.isError, false);
     assert.ok(res.text.startsWith(`${MARKER.warning} could not add to favorites: boom`), res.text);

@@ -21,7 +21,16 @@ const SERVER = path.join(__dirname, '..', 'mcp-server.js');
 function findUtcpModules() {
   const candidates = [
     process.env.UTCP_MODULES_DIR,
-    path.join(path.dirname(process.execPath), '..', 'lib', 'node_modules', '@utcp', 'code-mode-mcp', 'node_modules', '@utcp'),
+    path.join(
+      path.dirname(process.execPath),
+      '..',
+      'lib',
+      'node_modules',
+      '@utcp',
+      'code-mode-mcp',
+      'node_modules',
+      '@utcp'
+    ),
   ].filter(Boolean);
   return candidates.find(dir => fs.existsSync(path.join(dir, 'code-mode')) && fs.existsSync(path.join(dir, 'mcp')));
 }
@@ -60,13 +69,15 @@ describe('mcp server over stdio', () => {
     before(async () => {
       await fetch(`${mock.url.split('/cpweb')[0]}/__mock/reset`, { method: 'POST' });
       client = new Client({ name: 'test', version: '1.0.0' });
-      await client.connect(new StdioClientTransport({
-        command: process.execPath,
-        args: [SERVER],
-        cwd,
-        env: { PATH: process.env.PATH, HOME: cwd, ...mockEnv(mock) },
-        stderr: 'ignore',
-      }));
+      await client.connect(
+        new StdioClientTransport({
+          command: process.execPath,
+          args: [SERVER],
+          cwd,
+          env: { PATH: process.env.PATH, HOME: cwd, ...mockEnv(mock) },
+          stderr: 'ignore',
+        })
+      );
     });
 
     after(async () => client.close());
@@ -111,15 +122,17 @@ describe('mcp server over stdio', () => {
       const { CodeModeUtcpClient } = require(path.join(utcp, 'code-mode'));
       const { UtcpClientConfigSerializer } = require(path.join(utcp, 'sdk'));
       const config = new UtcpClientConfigSerializer().validateDict({
-        manual_call_templates: [{
-          name: 'tecli',
-          call_template_type: 'mcp',
-          config: {
-            mcpServers: {
-              tecli: { command: process.execPath, args: [SERVER], transport: 'stdio', cwd, env: mockEnv(mock) },
+        manual_call_templates: [
+          {
+            name: 'tecli',
+            call_template_type: 'mcp',
+            config: {
+              mcpServers: {
+                tecli: { command: process.execPath, args: [SERVER], transport: 'stdio', cwd, env: mockEnv(mock) },
+              },
             },
           },
-        }],
+        ],
       });
       codeMode = await CodeModeUtcpClient.create(cwd, config);
     });
@@ -160,7 +173,9 @@ describe('mcp server over stdio', () => {
     // code-mode JSON.stringifies the script result, and a Promise stringifies
     // to {}. console.log still shows the text.
     test('an async function result comes back as {} and only console.log shows it', async () => {
-      const { result, logs } = await run('async function main() { var r = tecli.tecli_show_timesheet({}); console.log(r); return r; } return main();');
+      const { result, logs } = await run(
+        'async function main() { var r = tecli.tecli_show_timesheet({}); console.log(r); return r; } return main();'
+      );
       assert.deepEqual(result, {});
       assert.match(logs.join('\n'), /^Current week/);
     });

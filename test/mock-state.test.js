@@ -42,7 +42,10 @@ describe('Db rows', () => {
   test('the seed periods have the planned states', () => {
     const db = makeDb();
     assert.equal(db.periodCount, 20);
-    assert.deepEqual([0, 1, 2, 3].map(i => db.period(i).status), ['O', 'P', 'S', 'P']);
+    assert.deepEqual(
+      [0, 1, 2, 3].map(i => db.period(i).status),
+      ['O', 'P', 'S', 'P']
+    );
     assert.equal(db.period(1).closed, true);
     assert.equal(db.period(2).signedOnce, true);
   });

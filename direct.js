@@ -34,13 +34,16 @@ function trace(entry) {
   if (!file) return;
   try {
     if (fs.statSync(file).size >= TRACE_MAX_BYTES) fs.renameSync(file, file + '.1');
-  } catch (e) { /* no file yet */ }
+  } catch (e) {
+    /* no file yet */
+  }
   fs.appendFileSync(file, JSON.stringify(entry) + '\n', { mode: 0o600 });
 }
 
 const APP_ID = 'TMMTIMESHEET';
 const NUM_DAYS = 7;
-const USER_AGENT = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36';
+const USER_AGENT =
+  'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36';
 
 // Parent (K0) columns the client reads, by maObjId name. Costpoint inserts
 // columns between releases (the 10/2026 update moved ENABLE_SIGN_FL 573 -> 575
@@ -62,8 +65,15 @@ const PARENT_COL_NAMES = {
 
 // Layout of the 688-column captures, for stub clients built without a launch
 const PARENT_COL = {
-  EMPL_FULL_NAME: 0, EMPL_ID: 1, SCHEDULE_DESC: 2, END_DT: 3, S_STATUS_CD: 4,
-  ACTION_CD: 23, ENABLE_SIGN_FL: 573, ENABLE_CORRECT_FL: 676, TS_CLOSED_FL: 685,
+  EMPL_FULL_NAME: 0,
+  EMPL_ID: 1,
+  SCHEDULE_DESC: 2,
+  END_DT: 3,
+  S_STATUS_CD: 4,
+  ACTION_CD: 23,
+  ENABLE_SIGN_FL: 573,
+  ENABLE_CORRECT_FL: 676,
+  TS_CLOSED_FL: 685,
 };
 
 /**
@@ -77,14 +87,27 @@ function resolveColumns(kind, spec, names, rowWidth) {
     throw new Error('Costpoint sent no ' + kind + ' column names; cannot locate timesheet columns');
   }
   if (rowWidth !== undefined && names.length !== rowWidth) {
-    throw new Error(kind[0].toUpperCase() + kind.slice(1) + ' column names (' + names.length +
-      ') do not match the row width (' + rowWidth + '); the Costpoint layout changed');
+    throw new Error(
+      kind[0].toUpperCase() +
+        kind.slice(1) +
+        ' column names (' +
+        names.length +
+        ') do not match the row width (' +
+        rowWidth +
+        '); the Costpoint layout changed'
+    );
   }
-  const indexOf = (name) => {
+  const indexOf = name => {
     const idx = names.indexOf(name);
     if (idx < 0 || names.indexOf(name, idx + 1) >= 0) {
-      throw new Error(kind[0].toUpperCase() + kind.slice(1) + ' column ' + name +
-        (idx < 0 ? ' not found' : ' is not unique') + ' in the Costpoint layout');
+      throw new Error(
+        kind[0].toUpperCase() +
+          kind.slice(1) +
+          ' column ' +
+          name +
+          (idx < 0 ? ' not found' : ' is not unique') +
+          ' in the Costpoint layout'
+      );
     }
     return idx;
   };
@@ -107,11 +130,29 @@ const CHILD_COL_NAMES = {
   WORK_LOCATION: 'UDT03_ID',
   PAY_TYPE: 'UDT10_ID',
   DAYS: ['DAY1_HRS', 'DAY2_HRS', 'DAY3_HRS', 'DAY4_HRS', 'DAY5_HRS', 'DAY6_HRS', 'DAY7_HRS'],
-  COMMENTS: ['COMMENT___DAY1_HRS', 'COMMENT___DAY2_HRS', 'COMMENT___DAY3_HRS', 'COMMENT___DAY4_HRS',
-    'COMMENT___DAY5_HRS', 'COMMENT___DAY6_HRS', 'COMMENT___DAY7_HRS'],
+  COMMENTS: [
+    'COMMENT___DAY1_HRS',
+    'COMMENT___DAY2_HRS',
+    'COMMENT___DAY3_HRS',
+    'COMMENT___DAY4_HRS',
+    'COMMENT___DAY5_HRS',
+    'COMMENT___DAY6_HRS',
+    'COMMENT___DAY7_HRS',
+  ],
   // Copied from an existing line when staging a new one
-  TEMPLATE: ['S_APPROVE_STATUS_CD', 'COST_FL', 'COUNT_ROW', 'EMPL_ID', 'HRS_INCREMENT_CD', 'HRS_MODIFY_FL',
-    'IS_PROCESSED_FL', 'OT_FL', 'PERIOD_NO_CD', 'TS_SCHEDULE_CD', 'YEAR_NO_CD'],
+  TEMPLATE: [
+    'S_APPROVE_STATUS_CD',
+    'COST_FL',
+    'COUNT_ROW',
+    'EMPL_ID',
+    'HRS_INCREMENT_CD',
+    'HRS_MODIFY_FL',
+    'IS_PROCESSED_FL',
+    'OT_FL',
+    'PERIOD_NO_CD',
+    'TS_SCHEDULE_CD',
+    'YEAR_NO_CD',
+  ],
   TS_SCHEDULE_CD: 'TS_SCHEDULE_CD',
   YEAR_NO_CD: 'YEAR_NO_CD',
   DISPLAY_LINE_NO: 'DISPLAY_LINE_NO',
@@ -128,19 +169,39 @@ const CHILD_COL_NAMES = {
 
 // Layout of the 402-column captures, for stub clients built without a launch
 const CHILD_COL = {
-  LINE_DESC: 2, UDT02_ID: 6, WORK_LOCATION: 8, PAY_TYPE: 16,
+  LINE_DESC: 2,
+  UDT02_ID: 6,
+  WORK_LOCATION: 8,
+  PAY_TYPE: 16,
   DAYS: [26, 27, 28, 29, 30, 31, 32],
   COMMENTS: [124, 135, 143, 144, 145, 146, 147],
   TEMPLATE: [0, 150, 151, 187, 193, 194, 197, 234, 235, 336, 398],
-  TS_SCHEDULE_CD: 336, YEAR_NO_CD: 398, DISPLAY_LINE_NO: 1, LINE_NO: 198, IS_AMBIGUOUS_LKP: 196,
-  UDT_FROM_LKP_FL: 393, CHARGE_PROJECT: 104, CHARGE_COMBINED: 108, CHARGE_FLAG: 112,
-  CHARGE_PAY_TYPE: 376, CHARGE_PROJECT_ID: 400,
+  TS_SCHEDULE_CD: 336,
+  YEAR_NO_CD: 398,
+  DISPLAY_LINE_NO: 1,
+  LINE_NO: 198,
+  IS_AMBIGUOUS_LKP: 196,
+  UDT_FROM_LKP_FL: 393,
+  CHARGE_PROJECT: 104,
+  CHARGE_COMBINED: 108,
+  CHARGE_FLAG: 112,
+  CHARGE_PAY_TYPE: 376,
+  CHARGE_PROJECT_ID: 400,
 };
 
 const resolveChildColumns = (names, rowWidth) => resolveColumns('child', CHILD_COL_NAMES, names, rowWidth);
 
 // Revision explanation column indices (K2 = TMMTS_TS_REVISION_EXP)
-const REV_COL = { EXPLANATION: 0, REVISION_NO: 1, CANCELLED_CD: 4, EMPL_ID: 5, PERIOD_NO_CD: 6, TS_SCHEDULE_CD: 7, YEAR: 8, TOTAL_COLS: 9 };
+const REV_COL = {
+  EXPLANATION: 0,
+  REVISION_NO: 1,
+  CANCELLED_CD: 4,
+  EMPL_ID: 5,
+  PERIOD_NO_CD: 6,
+  TS_SCHEDULE_CD: 7,
+  YEAR: 8,
+  TOTAL_COLS: 9,
+};
 // Audit column indices (K3 = TMMTS_TS_AUDIT_EXP)
 const AUDIT_COL = { REVISION_NO: 0, LINE_NO: 1, DATE: 2, PROJECT: 3, ACCOUNT: 5, CHARGE_DESC: 6, DETAIL: 7 };
 
@@ -163,7 +224,7 @@ class DirectClient {
   constructor() {
     this.baseUrl = '';
     this.sid = '';
-    this.cookieJar = {};  // domain → { name → value }
+    this.cookieJar = {}; // domain → { name → value }
     this.parentData = null;
     this.childData = null;
     // Parent (K0) row the client edits: 0 = active week, 1 = previous week.
@@ -304,7 +365,7 @@ class DirectClient {
         ),
         comments: Object.fromEntries(
           this.dates.map((d, i) => {
-            const c = this.childData.rows[idx] ? (this.childData.rows[idx][this.childCol.COMMENTS[i]] || '') : '';
+            const c = this.childData.rows[idx] ? this.childData.rows[idx][this.childCol.COMMENTS[i]] || '' : '';
             return [d.date(), c || null];
           })
         ),
@@ -476,8 +537,12 @@ class DirectClient {
    */
   async add(code, payType, { workLocation } = {}) {
     if (this._isPeriodClosed()) await this._correctTimesheet();
-    debug('Adding project code: ' + code + (payType ? ' (payType=' + payType + ')' : '') +
-      (workLocation ? ' (workLocation=' + workLocation + ')' : ''));
+    debug(
+      'Adding project code: ' +
+        code +
+        (payType ? ' (payType=' + payType + ')' : '') +
+        (workLocation ? ' (workLocation=' + workLocation + ')' : '')
+    );
 
     // Reuse an existing pending line (e.g. from getFavorites) if present; otherwise
     // create one and register it with TMMTS_NEW_TS_LINE.
@@ -638,34 +703,48 @@ class DirectClient {
 
     const cmds = [
       // 205 PUT K1
-      this._wrap(this._cmd(205, [
-        { code: 'X', value: period }, { code: 'K', value: '1' },
-        { code: 'C', value: rowNum }, { code: 'P', value: '0' },
-        { code: 'V', value: 'true' },
-        { name: 'lastPutId', value: String(this.lastPutId++) },
-      ]), {
-        data: encodedRow + protocol.DLM_ROW,
-        editFlag: '19,',
-        rowNumber: rowNum + ',',
-      }),
+      this._wrap(
+        this._cmd(205, [
+          { code: 'X', value: period },
+          { code: 'K', value: '1' },
+          { code: 'C', value: rowNum },
+          { code: 'P', value: '0' },
+          { code: 'V', value: 'true' },
+          { name: 'lastPutId', value: String(this.lastPutId++) },
+        ]),
+        {
+          data: encodedRow + protocol.DLM_ROW,
+          editFlag: '19,',
+          rowNumber: rowNum + ',',
+        }
+      ),
       // 205 PUT K1 context
-      this._wrap(this._cmd(205, [
-        { code: 'X', value: period },
-        { name: 'rsContextOnly', value: 'Y' },
-        { code: 'K', value: '1' }, { code: 'C', value: rowNum },
-        { code: 'P', value: '0' }, { code: 'V', value: 'true' },
-        { name: 'lastPutId', value: String(this.lastPutId++) },
-      ]), {
-        data: encodedRow + protocol.DLM_ROW,
-        editFlag: '19,',
-        rowNumber: rowNum + ',',
-      }),
+      this._wrap(
+        this._cmd(205, [
+          { code: 'X', value: period },
+          { name: 'rsContextOnly', value: 'Y' },
+          { code: 'K', value: '1' },
+          { code: 'C', value: rowNum },
+          { code: 'P', value: '0' },
+          { code: 'V', value: 'true' },
+          { name: 'lastPutId', value: String(this.lastPutId++) },
+        ]),
+        {
+          data: encodedRow + protocol.DLM_ROW,
+          editFlag: '19,',
+          rowNumber: rowNum + ',',
+        }
+      ),
       // 208 VALIDATE
-      this._wrap(this._cmd(208, [
-        { name: 'objectId', value: objectId },
-        { code: 'K', value: '1' }, { code: 'C', value: rowNum },
-        { code: 'P', value: '0' }, { code: 'V', value: 'true' },
-      ])),
+      this._wrap(
+        this._cmd(208, [
+          { name: 'objectId', value: objectId },
+          { code: 'K', value: '1' },
+          { code: 'C', value: rowNum },
+          { code: 'P', value: '0' },
+          { code: 'V', value: 'true' },
+        ])
+      ),
       // 204 K0 positive + negative
       ...this._get204(0),
       // 204 K1 positive + negative
@@ -716,49 +795,67 @@ class DirectClient {
 
     const cmds = [
       // 1. PUT K0 parent (editFlag=18)
-      this._wrap(this._cmd(205, [
-        { code: 'K', value: '0' }, { code: 'C', value: period },
-        { code: 'V', value: 'true' },
-        { name: 'lastPutId', value: String(this.lastPutId++) },
-      ]), {
-        data: encodedParent + protocol.DLM_ROW,
-        editFlag: '18,',
-        rowNumber: parentRowNum + ',',
-      }),
+      this._wrap(
+        this._cmd(205, [
+          { code: 'K', value: '0' },
+          { code: 'C', value: period },
+          { code: 'V', value: 'true' },
+          { name: 'lastPutId', value: String(this.lastPutId++) },
+        ]),
+        {
+          data: encodedParent + protocol.DLM_ROW,
+          editFlag: '18,',
+          rowNumber: parentRowNum + ',',
+        }
+      ),
       // 2. PUT K1 new child (editFlag=19)
-      this._wrap(this._cmd(205, [
-        { code: 'X', value: period }, { code: 'K', value: '1' },
-        { code: 'C', value: rowNum }, { code: 'P', value: '0' },
-        { code: 'V', value: 'true' },
-        { name: 'lastPutId', value: String(this.lastPutId++) },
-      ]), {
-        data: encodedChild + protocol.DLM_ROW,
-        editFlag: '19,',
-        rowNumber: rowNum + ',',
-      }),
+      this._wrap(
+        this._cmd(205, [
+          { code: 'X', value: period },
+          { code: 'K', value: '1' },
+          { code: 'C', value: rowNum },
+          { code: 'P', value: '0' },
+          { code: 'V', value: 'true' },
+          { name: 'lastPutId', value: String(this.lastPutId++) },
+        ]),
+        {
+          data: encodedChild + protocol.DLM_ROW,
+          editFlag: '19,',
+          rowNumber: rowNum + ',',
+        }
+      ),
       // 3. PUT K0 context ($rsContextOnly$=Y)
-      this._wrap(this._cmd(205, [
-        { name: 'rsContextOnly', value: 'Y' },
-        { code: 'K', value: '0' }, { code: 'C', value: period },
-        { code: 'V', value: 'true' },
-        { name: 'lastPutId', value: String(this.lastPutId++) },
-      ]), {
-        data: encodedParent + protocol.DLM_ROW,
-        editFlag: '18,',
-        rowNumber: parentRowNum + ',',
-      }),
+      this._wrap(
+        this._cmd(205, [
+          { name: 'rsContextOnly', value: 'Y' },
+          { code: 'K', value: '0' },
+          { code: 'C', value: period },
+          { code: 'V', value: 'true' },
+          { name: 'lastPutId', value: String(this.lastPutId++) },
+        ]),
+        {
+          data: encodedParent + protocol.DLM_ROW,
+          editFlag: '18,',
+          rowNumber: parentRowNum + ',',
+        }
+      ),
       // 4. PUT K1 child context ($rsContextOnly$=Y)
-      this._wrap(this._cmd(205, [
-        { code: 'X', value: period },
-        { name: 'rsContextOnly', value: 'Y' },
-        { code: 'K', value: '1' }, { code: 'C', value: rowNum },
-        { code: 'P', value: '0' }, { code: 'V', value: 'true' },
-        { name: 'lastPutId', value: String(this.lastPutId++) },
-      ]), {
-        data: encodedChild + protocol.DLM_ROW,
-        editFlag: '19,',
-        rowNumber: rowNum + ',',
-      }),
+      this._wrap(
+        this._cmd(205, [
+          { code: 'X', value: period },
+          { name: 'rsContextOnly', value: 'Y' },
+          { code: 'K', value: '1' },
+          { code: 'C', value: rowNum },
+          { code: 'P', value: '0' },
+          { code: 'V', value: 'true' },
+          { name: 'lastPutId', value: String(this.lastPutId++) },
+        ]),
+        {
+          data: encodedChild + protocol.DLM_ROW,
+          editFlag: '19,',
+          rowNumber: rowNum + ',',
+        }
+      ),
       ...this._pendingLineActionTail('TMMTS_NEW_TS_LINE', rowNum, actionSeq),
     ];
 
@@ -799,18 +896,20 @@ class DirectClient {
    */
   _pendingLineActionTail(actionId, rowNum, actionSeq, refetchOpts) {
     return [
-      this._wrap(this._cmd(300, [
-        ...this._actionBoilerplate(),
-        { name: 'actionId', value: actionId },
-        { name: 'restartFl', value: 'false' },
-        { code: 'C', value: rowNum },
-        { name: 'longRunActionFl', value: '0' },
-        { name: 'procUniqueId', value: APP_ID + ':A:' + this.sid + ':' + actionSeq },
-        { name: 'psSchWorkflowNotifyFl', value: 'false' },
-        { code: 'K', value: '1' },
-        { code: 'P', value: '0' },
-        { code: 'V', value: 'true' },
-      ])),
+      this._wrap(
+        this._cmd(300, [
+          ...this._actionBoilerplate(),
+          { name: 'actionId', value: actionId },
+          { name: 'restartFl', value: 'false' },
+          { code: 'C', value: rowNum },
+          { name: 'longRunActionFl', value: '0' },
+          { name: 'procUniqueId', value: APP_ID + ':A:' + this.sid + ':' + actionSeq },
+          { name: 'psSchWorkflowNotifyFl', value: 'false' },
+          { code: 'K', value: '1' },
+          { code: 'P', value: '0' },
+          { code: 'V', value: 'true' },
+        ])
+      ),
       ...this._get204(0, undefined, refetchOpts),
       ...this._get204(1, undefined, refetchOpts),
       this._keepalive(),
@@ -860,35 +959,54 @@ class DirectClient {
     };
 
     const cmds = [
-      this._wrap(this._cmd(205, [
-        { name: 'rsRowSelectedFlOnly', value: 'true' },
-        { code: 'X', value: '0' }, { code: 'K', value: '1' },
-        { code: 'C', value: rowNum }, { code: 'P', value: '0' },
-        { code: 'V', value: 'true' },
-      ]), childOpts),
-      this._wrap(this._cmd(205, [
-        { code: 'X', value: '0' }, { code: 'K', value: '1' },
-        { code: 'C', value: rowNum }, { code: 'P', value: '0' },
-        { code: 'V', value: 'true' },
-        { name: 'lastPutId', value: String(this.lastPutId++) },
-      ]), childOpts),
-      this._wrap(this._cmd(205, [
-        { name: 'rsContextOnly', value: 'Y' },
-        { code: 'K', value: '0' }, { code: 'C', value: '0' },
-        { code: 'V', value: 'true' },
-        { name: 'lastPutId', value: String(this.lastPutId++) },
-      ]), {
-        data: encodedParent + protocol.DLM_ROW,
-        editFlag: '65562,',
-        rowNumber: '0,',
-      }),
-      this._wrap(this._cmd(205, [
-        { code: 'X', value: '0' },
-        { name: 'rsContextOnly', value: 'Y' },
-        { code: 'K', value: '1' }, { code: 'C', value: rowNum },
-        { code: 'P', value: '0' }, { code: 'V', value: 'true' },
-        { name: 'lastPutId', value: String(this.lastPutId++) },
-      ]), childOpts),
+      this._wrap(
+        this._cmd(205, [
+          { name: 'rsRowSelectedFlOnly', value: 'true' },
+          { code: 'X', value: '0' },
+          { code: 'K', value: '1' },
+          { code: 'C', value: rowNum },
+          { code: 'P', value: '0' },
+          { code: 'V', value: 'true' },
+        ]),
+        childOpts
+      ),
+      this._wrap(
+        this._cmd(205, [
+          { code: 'X', value: '0' },
+          { code: 'K', value: '1' },
+          { code: 'C', value: rowNum },
+          { code: 'P', value: '0' },
+          { code: 'V', value: 'true' },
+          { name: 'lastPutId', value: String(this.lastPutId++) },
+        ]),
+        childOpts
+      ),
+      this._wrap(
+        this._cmd(205, [
+          { name: 'rsContextOnly', value: 'Y' },
+          { code: 'K', value: '0' },
+          { code: 'C', value: '0' },
+          { code: 'V', value: 'true' },
+          { name: 'lastPutId', value: String(this.lastPutId++) },
+        ]),
+        {
+          data: encodedParent + protocol.DLM_ROW,
+          editFlag: '65562,',
+          rowNumber: '0,',
+        }
+      ),
+      this._wrap(
+        this._cmd(205, [
+          { code: 'X', value: '0' },
+          { name: 'rsContextOnly', value: 'Y' },
+          { code: 'K', value: '1' },
+          { code: 'C', value: rowNum },
+          { code: 'P', value: '0' },
+          { code: 'V', value: 'true' },
+          { name: 'lastPutId', value: String(this.lastPutId++) },
+        ]),
+        childOpts
+      ),
       ...this._pendingLineActionTail('TMMTS_ADD_LINE_TO_FAVORITES', rowNum, actionSeq, {
         nonDb: false,
         childCursor: rowNum,
@@ -961,11 +1079,9 @@ class DirectClient {
 
   /** Re-read the selected period's parent and child rows from the server. */
   async _refetchTimesheet() {
-    const resp = await this._postServlet(protocol.buildRequestBody(this.sid, [
-      ...this._get204(0),
-      ...this._get204(1),
-      this._keepalive(),
-    ]));
+    const resp = await this._postServlet(
+      protocol.buildRequestBody(this.sid, [...this._get204(0), ...this._get204(1), this._keepalive()])
+    );
     const parsed = protocol.parseResponse(resp);
     const k0Data = protocol.extract204(parsed, 0);
     const k1Data = protocol.extract204(parsed, 1);
@@ -980,8 +1096,9 @@ class DirectClient {
   _isSaveRevisionRequired(parsed) {
     const frames = protocol.parseFrames(parsed[0]);
     const codes = protocol.resultCodes(parsed);
-    return frames.some((f, i) => f.cmdCd === 206 && codes[i] < 0 &&
-      REVISION_REQUIRED_ERROR.test(protocol.frameError(parsed, i) || ''));
+    return frames.some(
+      (f, i) => f.cmdCd === 206 && codes[i] < 0 && REVISION_REQUIRED_ERROR.test(protocol.frameError(parsed, i) || '')
+    );
   }
 
   /**
@@ -1138,7 +1255,15 @@ class DirectClient {
     let selectedIdx;
     const availablePayTypes = k2Data.rows.map(r => r[15] || '');
     const hasDistinctPayTypes = availablePayTypes.some(pt => pt !== '');
-    debug('K2 lookup for ' + code + ': ' + k2Data.rows.length + ' rows, pay types: [' + availablePayTypes.map(p => p || '(empty)').join(', ') + ']');
+    debug(
+      'K2 lookup for ' +
+        code +
+        ': ' +
+        k2Data.rows.length +
+        ' rows, pay types: [' +
+        availablePayTypes.map(p => p || '(empty)').join(', ') +
+        ']'
+    );
     if (k2Data.rows.length === 1 || !hasDistinctPayTypes) {
       // Single-charge code or all rows have empty pay types — auto-select first
       selectedIdx = 0;
@@ -1147,15 +1272,20 @@ class DirectClient {
       selectedIdx = this._findChargeRow(k2Data.rows, payType);
       if (selectedIdx < 0) {
         throw new Error(
-          'Pay type ' + payType + ' not found for ' + code + '. ' +
-          'Available: ' + availablePayTypes.join(', ')
+          'Pay type ' + payType + ' not found for ' + code + '. ' + 'Available: ' + availablePayTypes.join(', ')
         );
       }
     } else {
       throw new Error(
-        'Multiple charges found for ' + code + '. ' +
-        'Available pay types: ' + availablePayTypes.join(', ') + '. ' +
-        'Specify one: te add ' + code + ' <payType>'
+        'Multiple charges found for ' +
+          code +
+          '. ' +
+          'Available pay types: ' +
+          availablePayTypes.join(', ') +
+          '. ' +
+          'Specify one: te add ' +
+          code +
+          ' <payType>'
       );
     }
 
@@ -1210,8 +1340,9 @@ class DirectClient {
     // A signed (or otherwise locked) week otherwise fails later with
     // "You do not have rights to execute this process"
     if (this.parentData.rows[idx][this.parentCol.ENABLE_SIGN_FL] === 'N') {
-      throw new Error('Costpoint does not allow signing this week (status ' +
-        this._getTimesheetStatusMeta().label + ')');
+      throw new Error(
+        'Costpoint does not allow signing this week (status ' + this._getTimesheetStatusMeta().label + ')'
+      );
     }
     debug('Signing period ' + idx + '...');
 
@@ -1288,68 +1419,89 @@ class DirectClient {
 
     const cmds = [
       // PUT K0 selected row flag only (editFlag 64)
-      this._wrap(this._cmd(205, [
-        { name: 'rsRowSelectedFlOnly', value: 'true' },
-        { code: 'K', value: '0' }, { code: 'C', value: period },
-        { code: 'V', value: 'true' },
-      ]), {
-        data: encodedParentPlain + protocol.DLM_ROW,
-        editFlag: '64,',
-        rowNumber: parentRowNum + ',',
-      }),
+      this._wrap(
+        this._cmd(205, [
+          { name: 'rsRowSelectedFlOnly', value: 'true' },
+          { code: 'K', value: '0' },
+          { code: 'C', value: period },
+          { code: 'V', value: 'true' },
+        ]),
+        {
+          data: encodedParentPlain + protocol.DLM_ROW,
+          editFlag: '64,',
+          rowNumber: parentRowNum + ',',
+        }
+      ),
       // PUT K0 with ACTION_CD='S' (editFlag 82)
-      this._wrap(this._cmd(205, [
-        { code: 'K', value: '0' }, { code: 'C', value: period },
-        { code: 'V', value: 'true' },
-        { name: 'lastPutId', value: String(this.lastPutId++) },
-      ]), {
-        data: encodedParentSigned + protocol.DLM_ROW,
-        editFlag: '82,',
-        rowNumber: parentRowNum + ',',
-      }),
+      this._wrap(
+        this._cmd(205, [
+          { code: 'K', value: '0' },
+          { code: 'C', value: period },
+          { code: 'V', value: 'true' },
+          { name: 'lastPutId', value: String(this.lastPutId++) },
+        ]),
+        {
+          data: encodedParentSigned + protocol.DLM_ROW,
+          editFlag: '82,',
+          rowNumber: parentRowNum + ',',
+        }
+      ),
       // PUT K0 context only (editFlag 82)
-      this._wrap(this._cmd(205, [
-        { name: 'rsContextOnly', value: 'Y' },
-        { code: 'K', value: '0' }, { code: 'C', value: period },
-        { code: 'V', value: 'true' },
-        { name: 'lastPutId', value: String(this.lastPutId++) },
-      ]), {
-        data: encodedParentSigned + protocol.DLM_ROW,
-        editFlag: '82,',
-        rowNumber: parentRowNum + ',',
-      }),
+      this._wrap(
+        this._cmd(205, [
+          { name: 'rsContextOnly', value: 'Y' },
+          { code: 'K', value: '0' },
+          { code: 'C', value: period },
+          { code: 'V', value: 'true' },
+          { name: 'lastPutId', value: String(this.lastPutId++) },
+        ]),
+        {
+          data: encodedParentSigned + protocol.DLM_ROW,
+          editFlag: '82,',
+          rowNumber: parentRowNum + ',',
+        }
+      ),
     ];
 
     // PUT K1 row 0 context (editFlag 0) — skipped if there are no charge rows
     if (this.childData && this.childData.rows.length > 0) {
-      cmds.push(this._wrap(this._cmd(205, [
-        { code: 'X', value: period },
-        { name: 'rsContextOnly', value: 'Y' },
-        { code: 'K', value: '1' }, { code: 'C', value: '0' },
-        { code: 'P', value: '0' }, { code: 'V', value: 'true' },
-        { name: 'lastPutId', value: String(this.lastPutId++) },
-      ]), {
-        data: protocol.encodePutRow(this.childData.rows[0]) + protocol.DLM_ROW,
-        editFlag: '0,',
-        rowNumber: this.childData.rowNums[0] + ',',
-      }));
+      cmds.push(
+        this._wrap(
+          this._cmd(205, [
+            { code: 'X', value: period },
+            { name: 'rsContextOnly', value: 'Y' },
+            { code: 'K', value: '1' },
+            { code: 'C', value: '0' },
+            { code: 'P', value: '0' },
+            { code: 'V', value: 'true' },
+            { name: 'lastPutId', value: String(this.lastPutId++) },
+          ]),
+          {
+            data: protocol.encodePutRow(this.childData.rows[0]) + protocol.DLM_ROW,
+            editFlag: '0,',
+            rowNumber: this.childData.rowNums[0] + ',',
+          }
+        )
+      );
     }
 
     cmds.push(
-      this._wrap(this._cmd(300, [
-        ...this._actionBoilerplate(),
-        { name: 'actionId', value: 'TMMTS_SIGN_TIMESHEET' },
-        { name: 'restartFl', value: 'false' },
-        { code: 'C', value: period },
-        { name: 'longRunActionFl', value: '0' },
-        { name: 'procUniqueId', value: APP_ID + ':A:' + this.sid + ':' + this._actionSeq },
-        { name: 'psSchWorkflowNotifyFl', value: 'false' },
-        { code: 'K', value: '0' },
-        { code: 'V', value: 'true' },
-      ])),
+      this._wrap(
+        this._cmd(300, [
+          ...this._actionBoilerplate(),
+          { name: 'actionId', value: 'TMMTS_SIGN_TIMESHEET' },
+          { name: 'restartFl', value: 'false' },
+          { code: 'C', value: period },
+          { name: 'longRunActionFl', value: '0' },
+          { name: 'procUniqueId', value: APP_ID + ':A:' + this.sid + ':' + this._actionSeq },
+          { name: 'psSchWorkflowNotifyFl', value: 'false' },
+          { code: 'K', value: '0' },
+          { code: 'V', value: 'true' },
+        ])
+      ),
       ...this._get204(0),
       ...this._get204(1),
-      this._keepalive(),
+      this._keepalive()
     );
 
     // reqIdx=1 accompanies CMD 300 action requests (matches browser capture)
@@ -1370,20 +1522,28 @@ class DirectClient {
     const parentRowNum = this.parentData.rowNums[this.periodIdx];
 
     const cmds = [
-      this._wrap(this._cmd(205, [
-        { code: 'K', value: '0' }, { code: 'C', value: period },
-        { code: 'V', value: 'true' },
-        { name: 'lastPutId', value: String(this.lastPutId++) },
-      ]), {
-        data: protocol.encodePutRow(parentRow) + protocol.DLM_ROW,
-        editFlag: '18,',
-        rowNumber: parentRowNum + ',',
-      }),
-      this._wrap(this._cmd(206, [
-        { code: 'G', value: 'false' }, { code: 'C', value: period },
-        { code: 'U', value: 'true' }, { code: 'K', value: '0' },
-        { code: 'V', value: 'true' },
-      ])),
+      this._wrap(
+        this._cmd(205, [
+          { code: 'K', value: '0' },
+          { code: 'C', value: period },
+          { code: 'V', value: 'true' },
+          { name: 'lastPutId', value: String(this.lastPutId++) },
+        ]),
+        {
+          data: protocol.encodePutRow(parentRow) + protocol.DLM_ROW,
+          editFlag: '18,',
+          rowNumber: parentRowNum + ',',
+        }
+      ),
+      this._wrap(
+        this._cmd(206, [
+          { code: 'G', value: 'false' },
+          { code: 'C', value: period },
+          { code: 'U', value: 'true' },
+          { code: 'K', value: '0' },
+          { code: 'V', value: 'true' },
+        ])
+      ),
       ...this._getActionSaveRefresh(),
       this._keepalive(),
     ];
@@ -1400,21 +1560,33 @@ class DirectClient {
     const k1E = Math.max(childRowCount + 5, 40);
     return [
       ...this._get204(0),
-      this._wrap(this._cmd(204, [
-        { name: 'rsType', value: 'M' }, { code: 'R', value: 'S&C' },
-        { code: 'S', value: '0' }, { code: 'E', value: '20' },
-        { code: 'W', value: '' },
-        { code: 'K', value: '0' }, { code: 'C', value: String(this.periodIdx) },
-        { code: 'V', value: 'true' },
-      ])),
+      this._wrap(
+        this._cmd(204, [
+          { name: 'rsType', value: 'M' },
+          { code: 'R', value: 'S&C' },
+          { code: 'S', value: '0' },
+          { code: 'E', value: '20' },
+          { code: 'W', value: '' },
+          { code: 'K', value: '0' },
+          { code: 'C', value: String(this.periodIdx) },
+          { code: 'V', value: 'true' },
+        ])
+      ),
       ...this._get204(1),
-      this._wrap(this._cmd(204, [
-        { name: 'rsType', value: 'M' }, { code: 'R', value: 'S&C' },
-        { code: 'S', value: '0' }, { code: 'E', value: String(k1E) },
-        { code: 'X', value: '0' }, { code: 'W', value: '' },
-        { code: 'K', value: '1' }, { code: 'C', value: '0' },
-        { code: 'P', value: '0' }, { code: 'V', value: 'true' },
-      ])),
+      this._wrap(
+        this._cmd(204, [
+          { name: 'rsType', value: 'M' },
+          { code: 'R', value: 'S&C' },
+          { code: 'S', value: '0' },
+          { code: 'E', value: String(k1E) },
+          { code: 'X', value: '0' },
+          { code: 'W', value: '' },
+          { code: 'K', value: '1' },
+          { code: 'C', value: '0' },
+          { code: 'P', value: '0' },
+          { code: 'V', value: 'true' },
+        ])
+      ),
     ];
   }
 
@@ -1445,7 +1617,9 @@ class DirectClient {
     this._buildDates();
     this._initTable();
     this._buildTableRows();
-    debug('Selected period ' + idx + ': ' + this.dates[0].format('YYYY-MM-DD') + ' - ' + this.dates[6].format('YYYY-MM-DD'));
+    debug(
+      'Selected period ' + idx + ': ' + this.dates[0].format('YYYY-MM-DD') + ' - ' + this.dates[6].format('YYYY-MM-DD')
+    );
   }
 
   /**
@@ -1471,8 +1645,11 @@ class DirectClient {
     // A Processed week is always closed; anything else means the flag was
     // read from the wrong column, and editing would skip Correct
     if (!closed && normalizeTimesheetStatus(row[this.parentCol.S_STATUS_CD] || '').code === 'P') {
-      throw new Error('Week is Processed but TS_CLOSED_FL reads ' +
-        JSON.stringify(row[this.parentCol.TS_CLOSED_FL]) + '; refusing to edit');
+      throw new Error(
+        'Week is Processed but TS_CLOSED_FL reads ' +
+          JSON.stringify(row[this.parentCol.TS_CLOSED_FL]) +
+          '; refusing to edit'
+      );
     }
     return closed;
   }
@@ -1495,11 +1672,15 @@ class DirectClient {
     debug('Correcting closed period ' + this.periodIdx + '...');
 
     const eventParsed = this._parseActionResponse(
-      await this._postServlet(this._buildCorrectEvent()), 'Correct timesheet');
+      await this._postServlet(this._buildCorrectEvent()),
+      'Correct timesheet'
+    );
     this._refreshFrom(eventParsed);
 
     const saveParsed = this._parseActionResponse(
-      await this._postServlet(this._buildCorrectSaveBatch()), 'Correct timesheet save');
+      await this._postServlet(this._buildCorrectSaveBatch()),
+      'Correct timesheet save'
+    );
     this._refreshFrom(saveParsed);
 
     // A live correction once committed while its save response still showed
@@ -1565,7 +1746,10 @@ class DirectClient {
     // Step 3: Query K3 (leave details) — default to PTO row, fallback to first non-zero balance
     let detailRowIdx = 0;
     for (let i = 0; i < balances.length; i++) {
-      if (balances[i].code === 'COMP') { detailRowIdx = i; break; }
+      if (balances[i].code === 'COMP') {
+        detailRowIdx = i;
+        break;
+      }
       if (detailRowIdx === 0 && balances[i].balance !== 0) detailRowIdx = i;
     }
 
@@ -1665,7 +1849,7 @@ class DirectClient {
       port: fullUrl.port || (isHttps ? 443 : 80),
       path: fullUrl.pathname + fullUrl.search,
       agent: isHttps ? this._httpsAgent : this._httpAgent,
-      headers: { 'Cookie': cookieStr, 'User-Agent': USER_AGENT, ...(extraHeaders || {}) },
+      headers: { Cookie: cookieStr, 'User-Agent': USER_AGENT, ...(extraHeaders || {}) },
     };
 
     if (body !== undefined && body !== null) {
@@ -1678,7 +1862,9 @@ class DirectClient {
         this._trackCookies(fullUrl.hostname, res.headers['set-cookie'], reqPath);
         let data = '';
         res.setEncoding('utf8');
-        res.on('data', chunk => { data += chunk; });
+        res.on('data', chunk => {
+          data += chunk;
+        });
         res.on('end', () => {
           resolve({ status: res.statusCode, body: data, headers: res.headers });
         });
@@ -1710,7 +1896,7 @@ class DirectClient {
    */
   _browserHeaders(referer, origin) {
     return {
-      'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
+      Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
       'Accept-Language': 'en-US,en;q=0.9',
       'Cache-Control': 'max-age=0',
       'Upgrade-Insecure-Requests': '1',
@@ -1718,8 +1904,8 @@ class DirectClient {
       'Sec-Fetch-Mode': 'navigate',
       'Sec-Fetch-Site': referer ? 'same-origin' : 'none',
       'Sec-Fetch-User': '?1',
-      ...(referer ? { 'Referer': referer } : {}),
-      ...(origin ? { 'Origin': origin } : {}),
+      ...(referer ? { Referer: referer } : {}),
+      ...(origin ? { Origin: origin } : {}),
     };
   }
 
@@ -1742,15 +1928,12 @@ class DirectClient {
    * Always returns null — the caller (_http) handles the retry.
    */
   async _completeSamlChain(samlUrl) {
-
     // GET the IdP page — if we're already authenticated with Okta,
     // this returns a SAML form immediately (no login needed)
-    let resp = await this._httpRaw('GET', samlUrl, null, null,
-      this._browserHeaders(null, null));
+    let resp = await this._httpRaw('GET', samlUrl, null, null, this._browserHeaders(null, null));
     // Follow redirects to reach the SAML form page
     while (resp.status >= 300 && resp.status < 400 && resp.headers.location) {
-      resp = await this._httpRaw('GET', resp.headers.location, null, null,
-        this._browserHeaders(null, null));
+      resp = await this._httpRaw('GET', resp.headers.location, null, null, this._browserHeaders(null, null));
     }
     let html = resp.body;
 
@@ -1763,26 +1946,27 @@ class DirectClient {
       }
 
       const formUrl = new URL(form.action);
-      resp = await this._httpRaw('POST', form.action, form.body,
+      resp = await this._httpRaw(
+        'POST',
+        form.action,
+        form.body,
         'application/x-www-form-urlencoded',
-        this._browserHeaders(currentUrl, formUrl.origin));
+        this._browserHeaders(currentUrl, formUrl.origin)
+      );
 
       // Follow redirects after SAML POST (ACS redirects)
       if (resp.status >= 300 && resp.status < 400 && resp.headers.location) {
         const redirectUrl = resp.headers.location;
 
-        resp = await this._httpRaw('GET', redirectUrl, null, null,
-          this._browserHeaders(currentUrl, null));
+        resp = await this._httpRaw('GET', redirectUrl, null, null, this._browserHeaders(currentUrl, null));
         while (resp.status >= 300 && resp.status < 400 && resp.headers.location) {
-          resp = await this._httpRaw('GET', resp.headers.location, null, null,
-            this._browserHeaders(null, null));
+          resp = await this._httpRaw('GET', resp.headers.location, null, null, this._browserHeaders(null, null));
         }
         html = resp.body;
         currentUrl = redirectUrl;
       } else {
         html = resp.body;
       }
-
     }
 
     return null;
@@ -1801,9 +1985,9 @@ class DirectClient {
     const cookieStr = this._cookieHeader(fullUrl.hostname, reqPath);
 
     const headers = {
-      'Cookie': cookieStr,
+      Cookie: cookieStr,
       'User-Agent': USER_AGENT,
-      'Accept': 'application/json; okta-version=1.0.0',
+      Accept: 'application/json; okta-version=1.0.0',
       'Content-Type': 'application/json',
     };
 
@@ -1813,22 +1997,27 @@ class DirectClient {
     }
 
     return new Promise((resolve, reject) => {
-      const req = lib.request({
-        method,
-        hostname: fullUrl.hostname,
-        port: fullUrl.port || (isHttps ? 443 : 80),
-        path: fullUrl.pathname + fullUrl.search,
-        agent: isHttps ? this._httpsAgent : this._httpAgent,
-        headers,
-      }, res => {
-        this._trackCookies(fullUrl.hostname, res.headers['set-cookie'], reqPath);
-        let data = '';
-        res.setEncoding('utf8');
-        res.on('data', chunk => { data += chunk; });
-        res.on('end', () => {
-          resolve({ status: res.statusCode, body: data, headers: res.headers });
-        });
-      });
+      const req = lib.request(
+        {
+          method,
+          hostname: fullUrl.hostname,
+          port: fullUrl.port || (isHttps ? 443 : 80),
+          path: fullUrl.pathname + fullUrl.search,
+          agent: isHttps ? this._httpsAgent : this._httpAgent,
+          headers,
+        },
+        res => {
+          this._trackCookies(fullUrl.hostname, res.headers['set-cookie'], reqPath);
+          let data = '';
+          res.setEncoding('utf8');
+          res.on('data', chunk => {
+            data += chunk;
+          });
+          res.on('end', () => {
+            resolve({ status: res.statusCode, body: data, headers: res.headers });
+          });
+        }
+      );
       req.on('error', reject);
       if (bodyStr) req.write(bodyStr);
       req.end();
@@ -1841,10 +2030,10 @@ class DirectClient {
    */
   _servletHeaders() {
     return {
-      'Accept': '*/*',
+      Accept: '*/*',
       'Accept-Language': 'en-US,en;q=0.9',
-      'Referer': this.baseUrl + '/cpweb/masterPage.htm',
-      'Origin': this.baseUrl,
+      Referer: this.baseUrl + '/cpweb/masterPage.htm',
+      Origin: this.baseUrl,
       'Sec-Fetch-Dest': 'empty',
       'Sec-Fetch-Mode': 'cors',
       'Sec-Fetch-Site': 'same-origin',
@@ -1853,8 +2042,9 @@ class DirectClient {
   }
 
   async _postServlet(body) {
-    const resp = await this._http('POST', '/cpweb/MasterServlet.cps', body,
-      'application/x-www-form-urlencoded', { headers: this._servletHeaders() });
+    const resp = await this._http('POST', '/cpweb/MasterServlet.cps', body, 'application/x-www-form-urlencoded', {
+      headers: this._servletHeaders(),
+    });
     trace({ time: new Date().toISOString(), request: body, response: resp.body });
     return resp.body;
   }
@@ -1875,8 +2065,10 @@ class DirectClient {
     // Step 1: GET login form — don't auto-follow redirects so we can detect SSO
     // Also disable SAML handling — we need to detect the SSO redirect ourselves
     // so we can run the full IDX (username/password) flow first
-    const loginResp = await this._http('GET', parsed.pathname + parsed.search,
-      null, null, { followRedirects: false, handleSaml: false });
+    const loginResp = await this._http('GET', parsed.pathname + parsed.search, null, null, {
+      followRedirects: false,
+      handleSaml: false,
+    });
 
     let ssoMode = false;
     if (loginResp.status >= 300 && loginResp.status < 400 && loginResp.headers.location) {
@@ -1892,7 +2084,6 @@ class DirectClient {
         // flow (root → /cpweb → /cpweb/ → cploginform.htm) and establishes
         // the gateway's identity injection context for /cpweb/* paths.
         await this._http('GET', parsed.pathname + parsed.search);
-
       } else {
         // Same-host redirect — follow it
         await this._http('GET', redirectUrl);
@@ -1917,14 +2108,20 @@ class DirectClient {
     debug('Logged in. Loading timesheet...');
 
     // LOGININFO
-    const loginInfoResp = await this._http('POST', '/cpweb/MasterServlet.cps',
+    const loginInfoResp = await this._http(
+      'POST',
+      '/cpweb/MasterServlet.cps',
       'sid=' + this.sid + '&LOGININFO=Y&PHONE=N',
-      'application/x-www-form-urlencoded', { headers: this._servletHeaders() });
+      'application/x-www-form-urlencoded',
+      { headers: this._servletHeaders() }
+    );
 
     // Real server returns empty on success; mock returns responseCd='ok'
     // Fail only if body contains an explicit error
-    if (loginInfoResp.body.includes('session not valid') ||
-        (loginInfoResp.body.includes('returnCd') && loginInfoResp.body.includes('error'))) {
+    if (
+      loginInfoResp.body.includes('session not valid') ||
+      (loginInfoResp.body.includes('returnCd') && loginInfoResp.body.includes('error'))
+    ) {
       throw new Error('LOGININFO failed: ' + loginInfoResp.body.substring(0, 300));
     }
 
@@ -1939,8 +2136,10 @@ class DirectClient {
     const parentParsed = protocol.parseResponse(parentResp);
     this.parentData = protocol.extract204(parentParsed, 0);
     if (!this.parentData) throw new Error('Failed to decode parent data');
-    this.parentCol = resolveParentColumns(protocol.columnNames(openRsResp)[0],
-      this.parentData.rows[0] && this.parentData.rows[0].length);
+    this.parentCol = resolveParentColumns(
+      protocol.columnNames(openRsResp)[0],
+      this.parentData.rows[0] && this.parentData.rows[0].length
+    );
 
     // Child data X=0 (204+204+507) — current period
     const childResp = await this._postServlet(this._buildInitChild());
@@ -1948,8 +2147,10 @@ class DirectClient {
     this.childData = protocol.extract204(childParsed, 1);
     if (!this.childData) throw new Error('Failed to decode child data');
     // The init parent batch carries the K1 OPEN_RS, so its names are the child list
-    this.childCol = resolveChildColumns(protocol.columnNames(parentResp)[0],
-      this.childData.rows[0] && this.childData.rows[0].length);
+    this.childCol = resolveChildColumns(
+      protocol.columnNames(parentResp)[0],
+      this.childData.rows[0] && this.childData.rows[0].length
+    );
 
     // Previous period lines (X=1) for read-only display — only when
     // requested (web UI, TUI). getPreviousPeriodData() reads them.
@@ -1987,8 +2188,7 @@ class DirectClient {
    * page with a new stateToken, so follow it the same way.
    */
   async _ssoStateToken(pageHtml, pageUrl) {
-    const decode = s => s.replace(/\\x([0-9A-Fa-f]{2})/g,
-      (_, hex) => String.fromCharCode(parseInt(hex, 16)));
+    const decode = s => s.replace(/\\x([0-9A-Fa-f]{2})/g, (_, hex) => String.fromCharCode(parseInt(hex, 16)));
     const json = pageHtml.match(/"stateToken"\s*:\s*"([^"]+)"/);
     if (json) return decode(json[1]);
 
@@ -1997,7 +2197,9 @@ class DirectClient {
     debug('SSO: desktop-SSO page, following the precheck failure redirect');
     const fallbackUrl = new URL('/login/agentlessDsso/idx', pageUrl);
     fallbackUrl.search = new URLSearchParams({
-      stateToken: decode(dsso[1]), precheckFailure: 'true', redirectFromAdsso: 'true',
+      stateToken: decode(dsso[1]),
+      precheckFailure: 'true',
+      redirectFromAdsso: 'true',
     }).toString();
     const r = await this._httpRaw('GET', fallbackUrl.href);
     const signIn = r.body.match(/"stateToken"\s*:\s*"([^"]+)"/);
@@ -2023,39 +2225,39 @@ class DirectClient {
     const stateToken = await this._ssoStateToken(pageHtml, pageUrl);
 
     // 2. POST /idp/idx/introspect to get stateHandle
-    const introspectResp = await this._httpJson(ssoOrigin, 'POST',
-      ssoOrigin + '/idp/idx/introspect', { stateToken });
+    const introspectResp = await this._httpJson(ssoOrigin, 'POST', ssoOrigin + '/idp/idx/introspect', { stateToken });
     const introspectData = JSON.parse(introspectResp.body);
     const stateHandle = introspectData.stateHandle;
     if (!stateHandle) throw new Error('SSO introspect did not return stateHandle');
 
     // 3. POST /idp/idx/identify with username
-    const identifyResp = await this._httpJson(ssoOrigin, 'POST',
-      ssoOrigin + '/idp/idx/identify', { identifier: username, stateHandle });
+    const identifyResp = await this._httpJson(ssoOrigin, 'POST', ssoOrigin + '/idp/idx/identify', {
+      identifier: username,
+      stateHandle,
+    });
     const identifyData = JSON.parse(identifyResp.body);
-    const challengeForm = identifyData.remediation?.value?.find(
-      r => r.name === 'challenge-authenticator');
+    const challengeForm = identifyData.remediation?.value?.find(r => r.name === 'challenge-authenticator');
     if (!challengeForm) {
       // Check if we need to select the password authenticator first
-      const selectForm = identifyData.remediation?.value?.find(
-        r => r.name === 'select-authenticator-authenticate');
+      const selectForm = identifyData.remediation?.value?.find(r => r.name === 'select-authenticator-authenticate');
       if (selectForm) {
         // Find password authenticator option
         const authenticators = identifyData.authenticators?.value || [];
         const pwdAuth = authenticators.find(a => a.type === 'password');
         if (pwdAuth) {
           // Select password authenticator
-          const selectResp = await this._httpJson(ssoOrigin, 'POST',
-            selectForm.href,
-            { authenticator: { id: pwdAuth.id }, stateHandle });
+          const selectResp = await this._httpJson(ssoOrigin, 'POST', selectForm.href, {
+            authenticator: { id: pwdAuth.id },
+            stateHandle,
+          });
           const selectData = JSON.parse(selectResp.body);
-          const challengeAfterSelect = selectData.remediation?.value?.find(
-            r => r.name === 'challenge-authenticator');
+          const challengeAfterSelect = selectData.remediation?.value?.find(r => r.name === 'challenge-authenticator');
           if (challengeAfterSelect) {
             // Now answer with password
-            const answerResp2 = await this._httpJson(ssoOrigin, 'POST',
-              challengeAfterSelect.href,
-              { credentials: { passcode: password }, stateHandle });
+            const answerResp2 = await this._httpJson(ssoOrigin, 'POST', challengeAfterSelect.href, {
+              credentials: { passcode: password },
+              stateHandle,
+            });
             const answerData2 = JSON.parse(answerResp2.body);
             return this._completeSsoFromAnswer(answerData2);
           }
@@ -2066,9 +2268,10 @@ class DirectClient {
     }
 
     // 4. POST /idp/idx/challenge/answer with password
-    const answerResp = await this._httpJson(ssoOrigin, 'POST',
-      challengeForm.href,
-      { credentials: { passcode: password }, stateHandle });
+    const answerResp = await this._httpJson(ssoOrigin, 'POST', challengeForm.href, {
+      credentials: { passcode: password },
+      stateHandle,
+    });
     const answerData = JSON.parse(answerResp.body);
     await this._completeSsoFromAnswer(answerData);
   }
@@ -2181,21 +2384,26 @@ class DirectClient {
   // =========================================================================
 
   async _cpLogin(username, password) {
-
     // Step 1: requestCd=000 — establish connection
     await this._http('POST', '/cpweb/LoginServlet.cps', 'requestCd=000');
 
     // Step 2: requestCd=003 — auth config (match browser params exactly)
     if (this._system) {
-      await this._http('POST', '/cpweb/LoginServlet.cps',
-        'requestCd=003&DATABASE=' + encodeURIComponent(this._system) +
-        '&LANG=EN&FIDO_CONFIG=Y&U2F_CONDITIONAL_MEDIATION=Y');
+      await this._http(
+        'POST',
+        '/cpweb/LoginServlet.cps',
+        'requestCd=003&DATABASE=' +
+          encodeURIComponent(this._system) +
+          '&LANG=EN&FIDO_CONFIG=Y&U2F_CONDITIONAL_MEDIATION=Y'
+      );
     }
 
     // Step 3: USER + PASSWORD flow (no requestCd=001 — browser skips it)
     // In SSO mode, skip P_FL=N (requires Kerberos/SPNEGO which Node.js can't provide)
     // and go directly to password auth (P_FL=Y).
-    const userParams = 'USER=' + encodeURIComponent(username) +
+    const userParams =
+      'USER=' +
+      encodeURIComponent(username) +
       '&P_FL=Y' +
       (this._system ? '&DATABASE=' + encodeURIComponent(this._system) : '') +
       '&APPID=&COMPANYID=&EXECMODE=H&BROWSERTYPE=CHROME&BROWSERVERSION=9' +
@@ -2207,16 +2415,23 @@ class DirectClient {
       const authJSON = userResp.body.substring('copyAuthData'.length);
       const authData = JSON.parse(authJSON);
       const hashedPassword = this._encodePassword(
-        authData.userId, password, authData.nonce, authData.ldapAuthFl, authData.sha2PasswordFl);
-      const pwdResp = await this._http('POST', '/cpweb/LoginServlet.cps',
-        'PASSWORD=' + encodeURIComponent(hashedPassword));
+        authData.userId,
+        password,
+        authData.nonce,
+        authData.ldapAuthFl,
+        authData.sha2PasswordFl
+      );
+      const pwdResp = await this._http(
+        'POST',
+        '/cpweb/LoginServlet.cps',
+        'PASSWORD=' + encodeURIComponent(hashedPassword)
+      );
       if (pwdResp.body.includes('error')) {
         throw new Error('Costpoint password login failed: ' + pwdResp.body);
       }
     } else {
       // Mock-backend or simple login — just send password directly
-      await this._http('POST', '/cpweb/LoginServlet.cps',
-        'PASSWORD=' + encodeURIComponent(password));
+      await this._http('POST', '/cpweb/LoginServlet.cps', 'PASSWORD=' + encodeURIComponent(password));
     }
   }
 
@@ -2237,8 +2452,8 @@ class DirectClient {
   _encodePassword(userId, password, nonce, ldapFlag, sha2Flag) {
     const nonceStr = String(nonce);
     const ts = String(Date.now());
-    const sha256hex = (s) => crypto.createHash('sha256').update(s, 'utf8').digest('hex');
-    const sha1hex = (s) => crypto.createHash('sha1').update(s, 'utf8').digest('hex');
+    const sha256hex = s => crypto.createHash('sha256').update(s, 'utf8').digest('hex');
+    const sha1hex = s => crypto.createHash('sha1').update(s, 'utf8').digest('hex');
 
     let keyHex, text;
     if (ldapFlag) {
@@ -2352,20 +2567,31 @@ class DirectClient {
 
     const period = String(this.periodIdx);
     const baseParams = isChild
-      ? [{ code: 'X', value: period }, { code: 'K', value: '1' },
-         { code: 'C', value: childCursor }, { code: 'P', value: '0' },
-         { code: 'V', value: 'true' }]
-      : [{ code: 'K', value: '0' }, { code: 'C', value: period },
-         { code: 'V', value: 'true' }];
+      ? [
+          { code: 'X', value: period },
+          { code: 'K', value: '1' },
+          { code: 'C', value: childCursor },
+          { code: 'P', value: '0' },
+          { code: 'V', value: 'true' },
+        ]
+      : [
+          { code: 'K', value: '0' },
+          { code: 'C', value: period },
+          { code: 'V', value: 'true' },
+        ];
 
     const posParams = [
-      { name: 'rsType', value: 'M' }, { code: 'R', value: 'ABS' },
-      { code: 'S', value: '0' }, { code: 'E', value: String(posE) },
+      { name: 'rsType', value: 'M' },
+      { code: 'R', value: 'ABS' },
+      { code: 'S', value: '0' },
+      { code: 'E', value: String(posE) },
       ...baseParams,
     ];
     const negParams = [
-      { name: 'rsType', value: 'M' }, { code: 'R', value: 'ABS' },
-      { code: 'S', value: '-59999' }, { code: 'E', value: String(negE) },
+      { name: 'rsType', value: 'M' },
+      { code: 'R', value: 'ABS' },
+      { code: 'S', value: '-59999' },
+      { code: 'E', value: String(negE) },
       ...baseParams,
     ];
 
@@ -2380,32 +2606,36 @@ class DirectClient {
       negParams.push(...extra);
     }
 
-    return [
-      this._wrap(this._cmd(204, posParams)),
-      this._wrap(this._cmd(204, negParams)),
-    ];
+    return [this._wrap(this._cmd(204, posParams)), this._wrap(this._cmd(204, negParams))];
   }
 
   _buildOpenApp() {
     return protocol.buildRequestBody(this.sid, [
       this._keepalive(),
-      this._wrap(this._cmd(101, [
-        { code: 'V', value: 'true' },
-        { name: 'mobileMode', value: 'N' },
-        { name: 'checkCache', value: '0' },
-      ])),
+      this._wrap(
+        this._cmd(101, [
+          { code: 'V', value: 'true' },
+          { name: 'mobileMode', value: 'N' },
+          { name: 'checkCache', value: '0' },
+        ])
+      ),
       this._keepalive(),
     ]);
   }
 
   _buildOpenRsParent() {
     return protocol.buildRequestBody(this.sid, [
-      this._wrap(this._cmd(201, [
-        { code: 'K', value: '0' }, { code: 'I', value: 'TMMTS' },
-        { code: 'N', value: '17028' }, { code: 'T', value: 'H' },
-        { name: 'checkCache', value: '0' },
-        { code: 'C', value: '-60000' }, { code: 'V', value: 'true' },
-      ])),
+      this._wrap(
+        this._cmd(201, [
+          { code: 'K', value: '0' },
+          { code: 'I', value: 'TMMTS' },
+          { code: 'N', value: '17028' },
+          { code: 'T', value: 'H' },
+          { name: 'checkCache', value: '0' },
+          { code: 'C', value: '-60000' },
+          { code: 'V', value: 'true' },
+        ])
+      ),
       this._keepalive(),
     ]);
   }
@@ -2413,28 +2643,44 @@ class DirectClient {
   _buildInitParent() {
     return protocol.buildRequestBody(this.sid, [
       // 204 K0 positive
-      this._wrap(this._cmd(204, [
-        { name: 'rsType', value: 'M' }, { code: 'R', value: 'ABS' },
-        { code: 'S', value: '0' }, { code: 'E', value: '20' },
-        { code: 'K', value: '0' }, { code: 'C', value: '-60000' },
-        { code: 'V', value: 'true' },
-        { name: 'nonDBSize', value: '1' }, { name: 'nonDBStart', value: '0' },
-      ])),
+      this._wrap(
+        this._cmd(204, [
+          { name: 'rsType', value: 'M' },
+          { code: 'R', value: 'ABS' },
+          { code: 'S', value: '0' },
+          { code: 'E', value: '20' },
+          { code: 'K', value: '0' },
+          { code: 'C', value: '-60000' },
+          { code: 'V', value: 'true' },
+          { name: 'nonDBSize', value: '1' },
+          { name: 'nonDBStart', value: '0' },
+        ])
+      ),
       // 204 K0 negative
-      this._wrap(this._cmd(204, [
-        { name: 'rsType', value: 'M' }, { code: 'R', value: 'ABS' },
-        { code: 'S', value: '-59999' }, { code: 'E', value: '-59899' },
-        { code: 'K', value: '0' }, { code: 'C', value: '-60000' },
-        { code: 'V', value: 'true' },
-      ])),
+      this._wrap(
+        this._cmd(204, [
+          { name: 'rsType', value: 'M' },
+          { code: 'R', value: 'ABS' },
+          { code: 'S', value: '-59999' },
+          { code: 'E', value: '-59899' },
+          { code: 'K', value: '0' },
+          { code: 'C', value: '-60000' },
+          { code: 'V', value: 'true' },
+        ])
+      ),
       // 201 OPEN_RS child
-      this._wrap(this._cmd(201, [
-        { code: 'K', value: '1' }, { code: 'I', value: 'TMMTS_TS_LINE' },
-        { code: 'N', value: '17029' }, { code: 'P', value: '0' },
-        { code: 'T', value: 'D' },
-        { code: 'X', value: '-60000' }, { code: 'C', value: '-60000' },
-        { code: 'V', value: 'true' },
-      ])),
+      this._wrap(
+        this._cmd(201, [
+          { code: 'K', value: '1' },
+          { code: 'I', value: 'TMMTS_TS_LINE' },
+          { code: 'N', value: '17029' },
+          { code: 'P', value: '0' },
+          { code: 'T', value: 'D' },
+          { code: 'X', value: '-60000' },
+          { code: 'C', value: '-60000' },
+          { code: 'V', value: 'true' },
+        ])
+      ),
       this._keepalive(),
     ]);
   }
@@ -2442,21 +2688,33 @@ class DirectClient {
   _buildInitChild() {
     return protocol.buildRequestBody(this.sid, [
       // 204 K1 positive
-      this._wrap(this._cmd(204, [
-        { name: 'rsType', value: 'M' }, { code: 'R', value: 'ABS' },
-        { code: 'S', value: '0' }, { code: 'E', value: '40' },
-        { code: 'X', value: '0' }, { code: 'K', value: '1' },
-        { code: 'C', value: '-60000' }, { code: 'P', value: '0' },
-        { code: 'V', value: 'true' },
-      ])),
+      this._wrap(
+        this._cmd(204, [
+          { name: 'rsType', value: 'M' },
+          { code: 'R', value: 'ABS' },
+          { code: 'S', value: '0' },
+          { code: 'E', value: '40' },
+          { code: 'X', value: '0' },
+          { code: 'K', value: '1' },
+          { code: 'C', value: '-60000' },
+          { code: 'P', value: '0' },
+          { code: 'V', value: 'true' },
+        ])
+      ),
       // 204 K1 negative
-      this._wrap(this._cmd(204, [
-        { name: 'rsType', value: 'M' }, { code: 'R', value: 'ABS' },
-        { code: 'S', value: '-59999' }, { code: 'E', value: '-59899' },
-        { code: 'X', value: '0' }, { code: 'K', value: '1' },
-        { code: 'C', value: '-60000' }, { code: 'P', value: '0' },
-        { code: 'V', value: 'true' },
-      ])),
+      this._wrap(
+        this._cmd(204, [
+          { name: 'rsType', value: 'M' },
+          { code: 'R', value: 'ABS' },
+          { code: 'S', value: '-59999' },
+          { code: 'E', value: '-59899' },
+          { code: 'X', value: '0' },
+          { code: 'K', value: '1' },
+          { code: 'C', value: '-60000' },
+          { code: 'P', value: '0' },
+          { code: 'V', value: 'true' },
+        ])
+      ),
       this._keepalive(),
     ]);
   }
@@ -2466,42 +2724,68 @@ class DirectClient {
    * parent rows 1-20 in full on the server; X>0 child fetches depend on it.
    */
   _buildAutoParentFetch() {
-    return protocol.buildRequestBody(this.sid, [
-      this._wrap(this._cmd(204, [
-        { name: 'rsType', value: 'M' }, { code: 'R', value: 'AUTO' },
-        { code: 'X', value: '0' }, { code: 'W', value: '$N$|1:20|0|' },
-        { code: 'K', value: '0' }, { code: 'C', value: '0' },
-        { code: 'V', value: 'true' },
-      ])),
-    ]) + '&autocompletefl=Y';
+    return (
+      protocol.buildRequestBody(this.sid, [
+        this._wrap(
+          this._cmd(204, [
+            { name: 'rsType', value: 'M' },
+            { code: 'R', value: 'AUTO' },
+            { code: 'X', value: '0' },
+            { code: 'W', value: '$N$|1:20|0|' },
+            { code: 'K', value: '0' },
+            { code: 'C', value: '0' },
+            { code: 'V', value: 'true' },
+          ])
+        ),
+      ]) + '&autocompletefl=Y'
+    );
   }
 
   /** Parent rows (cursor on idx) + child lines of period idx (capture 013) */
   _buildPeriodFetch(idx) {
     const x = String(idx);
     return protocol.buildRequestBody(this.sid, [
-      this._wrap(this._cmd(204, [
-        { name: 'rsType', value: 'M' }, { code: 'R', value: 'ABS' },
-        { code: 'S', value: '0' }, { code: 'E', value: '20' },
-        { code: 'K', value: '0' }, { code: 'C', value: x },
-        { code: 'V', value: 'true' },
-        { name: 'nonDBSize', value: '1' }, { name: 'nonDBStart', value: '0' },
-      ])),
-      this._wrap(this._cmd(204, [
-        { name: 'rsType', value: 'M' }, { code: 'R', value: 'ABS' },
-        { code: 'S', value: '0' }, { code: 'E', value: '40' },
-        { code: 'X', value: x }, { code: 'K', value: '1' },
-        { code: 'C', value: '-60000' }, { code: 'P', value: '0' },
-        { code: 'V', value: 'true' },
-        { name: 'nonDBSize', value: '9' }, { name: 'nonDBStart', value: '0' },
-      ])),
-      this._wrap(this._cmd(204, [
-        { name: 'rsType', value: 'M' }, { code: 'R', value: 'ABS' },
-        { code: 'S', value: '-59999' }, { code: 'E', value: '-59959' },
-        { code: 'X', value: x }, { code: 'K', value: '1' },
-        { code: 'C', value: '-60000' }, { code: 'P', value: '0' },
-        { code: 'V', value: 'true' },
-      ])),
+      this._wrap(
+        this._cmd(204, [
+          { name: 'rsType', value: 'M' },
+          { code: 'R', value: 'ABS' },
+          { code: 'S', value: '0' },
+          { code: 'E', value: '20' },
+          { code: 'K', value: '0' },
+          { code: 'C', value: x },
+          { code: 'V', value: 'true' },
+          { name: 'nonDBSize', value: '1' },
+          { name: 'nonDBStart', value: '0' },
+        ])
+      ),
+      this._wrap(
+        this._cmd(204, [
+          { name: 'rsType', value: 'M' },
+          { code: 'R', value: 'ABS' },
+          { code: 'S', value: '0' },
+          { code: 'E', value: '40' },
+          { code: 'X', value: x },
+          { code: 'K', value: '1' },
+          { code: 'C', value: '-60000' },
+          { code: 'P', value: '0' },
+          { code: 'V', value: 'true' },
+          { name: 'nonDBSize', value: '9' },
+          { name: 'nonDBStart', value: '0' },
+        ])
+      ),
+      this._wrap(
+        this._cmd(204, [
+          { name: 'rsType', value: 'M' },
+          { code: 'R', value: 'ABS' },
+          { code: 'S', value: '-59999' },
+          { code: 'E', value: '-59959' },
+          { code: 'X', value: x },
+          { code: 'K', value: '1' },
+          { code: 'C', value: '-60000' },
+          { code: 'P', value: '0' },
+          { code: 'V', value: 'true' },
+        ])
+      ),
       this._keepalive(),
     ]);
   }
@@ -2513,17 +2797,19 @@ class DirectClient {
   /** Open K2 result set for TMMTS_TS_REVISION_EXP */
   _buildOpenRevisionRS() {
     const cmds = [
-      this._wrap(this._cmd(201, [
-        { code: 'K', value: '2' },
-        { code: 'I', value: 'TMMTS_TS_REVISION_EXP' },
-        { code: 'N', value: '22410' },
-        { code: 'P', value: '0' },
-        { code: 'T', value: 'D' },
-        { code: 'X', value: String(this.periodIdx) },
-        { name: 'checkCache', value: '0' },
-        { code: 'C', value: '-60000' },
-        { code: 'V', value: 'true' },
-      ])),
+      this._wrap(
+        this._cmd(201, [
+          { code: 'K', value: '2' },
+          { code: 'I', value: 'TMMTS_TS_REVISION_EXP' },
+          { code: 'N', value: '22410' },
+          { code: 'P', value: '0' },
+          { code: 'T', value: 'D' },
+          { code: 'X', value: String(this.periodIdx) },
+          { name: 'checkCache', value: '0' },
+          { code: 'C', value: '-60000' },
+          { code: 'V', value: 'true' },
+        ])
+      ),
       this._keepalive(),
     ];
     return protocol.buildRequestBody(this.sid, cmds);
@@ -2533,33 +2819,48 @@ class DirectClient {
   _buildQueryRevisionAndOpenAudit() {
     const cmds = [
       // 204 K2 positive range (SR type for revision data)
-      this._wrap(this._cmd(204, [
-        { name: 'rsType', value: 'SR' }, { code: 'R', value: 'ABS' },
-        { code: 'S', value: '0' }, { code: 'E', value: '100' },
-        { code: 'X', value: String(this.periodIdx) }, { code: 'K', value: '2' },
-        { code: 'C', value: '-60000' }, { code: 'P', value: '0' },
-        { code: 'V', value: 'true' },
-        { name: 'nonDBSize', value: '1' }, { name: 'nonDBStart', value: '0' },
-      ])),
+      this._wrap(
+        this._cmd(204, [
+          { name: 'rsType', value: 'SR' },
+          { code: 'R', value: 'ABS' },
+          { code: 'S', value: '0' },
+          { code: 'E', value: '100' },
+          { code: 'X', value: String(this.periodIdx) },
+          { code: 'K', value: '2' },
+          { code: 'C', value: '-60000' },
+          { code: 'P', value: '0' },
+          { code: 'V', value: 'true' },
+          { name: 'nonDBSize', value: '1' },
+          { name: 'nonDBStart', value: '0' },
+        ])
+      ),
       // 204 K2 negative range
-      this._wrap(this._cmd(204, [
-        { name: 'rsType', value: 'SR' }, { code: 'R', value: 'ABS' },
-        { code: 'S', value: '-59999' }, { code: 'E', value: '-59899' },
-        { code: 'X', value: String(this.periodIdx) }, { code: 'K', value: '2' },
-        { code: 'C', value: '-60000' }, { code: 'P', value: '0' },
-        { code: 'V', value: 'true' },
-      ])),
+      this._wrap(
+        this._cmd(204, [
+          { name: 'rsType', value: 'SR' },
+          { code: 'R', value: 'ABS' },
+          { code: 'S', value: '-59999' },
+          { code: 'E', value: '-59899' },
+          { code: 'X', value: String(this.periodIdx) },
+          { code: 'K', value: '2' },
+          { code: 'C', value: '-60000' },
+          { code: 'P', value: '0' },
+          { code: 'V', value: 'true' },
+        ])
+      ),
       // 201 Open K3 (TMMTS_TS_AUDIT_EXP)
-      this._wrap(this._cmd(201, [
-        { code: 'K', value: '3' },
-        { code: 'I', value: 'TMMTS_TS_AUDIT_EXP' },
-        { code: 'N', value: '22411' },
-        { code: 'P', value: '2' },
-        { code: 'T', value: 'D' },
-        { code: 'X', value: '-60000' },
-        { code: 'C', value: '-60000' },
-        { code: 'V', value: 'true' },
-      ])),
+      this._wrap(
+        this._cmd(201, [
+          { code: 'K', value: '3' },
+          { code: 'I', value: 'TMMTS_TS_AUDIT_EXP' },
+          { code: 'N', value: '22411' },
+          { code: 'P', value: '2' },
+          { code: 'T', value: 'D' },
+          { code: 'X', value: '-60000' },
+          { code: 'C', value: '-60000' },
+          { code: 'V', value: 'true' },
+        ])
+      ),
       this._keepalive(),
     ];
     return protocol.buildRequestBody(this.sid, cmds);
@@ -2568,21 +2869,34 @@ class DirectClient {
   /** Query K3 audit detail data */
   _buildQueryAudit() {
     const cmds = [
-      this._wrap(this._cmd(204, [
-        { name: 'rsType', value: 'M' }, { code: 'R', value: 'ABS' },
-        { code: 'S', value: '0' }, { code: 'E', value: '100' },
-        { code: 'X', value: '0' }, { code: 'K', value: '3' },
-        { code: 'C', value: '-60000' }, { code: 'P', value: '2' },
-        { code: 'V', value: 'true' },
-        { name: 'nonDBSize', value: '20' }, { name: 'nonDBStart', value: '0' },
-      ])),
-      this._wrap(this._cmd(204, [
-        { name: 'rsType', value: 'M' }, { code: 'R', value: 'ABS' },
-        { code: 'S', value: '-59999' }, { code: 'E', value: '-59899' },
-        { code: 'X', value: '0' }, { code: 'K', value: '3' },
-        { code: 'C', value: '-60000' }, { code: 'P', value: '2' },
-        { code: 'V', value: 'true' },
-      ])),
+      this._wrap(
+        this._cmd(204, [
+          { name: 'rsType', value: 'M' },
+          { code: 'R', value: 'ABS' },
+          { code: 'S', value: '0' },
+          { code: 'E', value: '100' },
+          { code: 'X', value: '0' },
+          { code: 'K', value: '3' },
+          { code: 'C', value: '-60000' },
+          { code: 'P', value: '2' },
+          { code: 'V', value: 'true' },
+          { name: 'nonDBSize', value: '20' },
+          { name: 'nonDBStart', value: '0' },
+        ])
+      ),
+      this._wrap(
+        this._cmd(204, [
+          { name: 'rsType', value: 'M' },
+          { code: 'R', value: 'ABS' },
+          { code: 'S', value: '-59999' },
+          { code: 'E', value: '-59899' },
+          { code: 'X', value: '0' },
+          { code: 'K', value: '3' },
+          { code: 'C', value: '-60000' },
+          { code: 'P', value: '2' },
+          { code: 'V', value: 'true' },
+        ])
+      ),
       this._keepalive(),
     ];
     return protocol.buildRequestBody(this.sid, cmds);
@@ -2595,17 +2909,19 @@ class DirectClient {
   /** Open K2 result set for TMMTS_LVSTAT_HDR */
   _buildOpenLeaveBalanceRS() {
     const cmds = [
-      this._wrap(this._cmd(201, [
-        { code: 'K', value: '2' },
-        { code: 'I', value: 'TMMTS_LVSTAT_HDR' },
-        { code: 'N', value: '17314' },
-        { code: 'P', value: '0' },
-        { code: 'T', value: 'D' },
-        { code: 'X', value: '0' },
-        { name: 'checkCache', value: '0' },
-        { code: 'C', value: '-60000' },
-        { code: 'V', value: 'true' },
-      ])),
+      this._wrap(
+        this._cmd(201, [
+          { code: 'K', value: '2' },
+          { code: 'I', value: 'TMMTS_LVSTAT_HDR' },
+          { code: 'N', value: '17314' },
+          { code: 'P', value: '0' },
+          { code: 'T', value: 'D' },
+          { code: 'X', value: '0' },
+          { name: 'checkCache', value: '0' },
+          { code: 'C', value: '-60000' },
+          { code: 'V', value: 'true' },
+        ])
+      ),
       this._keepalive(),
     ];
     return protocol.buildRequestBody(this.sid, cmds);
@@ -2615,36 +2931,50 @@ class DirectClient {
   _buildQueryLeaveBalancesAndOpenDetail() {
     const cmds = [
       // 204 K2 positive range
-      this._wrap(this._cmd(204, [
-        { name: 'rsType', value: 'M' }, { code: 'R', value: 'ABS' },
-        { code: 'S', value: '0' }, { code: 'E', value: '100' },
-        { code: 'X', value: '0' }, { code: 'W', value: '' },
-        { code: 'K', value: '2' },
-        { code: 'C', value: '-60000' }, { code: 'P', value: '0' },
-        { code: 'V', value: 'true' },
-        { name: 'nonDBSize', value: '20' }, { name: 'nonDBStart', value: '0' },
-      ])),
+      this._wrap(
+        this._cmd(204, [
+          { name: 'rsType', value: 'M' },
+          { code: 'R', value: 'ABS' },
+          { code: 'S', value: '0' },
+          { code: 'E', value: '100' },
+          { code: 'X', value: '0' },
+          { code: 'W', value: '' },
+          { code: 'K', value: '2' },
+          { code: 'C', value: '-60000' },
+          { code: 'P', value: '0' },
+          { code: 'V', value: 'true' },
+          { name: 'nonDBSize', value: '20' },
+          { name: 'nonDBStart', value: '0' },
+        ])
+      ),
       // 204 K2 negative range
-      this._wrap(this._cmd(204, [
-        { name: 'rsType', value: 'M' }, { code: 'R', value: 'ABS' },
-        { code: 'S', value: '-59999' }, { code: 'E', value: '-59899' },
-        { code: 'X', value: '0' },
-        { name: 'newQry', value: 'Y' },
-        { code: 'K', value: '2' },
-        { code: 'C', value: '-60000' }, { code: 'P', value: '0' },
-        { code: 'V', value: 'true' },
-      ])),
+      this._wrap(
+        this._cmd(204, [
+          { name: 'rsType', value: 'M' },
+          { code: 'R', value: 'ABS' },
+          { code: 'S', value: '-59999' },
+          { code: 'E', value: '-59899' },
+          { code: 'X', value: '0' },
+          { name: 'newQry', value: 'Y' },
+          { code: 'K', value: '2' },
+          { code: 'C', value: '-60000' },
+          { code: 'P', value: '0' },
+          { code: 'V', value: 'true' },
+        ])
+      ),
       // 201 Open K3 (TMMTS_LV_STAT)
-      this._wrap(this._cmd(201, [
-        { code: 'K', value: '3' },
-        { code: 'I', value: 'TMMTS_LV_STAT' },
-        { code: 'N', value: '17315' },
-        { code: 'P', value: '2' },
-        { code: 'T', value: 'D' },
-        { code: 'X', value: '-60000' },
-        { code: 'C', value: '-60000' },
-        { code: 'V', value: 'true' },
-      ])),
+      this._wrap(
+        this._cmd(201, [
+          { code: 'K', value: '3' },
+          { code: 'I', value: 'TMMTS_LV_STAT' },
+          { code: 'N', value: '17315' },
+          { code: 'P', value: '2' },
+          { code: 'T', value: 'D' },
+          { code: 'X', value: '-60000' },
+          { code: 'C', value: '-60000' },
+          { code: 'V', value: 'true' },
+        ])
+      ),
       this._keepalive(),
     ];
     return protocol.buildRequestBody(this.sid, cmds);
@@ -2654,24 +2984,36 @@ class DirectClient {
   _buildQueryLeaveDetails(parentRowIdx) {
     const x = String(parentRowIdx || 0);
     const cmds = [
-      this._wrap(this._cmd(204, [
-        { name: 'rsType', value: 'M' }, { code: 'R', value: 'ABS' },
-        { code: 'S', value: '0' }, { code: 'E', value: '100' },
-        { code: 'X', value: x }, { code: 'W', value: '' },
-        { code: 'K', value: '3' },
-        { code: 'C', value: '-60000' }, { code: 'P', value: '2' },
-        { code: 'V', value: 'true' },
-        { name: 'nonDBSize', value: '20' }, { name: 'nonDBStart', value: '0' },
-      ])),
-      this._wrap(this._cmd(204, [
-        { name: 'rsType', value: 'M' }, { code: 'R', value: 'ABS' },
-        { code: 'S', value: '-59999' }, { code: 'E', value: '-59899' },
-        { code: 'X', value: x },
-        { name: 'newQry', value: 'Y' },
-        { code: 'K', value: '3' },
-        { code: 'C', value: '-60000' }, { code: 'P', value: '2' },
-        { code: 'V', value: 'true' },
-      ])),
+      this._wrap(
+        this._cmd(204, [
+          { name: 'rsType', value: 'M' },
+          { code: 'R', value: 'ABS' },
+          { code: 'S', value: '0' },
+          { code: 'E', value: '100' },
+          { code: 'X', value: x },
+          { code: 'W', value: '' },
+          { code: 'K', value: '3' },
+          { code: 'C', value: '-60000' },
+          { code: 'P', value: '2' },
+          { code: 'V', value: 'true' },
+          { name: 'nonDBSize', value: '20' },
+          { name: 'nonDBStart', value: '0' },
+        ])
+      ),
+      this._wrap(
+        this._cmd(204, [
+          { name: 'rsType', value: 'M' },
+          { code: 'R', value: 'ABS' },
+          { code: 'S', value: '-59999' },
+          { code: 'E', value: '-59899' },
+          { code: 'X', value: x },
+          { name: 'newQry', value: 'Y' },
+          { code: 'K', value: '3' },
+          { code: 'C', value: '-60000' },
+          { code: 'P', value: '2' },
+          { code: 'V', value: 'true' },
+        ])
+      ),
       this._keepalive(),
     ];
     return protocol.buildRequestBody(this.sid, cmds);
@@ -2685,7 +3027,8 @@ class DirectClient {
     const revRow = [
       explanation,
       String(this._revisionNumber),
-      '', '',
+      '',
+      '',
       'N',
       meta.emplId,
       meta.periodNoCd,
@@ -2696,32 +3039,51 @@ class DirectClient {
 
     const cmds = [
       // 205 PUT K2: select revision row
-      this._wrap(this._cmd(205, [
-        { name: 'rsRowSelectedFlOnly', value: 'true' },
-        { code: 'X', value: period }, { code: 'K', value: '2' },
-        { code: 'C', value: rowNum }, { code: 'P', value: '0' },
-        { code: 'V', value: 'true' },
-      ]), { data: encodedRow, editFlag: '65619,', rowNumber: rowNum + ',' }),
+      this._wrap(
+        this._cmd(205, [
+          { name: 'rsRowSelectedFlOnly', value: 'true' },
+          { code: 'X', value: period },
+          { code: 'K', value: '2' },
+          { code: 'C', value: rowNum },
+          { code: 'P', value: '0' },
+          { code: 'V', value: 'true' },
+        ]),
+        { data: encodedRow, editFlag: '65619,', rowNumber: rowNum + ',' }
+      ),
       // 205 PUT K2: write explanation data
-      this._wrap(this._cmd(205, [
-        { code: 'X', value: period }, { code: 'K', value: '2' },
-        { code: 'C', value: rowNum }, { code: 'P', value: '0' },
-        { code: 'V', value: 'true' },
-        { name: 'lastPutId', value: String(this.lastPutId++) },
-      ]), { data: encodedRow, editFlag: '65619,', rowNumber: rowNum + ',' }),
+      this._wrap(
+        this._cmd(205, [
+          { code: 'X', value: period },
+          { code: 'K', value: '2' },
+          { code: 'C', value: rowNum },
+          { code: 'P', value: '0' },
+          { code: 'V', value: 'true' },
+          { name: 'lastPutId', value: String(this.lastPutId++) },
+        ]),
+        { data: encodedRow, editFlag: '65619,', rowNumber: rowNum + ',' }
+      ),
       // 205 PUT K2: second data write (replicates browser behavior)
-      this._wrap(this._cmd(205, [
-        { code: 'X', value: period }, { code: 'K', value: '2' },
-        { code: 'C', value: rowNum }, { code: 'P', value: '0' },
-        { code: 'V', value: 'true' },
-        { name: 'lastPutId', value: String(this.lastPutId++) },
-      ]), { data: encodedRow, editFlag: '65619,', rowNumber: rowNum + ',' }),
+      this._wrap(
+        this._cmd(205, [
+          { code: 'X', value: period },
+          { code: 'K', value: '2' },
+          { code: 'C', value: rowNum },
+          { code: 'P', value: '0' },
+          { code: 'V', value: 'true' },
+          { name: 'lastPutId', value: String(this.lastPutId++) },
+        ]),
+        { data: encodedRow, editFlag: '65619,', rowNumber: rowNum + ',' }
+      ),
       // 206 SAVE
-      this._wrap(this._cmd(206, [
-        { code: 'G', value: 'false' }, { code: 'C', value: period },
-        { code: 'U', value: 'true' }, { code: 'K', value: '0' },
-        { code: 'V', value: 'true' },
-      ])),
+      this._wrap(
+        this._cmd(206, [
+          { code: 'G', value: 'false' },
+          { code: 'C', value: period },
+          { code: 'U', value: 'true' },
+          { code: 'K', value: '0' },
+          { code: 'V', value: 'true' },
+        ])
+      ),
       // 204 refresh K0 + K1
       ...this._get204(0),
       ...this._get204(1),
@@ -2741,22 +3103,31 @@ class DirectClient {
     const putId = this.lastPutId++;
     const cmds = [
       // 205 PUT K1
-      this._wrap(this._cmd(205, [
-        { code: 'X', value: String(this.periodIdx) }, { code: 'K', value: '1' },
-        { code: 'C', value: '0' }, { code: 'P', value: '0' },
-        { code: 'V', value: 'true' },
-        { name: 'lastPutId', value: String(putId) },
-      ]), {
-        data: encodedRow + protocol.DLM_ROW,
-        editFlag: '18,',
-        rowNumber: rowNum + ',',
-      }),
+      this._wrap(
+        this._cmd(205, [
+          { code: 'X', value: String(this.periodIdx) },
+          { code: 'K', value: '1' },
+          { code: 'C', value: '0' },
+          { code: 'P', value: '0' },
+          { code: 'V', value: 'true' },
+          { name: 'lastPutId', value: String(putId) },
+        ]),
+        {
+          data: encodedRow + protocol.DLM_ROW,
+          editFlag: '18,',
+          rowNumber: rowNum + ',',
+        }
+      ),
       // 208 VALIDATE
-      this._wrap(this._cmd(208, [
-        { name: 'objectId', value: 'DAY' + dayNum + '_HRS' },
-        { code: 'K', value: '1' }, { code: 'C', value: '0' },
-        { code: 'P', value: '0' }, { code: 'V', value: 'true' },
-      ])),
+      this._wrap(
+        this._cmd(208, [
+          { name: 'objectId', value: 'DAY' + dayNum + '_HRS' },
+          { code: 'K', value: '1' },
+          { code: 'C', value: '0' },
+          { code: 'P', value: '0' },
+          { code: 'V', value: 'true' },
+        ])
+      ),
       // 204 K0 positive + negative
       ...this._get204(0),
       // 204 K1 positive + negative
@@ -2788,38 +3159,51 @@ class DirectClient {
     for (let i = 0; i < this.childData.rows.length; i++) {
       childDataStr += protocol.encodePutRow(this.childData.rows[i]) + protocol.DLM_ROW;
       const rowNum = parseInt(this.childData.rowNums[i], 10);
-      childEditFlags += (rowNum < 0 ? '19,' : '18,');
+      childEditFlags += rowNum < 0 ? '19,' : '18,';
       childRowNumbers += this.childData.rowNums[i] + ',';
     }
 
     const cmds = [
       // 205 PUT K0 (parent)
-      this._wrap(this._cmd(205, [
-        { code: 'K', value: '0' }, { code: 'C', value: period },
-        { code: 'V', value: 'true' },
-        { name: 'lastPutId', value: String(this.lastPutId++) },
-      ]), {
-        data: encodedParent + protocol.DLM_ROW,
-        editFlag: parentEditFlag,
-        rowNumber: parentRowNum + ',',
-      }),
+      this._wrap(
+        this._cmd(205, [
+          { code: 'K', value: '0' },
+          { code: 'C', value: period },
+          { code: 'V', value: 'true' },
+          { name: 'lastPutId', value: String(this.lastPutId++) },
+        ]),
+        {
+          data: encodedParent + protocol.DLM_ROW,
+          editFlag: parentEditFlag,
+          rowNumber: parentRowNum + ',',
+        }
+      ),
       // 205 PUT K1 (all child rows)
-      this._wrap(this._cmd(205, [
-        { code: 'X', value: period }, { code: 'K', value: '1' },
-        { code: 'C', value: '0' }, { code: 'P', value: '0' },
-        { code: 'V', value: 'true' },
-        { name: 'lastPutId', value: String(this.lastPutId++) },
-      ]), {
-        data: childDataStr,
-        editFlag: childEditFlags,
-        rowNumber: childRowNumbers,
-      }),
+      this._wrap(
+        this._cmd(205, [
+          { code: 'X', value: period },
+          { code: 'K', value: '1' },
+          { code: 'C', value: '0' },
+          { code: 'P', value: '0' },
+          { code: 'V', value: 'true' },
+          { name: 'lastPutId', value: String(this.lastPutId++) },
+        ]),
+        {
+          data: childDataStr,
+          editFlag: childEditFlags,
+          rowNumber: childRowNumbers,
+        }
+      ),
       // 206 SAVE
-      this._wrap(this._cmd(206, [
-        { code: 'G', value: 'false' }, { code: 'C', value: period },
-        { code: 'U', value: 'true' }, { code: 'K', value: '0' },
-        { code: 'V', value: 'true' },
-      ])),
+      this._wrap(
+        this._cmd(206, [
+          { code: 'G', value: 'false' },
+          { code: 'C', value: period },
+          { code: 'U', value: 'true' },
+          { code: 'K', value: '0' },
+          { code: 'V', value: 'true' },
+        ])
+      ),
       // 204 K0 positive + negative
       ...this._get204(0),
       // 204 K1 positive + negative
@@ -2846,48 +3230,65 @@ class DirectClient {
     this._actionSeq = (this._actionSeq || 0) + 1;
 
     const cmds = [
-      this._wrap(this._cmd(205, [
-        { name: 'rsRowSelectedFlOnly', value: 'true' },
-        { code: 'K', value: '0' }, { code: 'C', value: period },
-        { code: 'V', value: 'true' },
-      ]), { data: encodedParent, editFlag: '64,', rowNumber: parentRowNum }),
-      this._wrap(this._cmd(205, [
-        { name: 'rsContextOnly', value: 'Y' },
-        { code: 'K', value: '0' }, { code: 'C', value: period },
-        { code: 'V', value: 'true' },
-        { name: 'lastPutId', value: String(this.lastPutId++) },
-      ]), { data: encodedParent, editFlag: '64,', rowNumber: parentRowNum }),
+      this._wrap(
+        this._cmd(205, [
+          { name: 'rsRowSelectedFlOnly', value: 'true' },
+          { code: 'K', value: '0' },
+          { code: 'C', value: period },
+          { code: 'V', value: 'true' },
+        ]),
+        { data: encodedParent, editFlag: '64,', rowNumber: parentRowNum }
+      ),
+      this._wrap(
+        this._cmd(205, [
+          { name: 'rsContextOnly', value: 'Y' },
+          { code: 'K', value: '0' },
+          { code: 'C', value: period },
+          { code: 'V', value: 'true' },
+          { name: 'lastPutId', value: String(this.lastPutId++) },
+        ]),
+        { data: encodedParent, editFlag: '64,', rowNumber: parentRowNum }
+      ),
     ];
 
     if (this.childData.rows.length > 0) {
-      cmds.push(this._wrap(this._cmd(205, [
-        { code: 'X', value: period },
-        { name: 'rsContextOnly', value: 'Y' },
-        { code: 'K', value: '1' }, { code: 'C', value: '0' },
-        { code: 'P', value: '0' }, { code: 'V', value: 'true' },
-        { name: 'lastPutId', value: String(this.lastPutId++) },
-      ]), {
-        data: protocol.encodePutRow(this.childData.rows[0]) + protocol.DLM_ROW,
-        editFlag: '0,',
-        rowNumber: this.childData.rowNums[0] + ',',
-      }));
+      cmds.push(
+        this._wrap(
+          this._cmd(205, [
+            { code: 'X', value: period },
+            { name: 'rsContextOnly', value: 'Y' },
+            { code: 'K', value: '1' },
+            { code: 'C', value: '0' },
+            { code: 'P', value: '0' },
+            { code: 'V', value: 'true' },
+            { name: 'lastPutId', value: String(this.lastPutId++) },
+          ]),
+          {
+            data: protocol.encodePutRow(this.childData.rows[0]) + protocol.DLM_ROW,
+            editFlag: '0,',
+            rowNumber: this.childData.rowNums[0] + ',',
+          }
+        )
+      );
     }
 
     cmds.push(
-      this._wrap(this._cmd(300, [
-        ...this._actionBoilerplate(),
-        { name: 'actionId', value: 'TMMTS_CORRECT_TIMESHEET' },
-        { name: 'restartFl', value: 'false' },
-        { code: 'C', value: period },
-        { name: 'longRunActionFl', value: '0' },
-        { name: 'procUniqueId', value: APP_ID + ':A:' + this.sid + ':' + this._actionSeq },
-        { name: 'psSchWorkflowNotifyFl', value: 'false' },
-        { code: 'K', value: '0' },
-        { code: 'V', value: 'true' },
-      ])),
+      this._wrap(
+        this._cmd(300, [
+          ...this._actionBoilerplate(),
+          { name: 'actionId', value: 'TMMTS_CORRECT_TIMESHEET' },
+          { name: 'restartFl', value: 'false' },
+          { code: 'C', value: period },
+          { name: 'longRunActionFl', value: '0' },
+          { name: 'procUniqueId', value: APP_ID + ':A:' + this.sid + ':' + this._actionSeq },
+          { name: 'psSchWorkflowNotifyFl', value: 'false' },
+          { code: 'K', value: '0' },
+          { code: 'V', value: 'true' },
+        ])
+      ),
       ...this._get204(0),
       ...this._get204(1),
-      this._keepalive(),
+      this._keepalive()
     );
 
     // reqIdx=1 accompanies CMD 300 action requests (matches browser capture)
@@ -2902,20 +3303,28 @@ class DirectClient {
     const idx = this.periodIdx;
     const period = String(idx);
     const cmds = [
-      this._wrap(this._cmd(205, [
-        { code: 'K', value: '0' }, { code: 'C', value: period },
-        { code: 'V', value: 'true' },
-        { name: 'lastPutId', value: String(this.lastPutId++) },
-      ]), {
-        data: protocol.encodePutRow(this.parentData.rows[idx]) + protocol.DLM_ROW,
-        editFlag: '82,',
-        rowNumber: this.parentData.rowNums[idx] + ',',
-      }),
-      this._wrap(this._cmd(206, [
-        { code: 'G', value: 'false' }, { code: 'C', value: period },
-        { code: 'U', value: 'true' }, { code: 'K', value: '0' },
-        { code: 'V', value: 'true' },
-      ])),
+      this._wrap(
+        this._cmd(205, [
+          { code: 'K', value: '0' },
+          { code: 'C', value: period },
+          { code: 'V', value: 'true' },
+          { name: 'lastPutId', value: String(this.lastPutId++) },
+        ]),
+        {
+          data: protocol.encodePutRow(this.parentData.rows[idx]) + protocol.DLM_ROW,
+          editFlag: '82,',
+          rowNumber: this.parentData.rowNums[idx] + ',',
+        }
+      ),
+      this._wrap(
+        this._cmd(206, [
+          { code: 'G', value: 'false' },
+          { code: 'C', value: period },
+          { code: 'U', value: 'true' },
+          { code: 'K', value: '0' },
+          { code: 'V', value: 'true' },
+        ])
+      ),
       ...this._getActionSaveRefresh(),
       this._keepalive(),
     ];
@@ -2953,28 +3362,35 @@ class DirectClient {
 
     const cmds = [
       // PUT K1 (current child row state)
-      this._wrap(this._cmd(205, [
-        { code: 'X', value: String(this.periodIdx) }, { code: 'K', value: '1' },
-        { code: 'C', value: rowNum }, { code: 'P', value: '0' },
-        { code: 'V', value: 'true' },
-        { name: 'lastPutId', value: String(this.lastPutId++) },
-      ]), {
-        data: encodedRow + protocol.DLM_ROW,
-        editFlag: '19,',
-        rowNumber: rowNum + ',',
-      }),
+      this._wrap(
+        this._cmd(205, [
+          { code: 'X', value: String(this.periodIdx) },
+          { code: 'K', value: '1' },
+          { code: 'C', value: rowNum },
+          { code: 'P', value: '0' },
+          { code: 'V', value: 'true' },
+          { name: 'lastPutId', value: String(this.lastPutId++) },
+        ]),
+        {
+          data: encodedRow + protocol.DLM_ROW,
+          editFlag: '19,',
+          rowNumber: rowNum + ',',
+        }
+      ),
       // 201 OPEN_RS K2 (charge lookup)
-      this._wrap(this._cmd(201, [
-        { code: 'K', value: '2' },
-        { code: 'I', value: 'TC_UDT02_CHARGE_LKP' },
-        { code: 'N', value: '0' },
-        { code: 'L', value: '16' },
-        { code: 'P', value: '1' },
-        { name: 'objectId', value: 'UDT02_ID' },
-        { name: 'checkCache', value: '0' },
-        { code: 'C', value: '-60000' },
-        { code: 'V', value: 'true' },
-      ])),
+      this._wrap(
+        this._cmd(201, [
+          { code: 'K', value: '2' },
+          { code: 'I', value: 'TC_UDT02_CHARGE_LKP' },
+          { code: 'N', value: '0' },
+          { code: 'L', value: '16' },
+          { code: 'P', value: '1' },
+          { name: 'objectId', value: 'UDT02_ID' },
+          { name: 'checkCache', value: '0' },
+          { code: 'C', value: '-60000' },
+          { code: 'V', value: 'true' },
+        ])
+      ),
       this._keepalive(),
     ];
     return protocol.buildRequestBody(this.sid, cmds);
@@ -2987,17 +3403,19 @@ class DirectClient {
    */
   _buildOpenFavoritesLookup() {
     const cmds = [
-      this._wrap(this._cmd(201, [
-        { code: 'K', value: '2' },
-        { code: 'I', value: 'TC_UDT02_CHARGE_LKP' },
-        { code: 'N', value: '0' },
-        { code: 'L', value: '16' },
-        { code: 'P', value: '1' },
-        { name: 'objectId', value: 'UDT02_ID' },
-        { name: 'checkCache', value: '0' },
-        { code: 'C', value: '-60000' },
-        { code: 'V', value: 'true' },
-      ])),
+      this._wrap(
+        this._cmd(201, [
+          { code: 'K', value: '2' },
+          { code: 'I', value: 'TC_UDT02_CHARGE_LKP' },
+          { code: 'N', value: '0' },
+          { code: 'L', value: '16' },
+          { code: 'P', value: '1' },
+          { name: 'objectId', value: 'UDT02_ID' },
+          { name: 'checkCache', value: '0' },
+          { code: 'C', value: '-60000' },
+          { code: 'V', value: 'true' },
+        ])
+      ),
       this._keepalive(),
     ];
     return protocol.buildRequestBody(this.sid, cmds);
@@ -3013,16 +3431,21 @@ class DirectClient {
     // C=0 (not -60000) — browser uses top-of-list cursor when no row is selected.
     const where = '1|C^$H_LKP_SEL_LVL$^1^2^0|C^$H_LKP_SEL_ROW$^1^0^0|';
     const cmds = [
-      this._wrap(this._cmd(204, [
-        { name: 'rsType', value: 'L' },
-        { code: 'R', value: 'HLKP' },
-        { code: 'S', value: '0' }, { code: 'E', value: '100' },
-        { code: 'X', value: '-59999' },
-        { code: 'W', value: where },
-        { name: 'objectId', value: 'UDT02_ID' },
-        { code: 'K', value: '2' }, { code: 'C', value: '0' },
-        { code: 'P', value: '1' }, { code: 'V', value: 'true' },
-      ])),
+      this._wrap(
+        this._cmd(204, [
+          { name: 'rsType', value: 'L' },
+          { code: 'R', value: 'HLKP' },
+          { code: 'S', value: '0' },
+          { code: 'E', value: '100' },
+          { code: 'X', value: '-59999' },
+          { code: 'W', value: where },
+          { name: 'objectId', value: 'UDT02_ID' },
+          { code: 'K', value: '2' },
+          { code: 'C', value: '0' },
+          { code: 'P', value: '1' },
+          { code: 'V', value: 'true' },
+        ])
+      ),
       this._keepalive(),
     ];
     return protocol.buildRequestBody(this.sid, cmds);
@@ -3037,25 +3460,35 @@ class DirectClient {
   _buildCategoriesLookup() {
     const where = '1|C^$H_LKP_SEL_LVL$^1^1^0|C^$H_LKP_SEL_ROW$^1^-1^0|';
     const cmds = [
-      this._wrap(this._cmd(204, [
-        { name: 'rsType', value: 'L' },
-        { code: 'R', value: 'HLKP' },
-        { code: 'S', value: '0' }, { code: 'E', value: '100' },
-        { code: 'X', value: '-59999' },
-        { code: 'W', value: where },
-        { name: 'objectId', value: 'UDT02_ID' },
-        { code: 'K', value: '2' }, { code: 'C', value: '-60000' },
-        { code: 'P', value: '1' }, { code: 'V', value: 'true' },
-      ])),
-      this._wrap(this._cmd(204, [
-        { name: 'rsType', value: 'L' },
-        { code: 'R', value: 'HLKP' },
-        { code: 'S', value: '-59999' }, { code: 'E', value: '-59899' },
-        { code: 'X', value: '-59999' },
-        { name: 'newQry', value: 'Y' },
-        { code: 'K', value: '2' }, { code: 'C', value: '-60000' },
-        { code: 'P', value: '1' }, { code: 'V', value: 'true' },
-      ])),
+      this._wrap(
+        this._cmd(204, [
+          { name: 'rsType', value: 'L' },
+          { code: 'R', value: 'HLKP' },
+          { code: 'S', value: '0' },
+          { code: 'E', value: '100' },
+          { code: 'X', value: '-59999' },
+          { code: 'W', value: where },
+          { name: 'objectId', value: 'UDT02_ID' },
+          { code: 'K', value: '2' },
+          { code: 'C', value: '-60000' },
+          { code: 'P', value: '1' },
+          { code: 'V', value: 'true' },
+        ])
+      ),
+      this._wrap(
+        this._cmd(204, [
+          { name: 'rsType', value: 'L' },
+          { code: 'R', value: 'HLKP' },
+          { code: 'S', value: '-59999' },
+          { code: 'E', value: '-59899' },
+          { code: 'X', value: '-59999' },
+          { name: 'newQry', value: 'Y' },
+          { code: 'K', value: '2' },
+          { code: 'C', value: '-60000' },
+          { code: 'P', value: '1' },
+          { code: 'V', value: 'true' },
+        ])
+      ),
       this._keepalive(),
     ];
     return protocol.buildRequestBody(this.sid, cmds);
@@ -3065,31 +3498,40 @@ class DirectClient {
    * Build CMD 204 HLKP batch to fetch available charges for a project code.
    */
   _buildHlkpQuery(code) {
-    const where = '1|C^UDT02_ID^9^' + code +
-      '^0|C^$H_LKP_SEL_LVL$^1^1^0|C^$H_LKP_SEL_ROW$^1^-2^0|';
+    const where = '1|C^UDT02_ID^9^' + code + '^0|C^$H_LKP_SEL_LVL$^1^1^0|C^$H_LKP_SEL_ROW$^1^-2^0|';
 
     const cmds = [
       // 204 HLKP positive range
-      this._wrap(this._cmd(204, [
-        { name: 'rsType', value: 'L' },
-        { code: 'R', value: 'HLKP' },
-        { code: 'S', value: '0' }, { code: 'E', value: '100' },
-        { code: 'X', value: '-59999' },
-        { code: 'W', value: where },
-        { name: 'objectId', value: 'UDT02_ID' },
-        { code: 'K', value: '2' }, { code: 'C', value: '-60000' },
-        { code: 'P', value: '1' }, { code: 'V', value: 'true' },
-      ])),
+      this._wrap(
+        this._cmd(204, [
+          { name: 'rsType', value: 'L' },
+          { code: 'R', value: 'HLKP' },
+          { code: 'S', value: '0' },
+          { code: 'E', value: '100' },
+          { code: 'X', value: '-59999' },
+          { code: 'W', value: where },
+          { name: 'objectId', value: 'UDT02_ID' },
+          { code: 'K', value: '2' },
+          { code: 'C', value: '-60000' },
+          { code: 'P', value: '1' },
+          { code: 'V', value: 'true' },
+        ])
+      ),
       // 204 HLKP negative range
-      this._wrap(this._cmd(204, [
-        { name: 'rsType', value: 'L' },
-        { code: 'R', value: 'HLKP' },
-        { code: 'S', value: '-59999' }, { code: 'E', value: '-59899' },
-        { code: 'X', value: '-59999' },
-        { name: 'newQry', value: 'Y' },
-        { code: 'K', value: '2' }, { code: 'C', value: '-60000' },
-        { code: 'P', value: '1' }, { code: 'V', value: 'true' },
-      ])),
+      this._wrap(
+        this._cmd(204, [
+          { name: 'rsType', value: 'L' },
+          { code: 'R', value: 'HLKP' },
+          { code: 'S', value: '-59999' },
+          { code: 'E', value: '-59899' },
+          { code: 'X', value: '-59999' },
+          { name: 'newQry', value: 'Y' },
+          { code: 'K', value: '2' },
+          { code: 'C', value: '-60000' },
+          { code: 'P', value: '1' },
+          { code: 'V', value: 'true' },
+        ])
+      ),
       this._keepalive(),
     ];
     return protocol.buildRequestBody(this.sid, cmds);
@@ -3155,119 +3597,174 @@ class DirectClient {
 
     const cmds = [
       // 1. PUT K2 selected ($rsRowSelectedFlOnly$=true, editFlag=64)
-      this._wrap(this._cmd(205, [
-        { name: 'rsRowSelectedFlOnly', value: 'true' },
-        { code: 'X', value: '-59999' },
-        { code: 'K', value: '2' }, { code: 'C', value: '0' },
-        { code: 'P', value: '1' }, { code: 'V', value: 'true' },
-      ]), {
-        data: encodedK2 + protocol.DLM_ROW,
-        editFlag: '64,',
-        rowNumber: k2RowNum + ',',
-      }),
+      this._wrap(
+        this._cmd(205, [
+          { name: 'rsRowSelectedFlOnly', value: 'true' },
+          { code: 'X', value: '-59999' },
+          { code: 'K', value: '2' },
+          { code: 'C', value: '0' },
+          { code: 'P', value: '1' },
+          { code: 'V', value: 'true' },
+        ]),
+        {
+          data: encodedK2 + protocol.DLM_ROW,
+          editFlag: '64,',
+          rowNumber: k2RowNum + ',',
+        }
+      ),
       // 2. PUT K1 child (editFlag=19)
-      this._wrap(this._cmd(205, [
-        { code: 'X', value: period }, { code: 'K', value: '1' },
-        { code: 'C', value: '-59999' }, { code: 'P', value: '0' },
-        { code: 'V', value: 'true' },
-        { name: 'lastPutId', value: String(this.lastPutId++) },
-      ]), {
-        data: encodedChild + protocol.DLM_ROW,
-        editFlag: '19,',
-        rowNumber: '-59999,',
-      }),
+      this._wrap(
+        this._cmd(205, [
+          { code: 'X', value: period },
+          { code: 'K', value: '1' },
+          { code: 'C', value: '-59999' },
+          { code: 'P', value: '0' },
+          { code: 'V', value: 'true' },
+          { name: 'lastPutId', value: String(this.lastPutId++) },
+        ]),
+        {
+          data: encodedChild + protocol.DLM_ROW,
+          editFlag: '19,',
+          rowNumber: '-59999,',
+        }
+      ),
       // 3. PUT K2 selected again (editFlag=64)
-      this._wrap(this._cmd(205, [
-        { code: 'X', value: '-59999' },
-        { code: 'K', value: '2' }, { code: 'C', value: '0' },
-        { code: 'P', value: '1' }, { code: 'V', value: 'true' },
-        { name: 'lastPutId', value: String(this.lastPutId++) },
-      ]), {
-        data: encodedK2 + protocol.DLM_ROW,
-        editFlag: '64,',
-        rowNumber: k2RowNum + ',',
-      }),
+      this._wrap(
+        this._cmd(205, [
+          { code: 'X', value: '-59999' },
+          { code: 'K', value: '2' },
+          { code: 'C', value: '0' },
+          { code: 'P', value: '1' },
+          { code: 'V', value: 'true' },
+          { name: 'lastPutId', value: String(this.lastPutId++) },
+        ]),
+        {
+          data: encodedK2 + protocol.DLM_ROW,
+          editFlag: '64,',
+          rowNumber: k2RowNum + ',',
+        }
+      ),
       // 4. PUT K1 child context ($rsContextOnly$=Y)
-      this._wrap(this._cmd(205, [
-        { code: 'X', value: period },
-        { name: 'rsContextOnly', value: 'Y' },
-        { code: 'K', value: '1' }, { code: 'C', value: '-59999' },
-        { code: 'P', value: '0' }, { code: 'V', value: 'true' },
-        { name: 'lastPutId', value: String(this.lastPutId++) },
-      ]), {
-        data: encodedChild + protocol.DLM_ROW,
-        editFlag: '19,',
-        rowNumber: '-59999,',
-      }),
+      this._wrap(
+        this._cmd(205, [
+          { code: 'X', value: period },
+          { name: 'rsContextOnly', value: 'Y' },
+          { code: 'K', value: '1' },
+          { code: 'C', value: '-59999' },
+          { code: 'P', value: '0' },
+          { code: 'V', value: 'true' },
+          { name: 'lastPutId', value: String(this.lastPutId++) },
+        ]),
+        {
+          data: encodedChild + protocol.DLM_ROW,
+          editFlag: '19,',
+          rowNumber: '-59999,',
+        }
+      ),
       // 5. PUT K0 parent context ($rsContextOnly$=Y, editFlag=65562)
-      this._wrap(this._cmd(205, [
-        { name: 'rsContextOnly', value: 'Y' },
-        { code: 'K', value: '0' }, { code: 'C', value: period },
-        { code: 'V', value: 'true' },
-        { name: 'lastPutId', value: String(this.lastPutId++) },
-      ]), {
-        data: encodedParent + protocol.DLM_ROW,
-        editFlag: '65562,',
-        rowNumber: parentRowNum + ',',
-      }),
+      this._wrap(
+        this._cmd(205, [
+          { name: 'rsContextOnly', value: 'Y' },
+          { code: 'K', value: '0' },
+          { code: 'C', value: period },
+          { code: 'V', value: 'true' },
+          { name: 'lastPutId', value: String(this.lastPutId++) },
+        ]),
+        {
+          data: encodedParent + protocol.DLM_ROW,
+          editFlag: '65562,',
+          rowNumber: parentRowNum + ',',
+        }
+      ),
       // 6. PUT K2 selected context ($rsContextOnly$=Y)
-      this._wrap(this._cmd(205, [
-        { code: 'X', value: '-59999' },
-        { name: 'rsContextOnly', value: 'Y' },
-        { code: 'K', value: '2' }, { code: 'C', value: '0' },
-        { code: 'P', value: '1' }, { code: 'V', value: 'true' },
-        { name: 'lastPutId', value: String(this.lastPutId++) },
-      ]), {
-        data: encodedK2 + protocol.DLM_ROW,
-        editFlag: '64,',
-        rowNumber: k2RowNum + ',',
-      }),
+      this._wrap(
+        this._cmd(205, [
+          { code: 'X', value: '-59999' },
+          { name: 'rsContextOnly', value: 'Y' },
+          { code: 'K', value: '2' },
+          { code: 'C', value: '0' },
+          { code: 'P', value: '1' },
+          { code: 'V', value: 'true' },
+          { name: 'lastPutId', value: String(this.lastPutId++) },
+        ]),
+        {
+          data: encodedK2 + protocol.DLM_ROW,
+          editFlag: '64,',
+          rowNumber: k2RowNum + ',',
+        }
+      ),
       // 7. CMD 300 TC_TS_CHARGE_LKP_OK
-      this._wrap(this._cmd(300, [
-        ...this._actionBoilerplate(),
-        { name: 'actionId', value: 'TC_TS_CHARGE_LKP_OK' },
-        { name: 'restartFl', value: 'false' },
-        { code: 'C', value: '0' },
-        { name: 'longRunActionFl', value: '0' },
-        { name: 'procUniqueId', value: APP_ID + ':A:' + this.sid + ':' + actionSeq },
-        { name: 'psSchWorkflowNotifyFl', value: 'false' },
-        { code: 'K', value: '2' },
-        { code: 'P', value: '1' },
-        { code: 'V', value: 'true' },
-      ])),
+      this._wrap(
+        this._cmd(300, [
+          ...this._actionBoilerplate(),
+          { name: 'actionId', value: 'TC_TS_CHARGE_LKP_OK' },
+          { name: 'restartFl', value: 'false' },
+          { code: 'C', value: '0' },
+          { name: 'longRunActionFl', value: '0' },
+          { name: 'procUniqueId', value: APP_ID + ':A:' + this.sid + ':' + actionSeq },
+          { name: 'psSchWorkflowNotifyFl', value: 'false' },
+          { code: 'K', value: '2' },
+          { code: 'P', value: '1' },
+          { code: 'V', value: 'true' },
+        ])
+      ),
       // 8-9. 204 K0 positive + negative
       ...this._get204(0),
       // 10-11. 204 K1 positive + negative (C=-59999 for charge lookup context)
-      this._wrap(this._cmd(204, [
-        { name: 'rsType', value: 'M' }, { code: 'R', value: 'ABS' },
-        { code: 'S', value: '0' }, { code: 'E', value: String(k1PosE) },
-        { code: 'X', value: period }, { code: 'K', value: '1' },
-        { code: 'C', value: '-59999' }, { code: 'P', value: '0' },
-        { code: 'V', value: 'true' },
-      ])),
-      this._wrap(this._cmd(204, [
-        { name: 'rsType', value: 'M' }, { code: 'R', value: 'ABS' },
-        { code: 'S', value: '-59999' }, { code: 'E', value: String(k1NegE) },
-        { code: 'X', value: period }, { code: 'K', value: '1' },
-        { code: 'C', value: '-59999' }, { code: 'P', value: '0' },
-        { code: 'V', value: 'true' },
-      ])),
+      this._wrap(
+        this._cmd(204, [
+          { name: 'rsType', value: 'M' },
+          { code: 'R', value: 'ABS' },
+          { code: 'S', value: '0' },
+          { code: 'E', value: String(k1PosE) },
+          { code: 'X', value: period },
+          { code: 'K', value: '1' },
+          { code: 'C', value: '-59999' },
+          { code: 'P', value: '0' },
+          { code: 'V', value: 'true' },
+        ])
+      ),
+      this._wrap(
+        this._cmd(204, [
+          { name: 'rsType', value: 'M' },
+          { code: 'R', value: 'ABS' },
+          { code: 'S', value: '-59999' },
+          { code: 'E', value: String(k1NegE) },
+          { code: 'X', value: period },
+          { code: 'K', value: '1' },
+          { code: 'C', value: '-59999' },
+          { code: 'P', value: '0' },
+          { code: 'V', value: 'true' },
+        ])
+      ),
       // 12-13. 204 K2 positive + negative (rsType=L for lookup)
-      this._wrap(this._cmd(204, [
-        { name: 'rsType', value: 'L' }, { code: 'R', value: 'ABS' },
-        { code: 'S', value: '0' }, { code: 'E', value: '100' },
-        { code: 'X', value: '-59999' },
-        { name: 'objectId', value: 'UDT02_ID' },
-        { code: 'K', value: '2' }, { code: 'C', value: '0' },
-        { code: 'P', value: '1' }, { code: 'V', value: 'true' },
-      ])),
-      this._wrap(this._cmd(204, [
-        { name: 'rsType', value: 'L' }, { code: 'R', value: 'ABS' },
-        { code: 'S', value: '-59999' }, { code: 'E', value: '-59899' },
-        { code: 'X', value: '-59999' },
-        { code: 'K', value: '2' }, { code: 'C', value: '0' },
-        { code: 'P', value: '1' }, { code: 'V', value: 'true' },
-      ])),
+      this._wrap(
+        this._cmd(204, [
+          { name: 'rsType', value: 'L' },
+          { code: 'R', value: 'ABS' },
+          { code: 'S', value: '0' },
+          { code: 'E', value: '100' },
+          { code: 'X', value: '-59999' },
+          { name: 'objectId', value: 'UDT02_ID' },
+          { code: 'K', value: '2' },
+          { code: 'C', value: '0' },
+          { code: 'P', value: '1' },
+          { code: 'V', value: 'true' },
+        ])
+      ),
+      this._wrap(
+        this._cmd(204, [
+          { name: 'rsType', value: 'L' },
+          { code: 'R', value: 'ABS' },
+          { code: 'S', value: '-59999' },
+          { code: 'E', value: '-59899' },
+          { code: 'X', value: '-59999' },
+          { code: 'K', value: '2' },
+          { code: 'C', value: '0' },
+          { code: 'P', value: '1' },
+          { code: 'V', value: 'true' },
+        ])
+      ),
       // 14. keepalive
       this._keepalive(),
     ];

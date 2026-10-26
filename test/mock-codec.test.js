@@ -9,21 +9,32 @@ const DirectClient = require('../direct');
 const codec = require('../mock/codec');
 
 function roundTrip(rows, numCols) {
-  const slot = codec.encode204Slot({ rowNums: rows.map((_, i) => String(i)), rowFlags: rows.map(() => 0), rows }, numCols);
+  const slot = codec.encode204Slot(
+    { rowNums: rows.map((_, i) => String(i)), rowFlags: rows.map(() => 0), rows },
+    numCols
+  );
   const text = codec.buildResponse([{ rsKey: 0, cmdCd: 204, start: 0, end: 20, slot }]);
   return protocol.extract204(protocol.parseResponse(text), 0);
 }
 
 describe('response encoder', () => {
   test('round trips rows, row numbers and flags', () => {
-    const rows = [['a', 'b', '', 'd'], ['', '', '', ''], ['a', 'b', 'c', 'd'], ['x y', '1,2', 'say "hi"', 'l1\nl2']];
+    const rows = [
+      ['a', 'b', '', 'd'],
+      ['', '', '', ''],
+      ['a', 'b', 'c', 'd'],
+      ['x y', '1,2', 'say "hi"', 'l1\nl2'],
+    ];
     const got = roundTrip(rows, 4);
     assert.deepEqual(got.rows, rows);
     assert.deepEqual(got.rowNums, ['0', '1', '2', '3']);
   });
 
   test('keeps empty cells empty, including a run of them and a repeated row', () => {
-    const rows = [['', '', '', '', '', '', 'z'], ['', '', '', '', '', '', 'z']];
+    const rows = [
+      ['', '', '', '', '', '', 'z'],
+      ['', '', '', '', '', '', 'z'],
+    ];
     assert.deepEqual(roundTrip(rows, 7).rows, rows);
   });
 
@@ -35,7 +46,10 @@ describe('response encoder', () => {
   });
 
   test('a cell that looks like a marker survives', () => {
-    const rows = [['0', '?', 'A1', '5'], ['0', '?', 'A1', '5']];
+    const rows = [
+      ['0', '?', 'A1', '5'],
+      ['0', '?', 'A1', '5'],
+    ];
     assert.deepEqual(roundTrip(rows, 4).rows, rows);
   });
 
@@ -77,8 +91,11 @@ describe('PUT row decoder', () => {
 
 describe('W clause parser', () => {
   test('reads the HLKP level and row', () => {
-    assert.deepEqual(codec.parseWhere('1|C^UDT02_ID^9^PTO^0|C^$H_LKP_SEL_LVL$^1^1^0|C^$H_LKP_SEL_ROW$^1^-2^0|'),
-      { UDT02_ID: 'PTO', $H_LKP_SEL_LVL$: '1', $H_LKP_SEL_ROW$: '-2' });
+    assert.deepEqual(codec.parseWhere('1|C^UDT02_ID^9^PTO^0|C^$H_LKP_SEL_LVL$^1^1^0|C^$H_LKP_SEL_ROW$^1^-2^0|'), {
+      UDT02_ID: 'PTO',
+      $H_LKP_SEL_LVL$: '1',
+      $H_LKP_SEL_ROW$: '-2',
+    });
   });
 });
 
@@ -103,7 +120,10 @@ describe('request parser', () => {
     const body = stub()._buildCellEditBatch(0, 0, 5);
     const req = codec.parseRequest(body);
     assert.equal(req.sid, 'SID');
-    assert.deepEqual(req.commands.map(c => c.reqCd), [205, 208, 204, 204, 204, 204, 507]);
+    assert.deepEqual(
+      req.commands.map(c => c.reqCd),
+      [205, 208, 204, 204, 204, 204, 507]
+    );
     const put = req.commands[0];
     assert.equal(put.codes.X, '1');
     assert.equal(put.codes.K, '1');

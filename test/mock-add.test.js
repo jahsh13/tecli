@@ -8,7 +8,9 @@ const line = (data, code) => data.projects.find(p => p.code === code);
 
 describe('mock add', () => {
   let mock;
-  beforeEach(async () => { mock = await startMock(); });
+  beforeEach(async () => {
+    mock = await startMock();
+  });
   afterEach(() => mock.stop());
 
   test('adds a single-charge code', async () => {
@@ -64,7 +66,12 @@ describe('mock add', () => {
   test('a work location callback sees the defaults', async () => {
     const cp = await mock.launch();
     let seen;
-    await cp.add('PROJ.C.300', undefined, { workLocation: async p => { seen = p; return '20190'; } });
+    await cp.add('PROJ.C.300', undefined, {
+      workLocation: async p => {
+        seen = p;
+        return '20190';
+      },
+    });
     assert.equal(seen.workLocation, mock.db.employee.zip);
     assert.equal(cp.pendingLine().workLocation, '20190');
   });
@@ -94,7 +101,9 @@ describe('mock add', () => {
 
 describe('mock favorites', () => {
   let mock;
-  beforeEach(async () => { mock = await startMock(); });
+  beforeEach(async () => {
+    mock = await startMock();
+  });
   afterEach(() => mock.stop());
 
   test('lists the favorites', async () => {
@@ -138,7 +147,10 @@ describe('mock favorites', () => {
     await cp.addToFavorites();
     await cp.save();
     const favs = await (await mock.launch()).getFavorites();
-    assert.deepEqual(favs.map(f => f.code), ['PROJ.A.100', 'PROJ.B.200', 'PROJ.C.300']);
+    assert.deepEqual(
+      favs.map(f => f.code),
+      ['PROJ.A.100', 'PROJ.B.200', 'PROJ.C.300']
+    );
 
     const again = await mock.launch();
     await again.add('PROJ.C.300');
@@ -167,7 +179,10 @@ describe('mock leave', () => {
     try {
       const cp = await mock.launch();
       const { balances, details } = await cp.getLeaveBalances();
-      assert.deepEqual(balances.map(b => b.code), ['FTB', 'COMP', 'PTB']);
+      assert.deepEqual(
+        balances.map(b => b.code),
+        ['FTB', 'COMP', 'PTB']
+      );
       assert.equal(balances[1].balance, 120);
       assert.equal(details.length, 2);
       assert.equal(details[0].type, 'Earned');

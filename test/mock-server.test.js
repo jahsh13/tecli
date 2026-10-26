@@ -6,7 +6,9 @@ const { startMock } = require('./mock-helper');
 
 describe('mock server skeleton', () => {
   let mock;
-  before(async () => { mock = await startMock(); });
+  before(async () => {
+    mock = await startMock();
+  });
   after(() => mock.stop());
 
   test('DirectClient launches and reads the active week', async () => {

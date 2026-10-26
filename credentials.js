@@ -27,7 +27,11 @@ function writeConfig(config) {
 }
 
 function deleteConfig() {
-  try { fs.unlinkSync(CONFIG_PATH); } catch { /* ignore */ }
+  try {
+    fs.unlinkSync(CONFIG_PATH);
+  } catch {
+    /* ignore */
+  }
 }
 
 // ─── Keychain backends ──────────────────────────────────────────
@@ -59,9 +63,10 @@ function keychainDelete(account) {
 
 function _macGet(account) {
   try {
-    return execFileSync('security', [
-      'find-generic-password', '-s', SERVICE, '-a', account, '-w'
-    ], { encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'] }).trim();
+    return execFileSync('security', ['find-generic-password', '-s', SERVICE, '-a', account, '-w'], {
+      encoding: 'utf8',
+      stdio: ['pipe', 'pipe', 'pipe'],
+    }).trim();
   } catch {
     return null;
   }
@@ -70,26 +75,29 @@ function _macGet(account) {
 function _macSet(account, password) {
   // Delete first — add-generic-password fails if entry already exists
   _macDelete(account);
-  execFileSync('security', [
-    'add-generic-password', '-s', SERVICE, '-a', account, '-w', password
-  ], { stdio: ['pipe', 'pipe', 'pipe'] });
+  execFileSync('security', ['add-generic-password', '-s', SERVICE, '-a', account, '-w', password], {
+    stdio: ['pipe', 'pipe', 'pipe'],
+  });
 }
 
 function _macDelete(account) {
   try {
-    execFileSync('security', [
-      'delete-generic-password', '-s', SERVICE, '-a', account
-    ], { stdio: ['pipe', 'pipe', 'pipe'] });
-  } catch { /* may not exist */ }
+    execFileSync('security', ['delete-generic-password', '-s', SERVICE, '-a', account], {
+      stdio: ['pipe', 'pipe', 'pipe'],
+    });
+  } catch {
+    /* may not exist */
+  }
 }
 
 // ── Linux: secret-tool (libsecret) ─────────────────────────────
 
 function _linuxGet(account) {
   try {
-    return execFileSync('secret-tool', [
-      'lookup', 'service', SERVICE, 'username', account
-    ], { encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'] }).trim();
+    return execFileSync('secret-tool', ['lookup', 'service', SERVICE, 'username', account], {
+      encoding: 'utf8',
+      stdio: ['pipe', 'pipe', 'pipe'],
+    }).trim();
   } catch {
     return _fallbackGet(account);
   }
@@ -97,9 +105,10 @@ function _linuxGet(account) {
 
 function _linuxSet(account, password) {
   try {
-    execFileSync('secret-tool', [
-      'store', '--label=Time Entry CLI', 'service', SERVICE, 'username', account
-    ], { input: password, stdio: ['pipe', 'pipe', 'pipe'] });
+    execFileSync('secret-tool', ['store', '--label=Time Entry CLI', 'service', SERVICE, 'username', account], {
+      input: password,
+      stdio: ['pipe', 'pipe', 'pipe'],
+    });
   } catch {
     // secret-tool not available — fall back to encrypted file
     _fallbackSet(account, password);
@@ -108,10 +117,12 @@ function _linuxSet(account, password) {
 
 function _linuxDelete(account) {
   try {
-    execFileSync('secret-tool', [
-      'clear', 'service', SERVICE, 'username', account
-    ], { stdio: ['pipe', 'pipe', 'pipe'] });
-  } catch { /* ignore */ }
+    execFileSync('secret-tool', ['clear', 'service', SERVICE, 'username', account], {
+      stdio: ['pipe', 'pipe', 'pipe'],
+    });
+  } catch {
+    /* ignore */
+  }
   _fallbackDelete(); // clean up any fallback file too
 }
 
@@ -125,11 +136,21 @@ function _winGet(account) {
   try {
     const data = JSON.parse(fs.readFileSync(CRED_PATH, 'utf8'));
     if (data.account !== account || !data.dpapi) return null;
-    return execFileSync('powershell.exe', ['-NoProfile', '-Command',
-      '$secure = ConvertTo-SecureString \'' + data.dpapi + '\'; ' +
-      '$ptr = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($secure); ' +
-      '[Runtime.InteropServices.Marshal]::PtrToStringAuto($ptr)'
-    ], { encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'] }).trim() || null;
+    return (
+      execFileSync(
+        'powershell.exe',
+        [
+          '-NoProfile',
+          '-Command',
+          "$secure = ConvertTo-SecureString '" +
+            data.dpapi +
+            "'; " +
+            '$ptr = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($secure); ' +
+            '[Runtime.InteropServices.Marshal]::PtrToStringAuto($ptr)',
+        ],
+        { encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'] }
+      ).trim() || null
+    );
   } catch {
     return null;
   }
@@ -137,11 +158,17 @@ function _winGet(account) {
 
 function _winSet(account, password) {
   try {
-    const encrypted = execFileSync('powershell.exe', ['-NoProfile', '-Command',
-      '$pw = ($input | Out-String).TrimEnd(); ' +
-      '$secure = ConvertTo-SecureString $pw -AsPlainText -Force; ' +
-      'ConvertFrom-SecureString $secure'
-    ], { input: password, encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'] }).trim();
+    const encrypted = execFileSync(
+      'powershell.exe',
+      [
+        '-NoProfile',
+        '-Command',
+        '$pw = ($input | Out-String).TrimEnd(); ' +
+          '$secure = ConvertTo-SecureString $pw -AsPlainText -Force; ' +
+          'ConvertFrom-SecureString $secure',
+      ],
+      { input: password, encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'] }
+    ).trim();
     fs.writeFileSync(CRED_PATH, JSON.stringify({ account, dpapi: encrypted }, null, 2) + '\n');
   } catch {
     // PowerShell unavailable — fall back to AES
@@ -150,7 +177,11 @@ function _winSet(account, password) {
 }
 
 function _winDelete() {
-  try { fs.unlinkSync(CRED_PATH); } catch { /* ignore */ }
+  try {
+    fs.unlinkSync(CRED_PATH);
+  } catch {
+    /* ignore */
+  }
 }
 
 // ── Fallback: AES-256-GCM encrypted file ────────────────────────
@@ -185,13 +216,28 @@ function _fallbackSet(account, password) {
   let encrypted = cipher.update(password, 'utf8', 'hex');
   encrypted += cipher.final('hex');
   const tag = cipher.getAuthTag().toString('hex');
-  fs.writeFileSync(CRED_PATH, JSON.stringify({
-    account, iv: iv.toString('hex'), encrypted, tag
-  }, null, 2) + '\n', { mode: 0o600 });
+  fs.writeFileSync(
+    CRED_PATH,
+    JSON.stringify(
+      {
+        account,
+        iv: iv.toString('hex'),
+        encrypted,
+        tag,
+      },
+      null,
+      2
+    ) + '\n',
+    { mode: 0o600 }
+  );
 }
 
 function _fallbackDelete() {
-  try { fs.unlinkSync(CRED_PATH); } catch { /* ignore */ }
+  try {
+    fs.unlinkSync(CRED_PATH);
+  } catch {
+    /* ignore */
+  }
 }
 
 // ─── Interactive prompts ────────────────────────────────────────
@@ -199,7 +245,10 @@ function _fallbackDelete() {
 function prompt(text) {
   const rl = readline.createInterface({ input: process.stdin, output: process.stderr });
   return new Promise(resolve => {
-    rl.question(text, answer => { rl.close(); resolve(answer.trim()); });
+    rl.question(text, answer => {
+      rl.close();
+      resolve(answer.trim());
+    });
   });
 }
 
@@ -210,7 +259,10 @@ function promptSecret(text) {
     if (!stdin.isTTY) {
       // Non-interactive — read a line from stdin
       const rl = readline.createInterface({ input: stdin });
-      rl.once('line', line => { rl.close(); resolve(line.trim()); });
+      rl.once('line', line => {
+        rl.close();
+        resolve(line.trim());
+      });
       return;
     }
 
@@ -220,18 +272,20 @@ function promptSecret(text) {
     stdin.setEncoding('utf8');
 
     let input = '';
-    const onData = (ch) => {
+    const onData = ch => {
       if (ch === '\r' || ch === '\n') {
         stdin.setRawMode(wasRaw || false);
         stdin.pause();
         stdin.removeListener('data', onData);
         process.stderr.write('\n');
         resolve(input);
-      } else if (ch === '\u0003') { // Ctrl+C
+      } else if (ch === '\u0003') {
+        // Ctrl+C
         stdin.setRawMode(wasRaw || false);
         process.stderr.write('\n');
         process.exit(1);
-      } else if (ch === '\u007f' || ch === '\b') { // Backspace
+      } else if (ch === '\u007f' || ch === '\b') {
+        // Backspace
         input = input.slice(0, -1);
       } else {
         input += ch;
@@ -269,7 +323,9 @@ function isLocalUrl(url) {
  */
 function assertMockSafe(creds) {
   if (!isMockRun() || !creds || isLocalUrl(creds.url)) return;
-  throw new Error(`TECLI_MOCK is set but the Costpoint URL is not local (${creds.url}). Point COSTPOINT_URL at the mock (localhost) or unset TECLI_MOCK.`);
+  throw new Error(
+    `TECLI_MOCK is set but the Costpoint URL is not local (${creds.url}). Point COSTPOINT_URL at the mock (localhost) or unset TECLI_MOCK.`
+  );
 }
 
 /**
@@ -299,7 +355,9 @@ function getCredentials() {
   }
 
   if (isMockRun()) {
-    throw new Error('TECLI_MOCK is set but COSTPOINT_URL, COSTPOINT_USERNAME and COSTPOINT_PASSWORD are not all set. The stored login is not used in a mock run.');
+    throw new Error(
+      'TECLI_MOCK is set but COSTPOINT_URL, COSTPOINT_USERNAME and COSTPOINT_PASSWORD are not all set. The stored login is not used in a mock run.'
+    );
   }
 
   // 2. Config + keychain
@@ -342,7 +400,9 @@ async function login(defaults = {}) {
   let system = '';
   try {
     system = new URL(url).searchParams.get('system') || '';
-  } catch { /* ignore */ }
+  } catch {
+    /* ignore */
+  }
 
   // Save
   keychainSet(username, password);

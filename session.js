@@ -1,8 +1,8 @@
-"use strict";
+'use strict';
 
-const Costpoint = require("./costpoint");
-const DirectClient = require("./direct");
-const { assertBackReachable } = require("./week-label");
+const Costpoint = require('./costpoint');
+const DirectClient = require('./direct');
+const { assertBackReachable } = require('./week-label');
 
 const DEFAULT_IDLE_MS = 5 * 60 * 1000;
 
@@ -14,32 +14,38 @@ async function launchForPeriod(creds, period, { preloadPrevious = false } = {}) 
   const { url, username, password, system, useDirect } = creds;
   if (!useDirect) {
     if (period !== 0) {
-      throw new Error("Editing a past week requires direct mode (COSTPOINT_DIRECT=true)");
+      throw new Error('Editing a past week requires direct mode (COSTPOINT_DIRECT=true)');
     }
     return Costpoint.launch(url, username, password, system);
   }
   if (period === 0) {
-    return DirectClient.launch(
-      url, username, password,
-      preloadPrevious ? { loadPreviousPeriod: true } : undefined
-    );
+    return DirectClient.launch(url, username, password, preloadPrevious ? { loadPreviousPeriod: true } : undefined);
   }
   const cp = await DirectClient.launch(url, username, password);
   try {
     assertBackReachable(period, cp.getPeriods().length);
     await cp.selectPeriod(period);
   } catch (e) {
-    try { await cp.close(); } catch (e2) { /* ignore */ }
+    try {
+      await cp.close();
+    } catch (e2) {
+      /* ignore */
+    }
     throw e;
   }
   return cp;
 }
 
 function isSessionError(e) {
-  const msg = (e.message || "").toLowerCase();
-  return msg.includes("session") || msg.includes("not valid") ||
-         msg.includes("econnreset") || msg.includes("econnrefused") ||
-         msg.includes("socket hang up") || msg.includes("onservletexception");
+  const msg = (e.message || '').toLowerCase();
+  return (
+    msg.includes('session') ||
+    msg.includes('not valid') ||
+    msg.includes('econnreset') ||
+    msg.includes('econnrefused') ||
+    msg.includes('socket hang up') ||
+    msg.includes('onservletexception')
+  );
 }
 
 // One client at a time, bound to one period; asking for another period
@@ -57,7 +63,11 @@ function createSessionManager({ launch, idleMs = DEFAULT_IDLE_MS, onLaunch, onLa
     if (client) {
       const old = client;
       client = null;
-      try { await old.close(); } catch (e) { /* ignore */ }
+      try {
+        await old.close();
+      } catch (e) {
+        /* ignore */
+      }
       if (onRelease) onRelease();
     }
   }
@@ -101,7 +111,9 @@ function createSessionManager({ launch, idleMs = DEFAULT_IDLE_MS, onLaunch, onLa
     withClient,
     releaseClient,
     current: () => client,
-    get period() { return clientPeriod; },
+    get period() {
+      return clientPeriod;
+    },
   };
 }
 

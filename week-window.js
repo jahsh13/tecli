@@ -1,14 +1,14 @@
-"use strict";
+'use strict';
 
-const moment = require("moment");
-const { normalizeTimesheetStatus } = require("./timesheet-status");
+const moment = require('moment');
+const { normalizeTimesheetStatus } = require('./timesheet-status');
 
 // Periods are numbered like the parent K0 rows: 0 = active week, 1 = the week
 // before it, and so on. Offset k shows periods k+1 (left) and k (right).
 const WINDOW_SIZE = 2;
 
 function parsePeriod(value, fallback = 0) {
-  if (value === undefined || value === null || value === "") return fallback;
+  if (value === undefined || value === null || value === '') return fallback;
   const n = Number(value);
   return Number.isInteger(n) && n >= 0 ? n : null;
 }
@@ -27,7 +27,9 @@ function windowPeriods(offset) {
 }
 
 function periodWeekKey(activeStart, period) {
-  return moment(activeStart).subtract(7 * period, "days").format("YYYY-MM-DD");
+  return moment(activeStart)
+    .subtract(7 * period, 'days')
+    .format('YYYY-MM-DD');
 }
 
 function weekEditable(weekData, period, useDirect) {
@@ -68,11 +70,11 @@ function buildMergedData({ activeStart, weeksByStart, offset = 0, periodCount = 
 
   const allDates = [];
   for (let i = 0; i < 14; i++) {
-    const d = moment(olderKey).add(i, "days");
+    const d = moment(olderKey).add(i, 'days');
     allDates.push({
       date: d.date(),
-      fullDate: d.format("YYYY-MM-DD"),
-      dayOfWeek: d.format("ddd"),
+      fullDate: d.format('YYYY-MM-DD'),
+      dayOfWeek: d.format('ddd'),
     });
   }
 
@@ -80,7 +82,7 @@ function buildMergedData({ activeStart, weeksByStart, offset = 0, periodCount = 
   function addProjects(weekData, period) {
     if (!weekData) return;
     for (const p of weekData.projects) {
-      const key = `${p.code || ""}|${p.payType || ""}`;
+      const key = `${p.code || ''}|${p.payType || ''}`;
       if (!projectMap.has(key)) {
         projectMap.set(key, {
           code: p.code,
@@ -92,7 +94,7 @@ function buildMergedData({ activeStart, weeksByStart, offset = 0, periodCount = 
         });
       }
       const merged = projectMap.get(key);
-      if (p.description && p.description.length > (merged.description || "").length) {
+      if (p.description && p.description.length > (merged.description || '').length) {
         merged.description = p.description;
       }
       Object.assign(merged.hours, p.hours);

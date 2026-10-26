@@ -59,21 +59,22 @@ function encode204Slot({ rowNums, rowFlags, rows }, numCols) {
  * slot and 0 otherwise; error is the message of a failed frame.
  */
 function buildResponse(items) {
-  const frames = items.map(f => [
-    APP_ID, f.rsKey, f.cmdCd,
-    f.start === undefined ? 0 : f.start,
-    f.end === undefined ? 0 : f.end,
-    0, 0,
-  ].join('|'));
-  const rescds = items.map(f => String(f.rescd !== undefined ? f.rescd : (f.slot ? 1 : 0))).join(COMMA);
+  const frames = items.map(f =>
+    [APP_ID, f.rsKey, f.cmdCd, f.start === undefined ? 0 : f.start, f.end === undefined ? 0 : f.end, 0, 0].join('|')
+  );
+  const rescds = items.map(f => String(f.rescd !== undefined ? f.rescd : f.slot ? 1 : 0)).join(COMMA);
   const datas = items.map(f => f.slot || '<NO DATA>');
   const errors = items.map(f => (f.error ? [[f.error, []]] : '<OK>'));
   const body = [frames, rescds, datas, errors].map(v => JSON.stringify(v));
   // OPEN_RS column names ride in slot 5 as D.V(g,"maObjId",...), uncompressed
   const named = items.filter(f => f.columnNames);
   if (named.length > 0) {
-    body.push('[]', '[' + named.map(f =>
-      'function(g){D.V(g,"maObjId",' + JSON.stringify(f.columnNames.join(COMMA)) + ');}').join(',') + ']');
+    body.push(
+      '[]',
+      '[' +
+        named.map(f => 'function(g){D.V(g,"maObjId",' + JSON.stringify(f.columnNames.join(COMMA)) + ');}').join(',') +
+        ']'
+    );
   }
   return 'var responses=[' + body.join(',') + '];';
 }

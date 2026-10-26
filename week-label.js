@@ -13,9 +13,7 @@ function weekLabel(back) {
 function assertBackReachable(back, periodCount) {
   const reach = periodCount - 1;
   if (back > reach) {
-    throw new Error(
-      `Cannot go back ${back} weeks. Costpoint offers ${reach} past week${reach === 1 ? '' : 's'}.`,
-    );
+    throw new Error(`Cannot go back ${back} weeks. Costpoint offers ${reach} past week${reach === 1 ? '' : 's'}.`);
   }
 }
 
@@ -25,8 +23,7 @@ const SIGNED_CODES = ['S', 'A', 'P'];
 // One line with the signed state and the hours of every line in the week
 function weekSummary(data) {
   const signed = SIGNED_CODES.includes(normalizeTimesheetStatus(data.timesheetStatusCode).code);
-  const total = data.projects.reduce(
-    (sum, p) => sum + Object.values(p.hours).reduce((s, h) => s + (h || 0), 0), 0);
+  const total = data.projects.reduce((sum, p) => sum + Object.values(p.hours).reduce((s, h) => s + (h || 0), 0), 0);
   return `Signed: ${signed ? 'yes' : 'no'} | Week total: ${Math.round(total * 100) / 100}h`;
 }
 

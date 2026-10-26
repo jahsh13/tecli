@@ -113,7 +113,10 @@ describe('save after add-to-favorites', () => {
         : 'refetch';
     };
     let refetches = 0;
-    client._refetchTimesheet = async () => { refetches++; client.childData = fresh; };
+    client._refetchTimesheet = async () => {
+      refetches++;
+      client.childData = fresh;
+    };
     await client.save();
     assert.equal(refetches, 1);
     assert.deepEqual(client.childData.rowNums, ['0', '1']);

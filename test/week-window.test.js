@@ -18,7 +18,12 @@ function week(start, status, lines) {
     dates,
     timesheetStatusCode: status,
     projects: lines.map((code, line) => ({
-      line, code, description: code, payType: 'REG', hours: { [dates[0].date]: 8 }, comments: {},
+      line,
+      code,
+      description: code,
+      payType: 'REG',
+      hours: { [dates[0].date]: 8 },
+      comments: {},
     })),
   };
 }
@@ -57,7 +62,10 @@ test('parsePeriod accepts non-negative integers only', () => {
 
 test('offset 0 shows previous week left and active week right', () => {
   const m = ww.buildMergedData({ activeStart: ACTIVE, weeksByStart: weeks, offset: 0, periodCount: 5 });
-  assert.deepEqual(m.weeks.map(w => w.period), [1, 0]);
+  assert.deepEqual(
+    m.weeks.map(w => w.period),
+    [1, 0]
+  );
   assert.equal(m.dates[0].fullDate, '2026-03-01');
   assert.equal(m.dates[13].fullDate, '2026-03-14');
   assert.equal(m.weeks[1].isActive, true);
@@ -71,7 +79,10 @@ test('offset 0 shows previous week left and active week right', () => {
 
 test('offset 1 shows periods 2 and 1 and drops active-only behavior', () => {
   const m = ww.buildMergedData({ activeStart: ACTIVE, weeksByStart: weeks, offset: 1, periodCount: 5 });
-  assert.deepEqual(m.weeks.map(w => w.period), [2, 1]);
+  assert.deepEqual(
+    m.weeks.map(w => w.period),
+    [2, 1]
+  );
   assert.equal(m.dates[0].fullDate, '2026-02-22');
   assert.deepEqual(m.activeDates, []);
   assert.equal(m.weeks[1].statusTone, 'signed');
@@ -82,7 +93,10 @@ test('offset 1 shows periods 2 and 1 and drops active-only behavior', () => {
 
 test('a week missing from the cache is read-only and empty', () => {
   const m = ww.buildMergedData({ activeStart: ACTIVE, weeksByStart: weeks, offset: 2, periodCount: 5 });
-  assert.deepEqual(m.weeks.map(w => w.period), [3, 2]);
+  assert.deepEqual(
+    m.weeks.map(w => w.period),
+    [3, 2]
+  );
   assert.equal(m.weeks[0].isEditable, false);
   assert.equal(m.weeks[0].statusLabel, null);
   assert.equal(m.weeks[1].isEditable, true);
@@ -90,7 +104,10 @@ test('a week missing from the cache is read-only and empty', () => {
 
 test('past weeks need direct mode to be editable', () => {
   const m = ww.buildMergedData({ activeStart: ACTIVE, weeksByStart: weeks, offset: 0, useDirect: false });
-  assert.deepEqual(m.weeks.map(w => w.isEditable), [false, true]);
+  assert.deepEqual(
+    m.weeks.map(w => w.isEditable),
+    [false, true]
+  );
 });
 
 test('weekEditable honors a closed week with no Correct', () => {

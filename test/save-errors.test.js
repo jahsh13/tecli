@@ -36,11 +36,14 @@ test('a read-only 206 failure surfaces the server message', async () => {
     { rsKey: -1, cmdCd: 507 },
   ]);
   const client = stubClient([resp]);
-  await assert.rejects(() => client.save(), err => {
-    assert.ok(!(err instanceof RevisionRequiredError), 'not a revision prompt');
-    assert.match(err.message, /Timesheet is read only/);
-    return true;
-  });
+  await assert.rejects(
+    () => client.save(),
+    err => {
+      assert.ok(!(err instanceof RevisionRequiredError), 'not a revision prompt');
+      assert.match(err.message, /Timesheet is read only/);
+      return true;
+    }
+  );
 });
 
 test('the explanation error on 206 is a revision prompt', async () => {

@@ -9,7 +9,9 @@ const { RevisionRequiredError } = DirectClient;
 
 describe('mock edit and save', () => {
   let mock;
-  beforeEach(async () => { mock = await startMock(); });
+  beforeEach(async () => {
+    mock = await startMock();
+  });
   afterEach(() => mock.stop());
 
   test('set + save persists for a new session', async () => {
@@ -48,12 +50,15 @@ describe('mock edit and save', () => {
     const cp = await mock.launch();
     await cp.selectPeriod(2);
     await cp.set(0, 28, 9);
-    await assert.rejects(() => cp.save(), err => {
-      assert.ok(err instanceof RevisionRequiredError);
-      assert.equal(err.auditDetails.length, 1);
-      assert.match(err.auditDetails[0].description, /from 6 to 9/);
-      return true;
-    });
+    await assert.rejects(
+      () => cp.save(),
+      err => {
+        assert.ok(err instanceof RevisionRequiredError);
+        assert.equal(err.auditDetails.length, 1);
+        assert.match(err.auditDetails[0].description, /from 6 to 9/);
+        return true;
+      }
+    );
     await cp.saveWithExplanation('fixing hours');
     const again = await mock.launch();
     await again.selectPeriod(2);

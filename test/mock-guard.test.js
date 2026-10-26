@@ -53,7 +53,10 @@ describe('mcp-server.js with TECLI_MOCK', () => {
   // HOME holds a stored login for real Costpoint, as `te login` leaves it
   before(() => {
     home = fs.mkdtempSync(path.join(os.tmpdir(), 'tecli-guard-'));
-    fs.writeFileSync(path.join(home, '.tecli.json'), JSON.stringify({ url: REAL_URL, username: 'someone', direct: true }));
+    fs.writeFileSync(
+      path.join(home, '.tecli.json'),
+      JSON.stringify({ url: REAL_URL, username: 'someone', direct: true })
+    );
   });
 
   after(() => fs.rmSync(home, { recursive: true, force: true }));
@@ -65,7 +68,12 @@ describe('mcp-server.js with TECLI_MOCK', () => {
   }
 
   test('refuses a non-local COSTPOINT_URL', () => {
-    const res = start({ ...baseEnv(), COSTPOINT_URL: REAL_URL, COSTPOINT_USERNAME: 'mock', COSTPOINT_PASSWORD: 'mock' });
+    const res = start({
+      ...baseEnv(),
+      COSTPOINT_URL: REAL_URL,
+      COSTPOINT_USERNAME: 'mock',
+      COSTPOINT_PASSWORD: 'mock',
+    });
     assert.equal(res.status, 2, res.stderr);
     assert.match(res.stderr, /refused to start: TECLI_MOCK is set but the Costpoint URL is not local/);
   });
@@ -78,13 +86,15 @@ describe('mcp-server.js with TECLI_MOCK', () => {
 
   test('starts with a local COSTPOINT_URL', async () => {
     const client = new Client({ name: 'test', version: '1.0.0' });
-    await client.connect(new StdioClientTransport({
-      command: process.execPath,
-      args: [SERVER],
-      cwd: home,
-      env: { ...baseEnv(), COSTPOINT_URL: LOCAL_URL, COSTPOINT_USERNAME: 'mock', COSTPOINT_PASSWORD: 'mock' },
-      stderr: 'ignore',
-    }));
+    await client.connect(
+      new StdioClientTransport({
+        command: process.execPath,
+        args: [SERVER],
+        cwd: home,
+        env: { ...baseEnv(), COSTPOINT_URL: LOCAL_URL, COSTPOINT_USERNAME: 'mock', COSTPOINT_PASSWORD: 'mock' },
+        stderr: 'ignore',
+      })
+    );
     try {
       const { tools } = await client.listTools();
       assert.ok(tools.length > 0);

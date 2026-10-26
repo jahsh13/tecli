@@ -22,7 +22,10 @@ function readFixture(fixture) {
 
 function cookieValue(req, name) {
   const header = req.headers.cookie || '';
-  const match = header.split(/;\s*/).map(c => c.split('=')).find(([k]) => k === name);
+  const match = header
+    .split(/;\s*/)
+    .map(c => c.split('='))
+    .find(([k]) => k === name);
   return match ? match[1] : '';
 }
 
@@ -30,7 +33,9 @@ function readBody(req) {
   return new Promise((resolve, reject) => {
     let data = '';
     req.setEncoding('utf8');
-    req.on('data', chunk => { data += chunk; });
+    req.on('data', chunk => {
+      data += chunk;
+    });
     req.on('end', () => resolve(data));
     req.on('error', reject);
   });
@@ -77,8 +82,9 @@ async function createMockServer(options = {}) {
     }
     if (params.has('PASSWORD')) {
       const ok = cookieValue(req, 'MockUser') !== 'bad' && passwordOk(params.get('PASSWORD'));
-      return send(res, ok ? 200 : 401, ok ? '' : 'error: invalid user or password',
-        { 'Set-Cookie': 'MockAuth=' + (ok ? 'ok' : 'no') + '; Path=/' });
+      return send(res, ok ? 200 : 401, ok ? '' : 'error: invalid user or password', {
+        'Set-Cookie': 'MockAuth=' + (ok ? 'ok' : 'no') + '; Path=/',
+      });
     }
     return send(res, 200, '');
   }
@@ -126,7 +132,11 @@ async function createMockServer(options = {}) {
       quirks: [...quirks],
       sessions: [...sessions.values()].map(s => ({ sid: s.sid, worked: s.worked, autoLoaded: s.autoLoaded })),
       periods: db.periods.slice(0, 5).map((p, i) => ({
-        idx: i, endDate: db.endDate(i), status: p.status, closed: p.closed, lines: p.lines.length,
+        idx: i,
+        endDate: db.endDate(i),
+        status: p.status,
+        closed: p.closed,
+        lines: p.lines.length,
       })),
       favorites: db.favorites,
     };
@@ -176,9 +186,13 @@ async function createMockServer(options = {}) {
     server,
     port,
     url: 'http://127.0.0.1:' + port + '/cpweb/cploginform.htm?system=MOCK',
-    get db() { return db; },
+    get db() {
+      return db;
+    },
     sessions,
-    setClock(fn) { clock = fn; },
+    setClock(fn) {
+      clock = fn;
+    },
     reset() {
       db = freshDb();
       sessions.clear();

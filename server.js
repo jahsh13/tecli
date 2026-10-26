@@ -1,31 +1,31 @@
 #!/usr/bin/env node
-"use strict";
+'use strict';
 
-const express = require("express");
-const path = require("path");
-const fs = require("fs");
-const os = require("os");
-const moment = require("moment");
-const { normalizeTimesheetStatus } = require("./timesheet-status");
-const { COMMON_CODES } = require("./charge-codes");
-const { normalizeWorkLocation } = require("./add-options");
-const { getCredentials } = require("./credentials");
-const weekWindow = require("./week-window");
-const { launchForPeriod, createSessionManager } = require("./session");
+const express = require('express');
+const path = require('path');
+const fs = require('fs');
+const os = require('os');
+const moment = require('moment');
+const { normalizeTimesheetStatus } = require('./timesheet-status');
+const { COMMON_CODES } = require('./charge-codes');
+const { normalizeWorkLocation } = require('./add-options');
+const { getCredentials } = require('./credentials');
+const weekWindow = require('./week-window');
+const { launchForPeriod, createSessionManager } = require('./session');
 
-require("dotenv").config();
+require('dotenv').config();
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 
 const creds = getCredentials();
 if (!creds) {
-  console.error("No credentials found. Run `te login` to set up.");
+  console.error('No credentials found. Run `te login` to set up.');
   process.exit(1);
 }
 if (!creds.useDirect && !creds.system) {
   console.error(
-    "COSTPOINT_SYSTEM is required when not using direct mode. Set COSTPOINT_DIRECT=true for direct protocol."
+    'COSTPOINT_SYSTEM is required when not using direct mode. Set COSTPOINT_DIRECT=true for direct protocol.'
   );
   process.exit(1);
 }
@@ -38,21 +38,21 @@ const launchClient = (period = 0) => launchForPeriod(creds, period, { preloadPre
 
 // Signing launches with nothing but the period select before the sign. The
 // active week skips the previous-period preload that launchClient(0) adds.
-const launchSignClient = (period) => launchForPeriod(creds, period, { preloadPrevious: false });
+const launchSignClient = period => launchForPeriod(creds, period, { preloadPrevious: false });
 
 // Persistent session management: one client reused across operations, bound
 // to one period.
 const { getClient, withClient, releaseClient } = createSessionManager({
   launch: launchClient,
-  onLaunch: (period) => console.log(`Creating new Costpoint session (period ${period})...`),
+  onLaunch: period => console.log(`Creating new Costpoint session (period ${period})...`),
   onLaunched: () => console.log('Session established.'),
   onReuse: () => console.log('Reusing existing Costpoint session.'),
-  onRetry: (e) => console.log('Session error, retrying with fresh login:', e.message),
+  onRetry: e => console.log('Session error, retrying with fresh login:', e.message),
   onRelease: () => console.log('Costpoint session released.'),
 });
 
 // Cache file location — stores per-week data keyed by week start date
-const CACHE_FILE = path.join(os.homedir(), ".costpoint-cache.json");
+const CACHE_FILE = path.join(os.homedir(), '.costpoint-cache.json');
 
 // In-memory state
 let cachedWeeks = {}; // { "2026-04-06": weekData, ... }
@@ -62,9 +62,9 @@ let pendingChanges = new Map(); // key: "period-line-day", value: { period, line
 let pendingRevisionWeek = null; // period whose save is waiting on a revision explanation (null = none)
 let isProcessing = false;
 let lastError = null;
-let syncStatus = "idle"; // idle, loading, syncing, error
+let syncStatus = 'idle'; // idle, loading, syncing, error
 let isFetchingInitialData = false;
-const VALID_PAY_TYPES = new Set(["EWW", "RHB", "LWD", "REG"]);
+const VALID_PAY_TYPES = new Set(['EWW', 'RHB', 'LWD', 'REG']);
 
 // Get the week start date string from week data
 function weekStartKey(weekData) {
@@ -116,28 +116,27 @@ function getMergedData(offset = 0) {
 // session each. Failures leave the week empty and read-only.
 async function ensureWindowWeeks(offset) {
   if (!activeWeekStart || !useDirect || isProcessing) return;
-  const missing = weekWindow.windowPeriods(offset)
-    .filter(p => p > 0 && !getPeriodWeekData(p));
+  const missing = weekWindow.windowPeriods(offset).filter(p => p > 0 && !getPeriodWeekData(p));
   if (missing.length === 0) return;
 
   isProcessing = true;
-  syncStatus = "loading";
+  syncStatus = 'loading';
   try {
     for (const period of missing) {
       await fetchPeriodData(period);
     }
-    syncStatus = "idle";
+    syncStatus = 'idle';
   } catch (e) {
-    console.error("Failed to load past week:", e.message);
+    console.error('Failed to load past week:', e.message);
     lastError = e.message;
-    syncStatus = "error";
+    syncStatus = 'error';
   } finally {
     isProcessing = false;
   }
 }
 
 async function fetchPeriodData(period) {
-  await withClient(async (cp) => {
+  await withClient(async cp => {
     cacheWeek(cp.getData());
     saveCache();
   }, period);
@@ -152,7 +151,7 @@ function getActiveWeekData() {
 function loadCache() {
   try {
     if (fs.existsSync(CACHE_FILE)) {
-      const raw = fs.readFileSync(CACHE_FILE, "utf8");
+      const raw = fs.readFileSync(CACHE_FILE, 'utf8');
       const parsed = JSON.parse(raw);
       // Support old single-week format: migrate to multi-week
       if (parsed && parsed.dates && Array.isArray(parsed.dates)) {
@@ -160,7 +159,7 @@ function loadCache() {
         if (key) {
           cachedWeeks = { [key]: parsed };
           activeWeekStart = key;
-          console.log("Migrated single-week cache to multi-week format");
+          console.log('Migrated single-week cache to multi-week format');
           saveCache();
           return true;
         }
@@ -169,12 +168,12 @@ function loadCache() {
       if (parsed && parsed.weeks) {
         cachedWeeks = parsed.weeks;
         activeWeekStart = parsed.activeWeekStart || null;
-        console.log("Loaded multi-week cache (" + Object.keys(cachedWeeks).length + " weeks)");
+        console.log('Loaded multi-week cache (' + Object.keys(cachedWeeks).length + ' weeks)');
         return true;
       }
     }
   } catch (e) {
-    console.error("Failed to load cache:", e.message);
+    console.error('Failed to load cache:', e.message);
   }
   return false;
 }
@@ -182,12 +181,19 @@ function loadCache() {
 // Save cache to disk
 function saveCache() {
   try {
-    fs.writeFileSync(CACHE_FILE, JSON.stringify({
-      weeks: cachedWeeks,
-      activeWeekStart,
-    }, null, 2));
+    fs.writeFileSync(
+      CACHE_FILE,
+      JSON.stringify(
+        {
+          weeks: cachedWeeks,
+          activeWeekStart,
+        },
+        null,
+        2
+      )
+    );
   } catch (e) {
-    console.error("Failed to save cache:", e.message);
+    console.error('Failed to save cache:', e.message);
   }
 }
 
@@ -196,17 +202,17 @@ function saveCache() {
 // needs a revision explanation stops the run; saveWithExplanation() finishes
 // it and resumes with the rest.
 async function saveAllChanges() {
-  if (isProcessing || pendingChanges.size === 0) return { success: true, message: "No changes to save" };
+  if (isProcessing || pendingChanges.size === 0) return { success: true, message: 'No changes to save' };
 
   isProcessing = true;
-  syncStatus = "syncing";
+  syncStatus = 'syncing';
   const total = pendingChanges.size;
 
   try {
     for (const period of weekWindow.pendingPeriods(pendingChanges.values())) {
       const changes = Array.from(pendingChanges.values()).filter(c => c.period === period);
       try {
-        await withClient(async (cp) => {
+        await withClient(async cp => {
           await cp.setm(changes);
           await cp.save();
           storeClientData(cp, period);
@@ -215,7 +221,7 @@ async function saveAllChanges() {
       } catch (e) {
         if (e.name === 'RevisionRequiredError') {
           pendingRevisionWeek = period;
-          syncStatus = "idle";
+          syncStatus = 'idle';
           return { revisionRequired: true, period, auditDetails: e.auditDetails };
         }
         throw e;
@@ -224,12 +230,12 @@ async function saveAllChanges() {
     }
 
     lastError = null;
-    syncStatus = "idle";
+    syncStatus = 'idle';
     return { success: true, message: `Saved ${total} changes` };
   } catch (e) {
-    console.error("Save failed:", e.message);
+    console.error('Save failed:', e.message);
     lastError = e.message;
-    syncStatus = "error";
+    syncStatus = 'error';
     throw e;
   } finally {
     isProcessing = false;
@@ -243,16 +249,16 @@ function clearPendingPeriod(period) {
 }
 
 async function saveWithExplanation(explanation) {
-  if (isProcessing) throw new Error("Another operation is in progress");
-  if (pendingRevisionWeek === null) throw new Error("No save is waiting on a revision explanation");
+  if (isProcessing) throw new Error('Another operation is in progress');
+  if (pendingRevisionWeek === null) throw new Error('No save is waiting on a revision explanation');
 
   isProcessing = true;
-  syncStatus = "syncing";
+  syncStatus = 'syncing';
   const period = pendingRevisionWeek;
 
   try {
     // Same period as the save that asked for it, so this reuses that session
-    await withClient(async (cp) => {
+    await withClient(async cp => {
       await cp.saveWithExplanation(explanation);
       storeClientData(cp, period);
       saveCache();
@@ -261,11 +267,11 @@ async function saveWithExplanation(explanation) {
     clearPendingPeriod(period);
     pendingRevisionWeek = null;
     lastError = null;
-    syncStatus = "idle";
+    syncStatus = 'idle';
   } catch (e) {
-    console.error("Save with explanation failed:", e.message);
+    console.error('Save with explanation failed:', e.message);
     lastError = e.message;
-    syncStatus = "error";
+    syncStatus = 'error';
     throw e;
   } finally {
     isProcessing = false;
@@ -274,26 +280,26 @@ async function saveWithExplanation(explanation) {
   // Save the other periods' changes, if any are still pending
   const rest = await saveAllChanges();
   if (rest.revisionRequired) return rest;
-  return { success: true, message: "Saved with revision explanation" };
+  return { success: true, message: 'Saved with revision explanation' };
 }
 
 // Add a project to one week's timesheet. A save that needs a revision
 // explanation is parked the same way as a cell save.
 async function addProject(code, payType, period, favorite = false, workLocation) {
-  if (isProcessing) throw new Error("Another operation is in progress");
+  if (isProcessing) throw new Error('Another operation is in progress');
 
   isProcessing = true;
-  syncStatus = "syncing";
+  syncStatus = 'syncing';
 
   let warning = null;
   try {
-    await withClient(async (cp) => {
+    await withClient(async cp => {
       await cp.add(code, payType, { workLocation });
       if (favorite) {
         try {
           await cp.addToFavorites();
         } catch (e) {
-          console.error("Add to favorites failed:", e.message);
+          console.error('Add to favorites failed:', e.message);
           warning = `Could not add to favorites: ${e.message}`;
         }
       }
@@ -303,17 +309,17 @@ async function addProject(code, payType, period, favorite = false, workLocation)
     }, period);
 
     lastError = null;
-    syncStatus = "idle";
+    syncStatus = 'idle';
     return { success: true, warning };
   } catch (e) {
     if (e.name === 'RevisionRequiredError') {
       pendingRevisionWeek = period;
-      syncStatus = "idle";
+      syncStatus = 'idle';
       return { revisionRequired: true, period, auditDetails: e.auditDetails };
     }
-    console.error("Add project failed:", e.message);
+    console.error('Add project failed:', e.message);
     lastError = e.message;
-    syncStatus = "error";
+    syncStatus = 'error';
     throw e;
   } finally {
     isProcessing = false;
@@ -329,10 +335,10 @@ async function addProject(code, payType, period, favorite = false, workLocation)
 // CLAUDE.md). Release the persistent client and launch a fresh session just
 // for the sign.
 async function signTimesheet(period) {
-  if (isProcessing) throw new Error("Another operation is in progress");
+  if (isProcessing) throw new Error('Another operation is in progress');
 
   isProcessing = true;
-  syncStatus = "syncing";
+  syncStatus = 'syncing';
 
   try {
     await releaseClient();
@@ -342,16 +348,20 @@ async function signTimesheet(period) {
       storeClientData(cp, period);
       saveCache();
     } finally {
-      try { await cp.close(); } catch (e) { /* ignore */ }
+      try {
+        await cp.close();
+      } catch (e) {
+        /* ignore */
+      }
     }
 
     lastError = null;
-    syncStatus = "idle";
+    syncStatus = 'idle';
     return { success: true };
   } catch (e) {
-    console.error("Sign failed:", e.message);
+    console.error('Sign failed:', e.message);
     lastError = e.message;
-    syncStatus = "error";
+    syncStatus = 'error';
     throw e;
   } finally {
     isProcessing = false;
@@ -360,10 +370,10 @@ async function signTimesheet(period) {
 
 // Fetch fresh data from Costpoint (active and previous week)
 async function fetchFreshData() {
-  if (isProcessing) throw new Error("Another operation is in progress");
+  if (isProcessing) throw new Error('Another operation is in progress');
 
   isProcessing = true;
-  syncStatus = "loading";
+  syncStatus = 'loading';
 
   try {
     // Release existing session — we want fresh data from server
@@ -388,7 +398,7 @@ async function fetchFreshData() {
         cacheWeek(cp.getData());
       }
     } catch (navErr) {
-      console.error("Failed to fetch other period (non-fatal):", navErr.message);
+      console.error('Failed to fetch other period (non-fatal):', navErr.message);
     }
 
     activeWeekStart = weekStartKey(currentWeek);
@@ -397,12 +407,12 @@ async function fetchFreshData() {
 
     saveCache();
     lastError = null;
-    syncStatus = "idle";
+    syncStatus = 'idle';
     return getActiveWeekData();
   } catch (e) {
-    console.error("Failed to fetch fresh data:", e.message);
+    console.error('Failed to fetch fresh data:', e.message);
     lastError = e.message;
-    syncStatus = "error";
+    syncStatus = 'error';
     throw e;
   } finally {
     isProcessing = false;
@@ -423,14 +433,14 @@ function fetchFreshDataInBackground() {
   if (isFetchingInitialData || isProcessing) return;
 
   isFetchingInitialData = true;
-  syncStatus = "loading";
+  syncStatus = 'loading';
 
   fetchFreshData()
     .then(() => {
-      console.log("Background fetch completed successfully");
+      console.log('Background fetch completed successfully');
     })
     .catch(e => {
-      console.error("Background fetch failed:", e.message);
+      console.error('Background fetch failed:', e.message);
     })
     .finally(() => {
       isFetchingInitialData = false;
@@ -439,55 +449,68 @@ function fetchFreshDataInBackground() {
 
 // Middleware
 app.use(express.json());
-app.use(express.static(path.join(__dirname, "public")));
+app.use(express.static(path.join(__dirname, 'public')));
 
 // HTML template rendering
 function renderHTML(data, isLoading = false) {
   const hasData = data && data.dates && data.dates.length > 0;
   const periodStart = hasData ? data.dates[0] : null;
   const periodEnd = hasData ? data.dates[data.dates.length - 1] : null;
-  const currentStatus = isLoading ? "loading" : syncStatus;
+  const currentStatus = isLoading ? 'loading' : syncStatus;
   const timesheetStatusMeta = hasData
     ? normalizeTimesheetStatus(data.timesheetStatusCode || data.timesheetStatus)
     : null;
-  const timesheetStatusTitle = timesheetStatusMeta && timesheetStatusMeta.code
-    ? `Raw status code: ${timesheetStatusMeta.code}`
-    : "Raw status unavailable";
+  const timesheetStatusTitle =
+    timesheetStatusMeta && timesheetStatusMeta.code
+      ? `Raw status code: ${timesheetStatusMeta.code}`
+      : 'Raw status unavailable';
 
-  const weeksInfo = hasData && data.weeks ? data.weeks.map((w, i) => {
-    const dates = data.dates.slice(i * 7, i * 7 + 7);
-    const start = moment(dates[0].fullDate);
-    const end = moment(dates[6].fullDate);
-    const label = start.month() === end.month()
-      ? start.format('MMM D') + '\u2013' + end.format('D')
-      : start.format('MMM D') + ' \u2013 ' + end.format('MMM D');
-    // isEditable already requires direct mode for past weeks
-    const canSign = w.isEditable && (w.statusTone === 'open' || w.statusTone === 'missing');
-    return Object.assign({}, w, { label: label, canSign: canSign });
-  }) : [];
+  const weeksInfo =
+    hasData && data.weeks
+      ? data.weeks.map((w, i) => {
+          const dates = data.dates.slice(i * 7, i * 7 + 7);
+          const start = moment(dates[0].fullDate);
+          const end = moment(dates[6].fullDate);
+          const label =
+            start.month() === end.month()
+              ? start.format('MMM D') + '\u2013' + end.format('D')
+              : start.format('MMM D') + ' \u2013 ' + end.format('MMM D');
+          // isEditable already requires direct mode for past weeks
+          const canSign = w.isEditable && (w.statusTone === 'open' || w.statusTone === 'missing');
+          return Object.assign({}, w, { label: label, canSign: canSign });
+        })
+      : [];
 
   const targetWeeks = weeksInfo.filter(w => w.isEditable).reverse();
-  const targetPicker = (id) => `
+  const targetPicker = id => `
         <div class="modal-field">
           <label for="${id}">Week:</label>
           <select id="${id}" class="target-period">
-            ${targetWeeks.map(w => `<option value="${w.period}">${w.label}${w.isActive ? ' (current)' : ''}</option>`).join("")}
+            ${targetWeeks.map(w => `<option value="${w.period}">${w.label}${w.isActive ? ' (current)' : ''}</option>`).join('')}
           </select>
         </div>`;
-  const navHref = (offset) => offset === 0 ? "/" : `/?offset=${offset}`;
+  const navHref = offset => (offset === 0 ? '/' : `/?offset=${offset}`);
   const offset = hasData ? data.offset : 0;
-  const weekNav = hasData ? `
+  const weekNav = hasData
+    ? `
     <nav class="week-nav">
-      ${offset < data.maxOffset
-        ? `<a class="btn btn-secondary btn-sm" id="nav-older" href="${navHref(offset + 1)}">&lsaquo; older</a>`
-        : `<span class="btn btn-secondary btn-sm nav-disabled">&lsaquo; older</span>`}
-      ${offset > 0
-        ? `<a class="btn btn-secondary btn-sm" id="nav-newer" href="${navHref(offset - 1)}">newer &rsaquo;</a>`
-        : `<span class="btn btn-secondary btn-sm nav-disabled">newer &rsaquo;</span>`}
-      ${offset > 0
-        ? `<a class="btn btn-secondary btn-sm" id="nav-current" href="/">Current</a>`
-        : `<span class="btn btn-secondary btn-sm nav-disabled">Current</span>`}
-    </nav>` : "";
+      ${
+        offset < data.maxOffset
+          ? `<a class="btn btn-secondary btn-sm" id="nav-older" href="${navHref(offset + 1)}">&lsaquo; older</a>`
+          : `<span class="btn btn-secondary btn-sm nav-disabled">&lsaquo; older</span>`
+      }
+      ${
+        offset > 0
+          ? `<a class="btn btn-secondary btn-sm" id="nav-newer" href="${navHref(offset - 1)}">newer &rsaquo;</a>`
+          : `<span class="btn btn-secondary btn-sm nav-disabled">newer &rsaquo;</span>`
+      }
+      ${
+        offset > 0
+          ? `<a class="btn btn-secondary btn-sm" id="nav-current" href="/">Current</a>`
+          : `<span class="btn btn-secondary btn-sm nav-disabled">Current</span>`
+      }
+    </nav>`
+    : '';
 
   return `<!DOCTYPE html>
 <html lang="en">
@@ -504,7 +527,9 @@ function renderHTML(data, isLoading = false) {
       <div class="status-container">
         <div class="status-badges">
           <span id="sync-status" class="sync-dot sync-${currentStatus}" title="${currentStatus}"></span>
-          ${timesheetStatusMeta ? `
+          ${
+            timesheetStatusMeta
+              ? `
           <span
             id="timesheet-status"
             class="status-badge timesheet-status-badge timesheet-status-${timesheetStatusMeta.tone}"
@@ -512,7 +537,9 @@ function renderHTML(data, isLoading = false) {
           >
             ${timesheetStatusMeta.label}
           </span>
-          ` : ""}
+          `
+              : ''
+          }
         </div>
         <button id="refresh-btn" class="btn btn-secondary btn-icon" title="Refresh from Costpoint">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -527,19 +554,26 @@ function renderHTML(data, isLoading = false) {
       </div>
     </header>
 
-    ${hasData ? `
+    ${
+      hasData
+        ? `
     <div class="period-info">
       <span class="period-label">Period:</span>
       <span class="period-dates">${periodStart.dayOfWeek} ${periodStart.fullDate} - ${periodEnd.dayOfWeek} ${periodEnd.fullDate}</span>
     </div>
     ${weekNav}
 
-    ${weeksInfo.filter(w => !w.isActive && w.canSign && w.statusTone === 'open').map(w => `
+    ${weeksInfo
+      .filter(w => !w.isActive && w.canSign && w.statusTone === 'open')
+      .map(
+        w => `
     <div class="thursday-nudge past-sign-nudge">
       <span class="nudge-message">${w.period === 1 ? 'Previous week' : `Week of ${w.label}`} is Open and needs to be signed</span>
       <button class="btn-week-sign" data-week="${w.period}" data-label="${w.label}">Sign ${w.label}</button>
     </div>
-    `).join("")}
+    `
+      )
+      .join('')}
 
     <div id="thursday-nudge" class="thursday-nudge" style="display: none;">
       <span class="nudge-message"></span>
@@ -551,8 +585,9 @@ function renderHTML(data, isLoading = false) {
         <thead>
           <tr class="week-header-row">
             <th colspan="4" class="week-header-spacer"></th>
-            ${weeksInfo.map(w => {
-              return `<th colspan="7" class="week-header ${w.isEditable ? 'week-active' : 'week-inactive'}">
+            ${weeksInfo
+              .map(w => {
+                return `<th colspan="7" class="week-header ${w.isEditable ? 'week-active' : 'week-inactive'}">
                 <div class="week-header-content">
                   <span class="week-dates">${w.label}</span>
                   ${w.statusLabel ? `<span class="week-status-badge timesheet-status-${w.statusTone}">${w.statusLabel}</span>` : ''}
@@ -560,7 +595,8 @@ function renderHTML(data, isLoading = false) {
                   ${w.canSign ? `<button class="btn-week-sign" data-week="${w.period}" data-label="${w.label}">Sign</button>` : ''}
                 </div>
               </th>`;
-            }).join("")}
+              })
+              .join('')}
             <th class="week-header-spacer"></th>
           </tr>
           <tr>
@@ -568,35 +604,43 @@ function renderHTML(data, isLoading = false) {
             <th class="col-code">Code</th>
             <th class="col-desc">Description</th>
             <th class="col-pay">Pay</th>
-            ${data.dates.map((d, i) => {
-              const isWeekend = d.dayOfWeek === 'Sat' || d.dayOfWeek === 'Sun';
-              return `<th class="col-day ${isWeekend ? 'col-weekend' : 'col-weekday'}${i === 6 ? ' week-divider' : ''}"><div class="day-header"><span class="day-name">${d.dayOfWeek}</span><span class="day-num">${d.date}</span></div></th>`;
-            }).join("")}
+            ${data.dates
+              .map((d, i) => {
+                const isWeekend = d.dayOfWeek === 'Sat' || d.dayOfWeek === 'Sun';
+                return `<th class="col-day ${isWeekend ? 'col-weekend' : 'col-weekday'}${i === 6 ? ' week-divider' : ''}"><div class="day-header"><span class="day-name">${d.dayOfWeek}</span><span class="day-num">${d.date}</span></div></th>`;
+              })
+              .join('')}
             <th class="col-total">Total</th>
           </tr>
         </thead>
         <tbody>
-          ${data.projects.map(project => `
+          ${data.projects
+            .map(
+              project => `
           <tr data-line="${project.line}">
             <td class="col-line">${project.line}</td>
             <td class="col-code" title="${project.code || ''}">${project.code || ''}</td>
             <td class="col-desc" title="${project.description}">${project.description}</td>
             <td class="col-pay">${project.payType || ''}</td>
-            ${data.dates.map((d, i) => {
-              const hours = project.hours[d.date];
-              const displayValue = hours !== null && hours !== undefined ? hours : "";
-              const comment = (project.comments && project.comments[d.date]) || "";
-              const escapedComment = comment.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;');
-              const isWeekend = d.dayOfWeek === 'Sat' || d.dayOfWeek === 'Sun';
-              const w = data.weeks[i < 7 ? 0 : 1];
-              const periodLine = project.lines[w.period];
-              const isEditable = w.isEditable && periodLine != null;
-              const disabled = !isEditable ? 'disabled' : '';
-              return `<td class="col-day ${isWeekend ? 'col-weekend' : 'col-weekday'} ${!isEditable ? 'col-inactive' : ''}${i === 6 ? ' week-divider' : ''}"><div class="cell-wrap${comment ? ' has-comment' : ''}"${comment ? ` title="${escapedComment}"` : ''}><input type="text" class="hours-input ${!isEditable ? 'inactive' : ''}" data-line="${project.line}" data-week="${w.period}" data-period-line="${isEditable ? periodLine : ''}" data-day="${d.date}" data-fulldate="${d.fullDate}" data-comment="${escapedComment}" value="${displayValue}" ${disabled} /></div></td>`;
-            }).join("")}
+            ${data.dates
+              .map((d, i) => {
+                const hours = project.hours[d.date];
+                const displayValue = hours !== null && hours !== undefined ? hours : '';
+                const comment = (project.comments && project.comments[d.date]) || '';
+                const escapedComment = comment.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;');
+                const isWeekend = d.dayOfWeek === 'Sat' || d.dayOfWeek === 'Sun';
+                const w = data.weeks[i < 7 ? 0 : 1];
+                const periodLine = project.lines[w.period];
+                const isEditable = w.isEditable && periodLine != null;
+                const disabled = !isEditable ? 'disabled' : '';
+                return `<td class="col-day ${isWeekend ? 'col-weekend' : 'col-weekday'} ${!isEditable ? 'col-inactive' : ''}${i === 6 ? ' week-divider' : ''}"><div class="cell-wrap${comment ? ' has-comment' : ''}"${comment ? ` title="${escapedComment}"` : ''}><input type="text" class="hours-input ${!isEditable ? 'inactive' : ''}" data-line="${project.line}" data-week="${w.period}" data-period-line="${isEditable ? periodLine : ''}" data-day="${d.date}" data-fulldate="${d.fullDate}" data-comment="${escapedComment}" value="${displayValue}" ${disabled} /></div></td>`;
+              })
+              .join('')}
             <td class="col-total row-total">0</td>
           </tr>
-          `).join("")}
+          `
+            )
+            .join('')}
         </tbody>
         <tfoot>
           <tr class="totals-row">
@@ -604,10 +648,12 @@ function renderHTML(data, isLoading = false) {
             <td class="col-code"></td>
             <td class="col-desc">Daily Total</td>
             <td class="col-pay"></td>
-            ${data.dates.map((d, i) => {
-              const isWeekend = d.dayOfWeek === 'Sat' || d.dayOfWeek === 'Sun';
-              return `<td class="col-day daily-total ${isWeekend ? 'col-weekend' : 'col-weekday'}${i === 6 ? ' week-divider' : ''}" data-day="${d.date}">0</td>`;
-            }).join("")}
+            ${data.dates
+              .map((d, i) => {
+                const isWeekend = d.dayOfWeek === 'Sat' || d.dayOfWeek === 'Sun';
+                return `<td class="col-day daily-total ${isWeekend ? 'col-weekend' : 'col-weekday'}${i === 6 ? ' week-divider' : ''}" data-day="${d.date}">0</td>`;
+              })
+              .join('')}
             <td class="col-total grand-total">0</td>
           </tr>
         </tfoot>
@@ -623,7 +669,8 @@ function renderHTML(data, isLoading = false) {
         <button id="save-btn" class="btn btn-success" disabled>Save</button>
       </div>
     </div>
-    ` : `
+    `
+        : `
     <div class="skeleton-period-info"><div class="skel-bone skel-w40"></div></div>
     <div class="timesheet-wrapper">
       <table class="timesheet skeleton-table">
@@ -639,19 +686,22 @@ function renderHTML(data, isLoading = false) {
             <th class="col-code"><div class="skel-bone skel-w100"></div></th>
             <th class="col-desc"><div class="skel-bone skel-w80"></div></th>
             <th class="col-pay"><div class="skel-bone skel-w100"></div></th>
-            ${Array.from({length: 14}, (_, i) => `<th class="col-day${i === 6 ? ' week-divider' : ''}"><div class="skel-bone-circle"></div></th>`).join('')}
+            ${Array.from({ length: 14 }, (_, i) => `<th class="col-day${i === 6 ? ' week-divider' : ''}"><div class="skel-bone-circle"></div></th>`).join('')}
             <th class="col-total"><div class="skel-bone skel-w100"></div></th>
           </tr>
         </thead>
         <tbody>
-          ${Array.from({length: 6}, () => `<tr>
+          ${Array.from(
+            { length: 6 },
+            () => `<tr>
             <td class="col-line"><div class="skel-bone skel-w60"></div></td>
             <td class="col-code"><div class="skel-bone skel-w80"></div></td>
             <td class="col-desc"><div class="skel-bone skel-w70"></div></td>
             <td class="col-pay"><div class="skel-bone skel-w60"></div></td>
-            ${Array.from({length: 14}, (_, i) => `<td class="col-day${i === 6 ? ' week-divider' : ''}"><div class="skel-bone skel-cell"></div></td>`).join('')}
+            ${Array.from({ length: 14 }, (_, i) => `<td class="col-day${i === 6 ? ' week-divider' : ''}"><div class="skel-bone skel-cell"></div></td>`).join('')}
             <td class="col-total"><div class="skel-bone skel-w60"></div></td>
-          </tr>`).join('')}
+          </tr>`
+          ).join('')}
         </tbody>
         <tfoot>
           <tr class="totals-row">
@@ -659,13 +709,14 @@ function renderHTML(data, isLoading = false) {
             <td class="col-code"></td>
             <td class="col-desc"><div class="skel-bone skel-w60"></div></td>
             <td class="col-pay"></td>
-            ${Array.from({length: 14}, (_, i) => `<td class="col-day${i === 6 ? ' week-divider' : ''}"><div class="skel-bone skel-w60"></div></td>`).join('')}
+            ${Array.from({ length: 14 }, (_, i) => `<td class="col-day${i === 6 ? ' week-divider' : ''}"><div class="skel-bone skel-w60"></div></td>`).join('')}
             <td class="col-total"><div class="skel-bone skel-w80"></div></td>
           </tr>
         </tfoot>
       </table>
     </div>
-    `}
+    `
+    }
 
     <div id="error-banner" class="error-banner" style="display: none;">
       <span id="error-message"></span>
@@ -684,13 +735,14 @@ function renderHTML(data, isLoading = false) {
         <div class="quick-picks">
           <label>Common Leave Codes:</label>
           <div class="quick-pick-grid">
-            ${COMMON_CODES.map(c =>
-              `<button class="btn btn-quick-pick" data-code="${c.code}" data-paytype="${c.payType}"${c.note ? ` title="${c.note}"` : ""}>${c.label}</button>`
-            ).join("\n            ")}
+            ${COMMON_CODES.map(
+              c =>
+                `<button class="btn btn-quick-pick" data-code="${c.code}" data-paytype="${c.payType}"${c.note ? ` title="${c.note}"` : ''}>${c.label}</button>`
+            ).join('\n            ')}
           </div>
         </div>
         <div class="modal-divider"><span>or enter manually</span></div>
-        ${targetPicker("add-target-period")}
+        ${targetPicker('add-target-period')}
         <div class="modal-field">
           <label for="project-code">Project Code:</label>
           <input type="text" id="project-code" placeholder="Enter project code..." />
@@ -747,7 +799,7 @@ function renderHTML(data, isLoading = false) {
         <button class="modal-close">&times;</button>
       </div>
       <div class="modal-body">
-        ${targetPicker("fav-target-period")}
+        ${targetPicker('fav-target-period')}
         <div id="favorites-modal-body"><p>Loading...</p></div>
       </div>
       <div class="modal-footer">
@@ -782,7 +834,7 @@ function renderHTML(data, isLoading = false) {
 }
 
 // Routes
-app.get("/", async (req, res) => {
+app.get('/', async (req, res) => {
   const offset = weekWindow.clampOffset(req.query.offset, getPeriodCount());
   await ensureWindowWeeks(offset);
   const mergedData = getMergedData(offset);
@@ -790,21 +842,21 @@ app.get("/", async (req, res) => {
   res.send(renderHTML(mergedData, isLoading));
 });
 
-app.get("/api/status", (req, res) => {
+app.get('/api/status', (req, res) => {
   res.json({
     status: syncStatus,
     error: lastError,
     pendingChanges: pendingChanges.size,
-    hasData: !!getActiveWeekData()
+    hasData: !!getActiveWeekData(),
   });
 });
 
-app.get("/api/data", async (req, res) => {
+app.get('/api/data', async (req, res) => {
   const offset = weekWindow.clampOffset(req.query.offset, getPeriodCount());
   await ensureWindowWeeks(offset);
   const data = getMergedData(offset);
   if (!data) {
-    return res.status(404).json({ error: "No data cached" });
+    return res.status(404).json({ error: 'No data cached' });
   }
   res.json(data);
 });
@@ -813,28 +865,28 @@ app.get("/api/data", async (req, res) => {
 // line) or an error message
 function resolveEditTarget(body) {
   const period = weekWindow.parsePeriod(body.period);
-  if (period === null || period >= getPeriodCount()) return { error: "Invalid period" };
+  if (period === null || period >= getPeriodCount()) return { error: 'Invalid period' };
   if (!weekWindow.weekEditable(getPeriodWeekData(period), period, useDirect)) {
     return { error: `Week ${period} is not editable` };
   }
   if (body.periodLine === undefined || body.periodLine === '' || body.periodLine === null) {
-    return { error: "This line does not exist in that week" };
+    return { error: 'This line does not exist in that week' };
   }
   return { period, line: parseInt(body.periodLine, 10) };
 }
 
-app.put("/api/hours", (req, res) => {
+app.put('/api/hours', (req, res) => {
   const { day, hours } = req.body;
   const target = resolveEditTarget(req.body);
   if (target.error) return res.status(400).json({ error: target.error });
 
   if (day === undefined || hours === undefined) {
-    return res.status(400).json({ error: "Missing required fields: day, hours" });
+    return res.status(400).json({ error: 'Missing required fields: day, hours' });
   }
 
   const { period, line } = target;
   const key = `${period}-${line}-${day}`;
-  const hoursValue = hours === "" ? 0 : parseFloat(hours);
+  const hoursValue = hours === '' ? 0 : parseFloat(hours);
   const existing = pendingChanges.get(key);
   pendingChanges.set(key, { period, line, day, hours: hoursValue, comment: existing ? existing.comment : undefined });
 
@@ -842,19 +894,19 @@ app.put("/api/hours", (req, res) => {
   const weekData = getPeriodWeekData(period);
   const project = weekData && weekData.projects.find(p => p.line === line);
   if (project) {
-    project.hours[day] = hours === "" ? null : parseFloat(hours);
+    project.hours[day] = hours === '' ? null : parseFloat(hours);
   }
 
   res.json({ success: true, pendingCount: pendingChanges.size });
 });
 
-app.put("/api/comment", (req, res) => {
+app.put('/api/comment', (req, res) => {
   const { day, comment } = req.body;
   const target = resolveEditTarget(req.body);
   if (target.error) return res.status(400).json({ error: target.error });
 
   if (day === undefined) {
-    return res.status(400).json({ error: "Missing required field: day" });
+    return res.status(400).json({ error: 'Missing required field: day' });
   }
 
   const { period, line } = target;
@@ -868,7 +920,7 @@ app.put("/api/comment", (req, res) => {
     existing.comment = comment || undefined;
   } else {
     // Comment-only change — use current hours from cache
-    const currentHours = project && project.hours ? (project.hours[day] || 0) : 0;
+    const currentHours = project && project.hours ? project.hours[day] || 0 : 0;
     pendingChanges.set(key, { period, line, day, hours: currentHours, comment: comment || undefined });
   }
 
@@ -881,7 +933,7 @@ app.put("/api/comment", (req, res) => {
   res.json({ success: true, pendingCount: pendingChanges.size });
 });
 
-app.post("/api/save", async (req, res) => {
+app.post('/api/save', async (req, res) => {
   try {
     const result = await saveAllChanges();
     res.json(result);
@@ -890,10 +942,10 @@ app.post("/api/save", async (req, res) => {
   }
 });
 
-app.post("/api/save-with-explanation", async (req, res) => {
+app.post('/api/save-with-explanation', async (req, res) => {
   const { explanation } = req.body;
   if (!explanation || !explanation.trim()) {
-    return res.status(400).json({ error: "Revision explanation is required" });
+    return res.status(400).json({ error: 'Revision explanation is required' });
   }
   try {
     const result = await saveWithExplanation(explanation.trim());
@@ -903,23 +955,21 @@ app.post("/api/save-with-explanation", async (req, res) => {
   }
 });
 
-app.post("/api/project", async (req, res) => {
+app.post('/api/project', async (req, res) => {
   const { code, payType, favorite, workLocation } = req.body;
   const period = weekWindow.parsePeriod(req.body.period);
 
   if (!code) {
-    return res.status(400).json({ error: "Missing required field: code" });
+    return res.status(400).json({ error: 'Missing required field: code' });
   }
   if (period === null || period >= getPeriodCount()) {
-    return res.status(400).json({ error: "Invalid period" });
+    return res.status(400).json({ error: 'Invalid period' });
   }
 
-  const normalizedPayType = typeof payType === "string" && payType.trim()
-    ? payType.trim().toUpperCase()
-    : "REG";
+  const normalizedPayType = typeof payType === 'string' && payType.trim() ? payType.trim().toUpperCase() : 'REG';
 
   if (!VALID_PAY_TYPES.has(normalizedPayType)) {
-    return res.status(400).json({ error: "Invalid pay type" });
+    return res.status(400).json({ error: 'Invalid pay type' });
   }
 
   let normalizedLocation;
@@ -942,9 +992,9 @@ app.post("/api/project", async (req, res) => {
   }
 });
 
-app.post("/api/sign", async (req, res) => {
+app.post('/api/sign', async (req, res) => {
   const period = weekWindow.parsePeriod(req.body && req.body.period);
-  if (period === null || period >= getPeriodCount()) return res.status(400).json({ error: "Invalid period" });
+  if (period === null || period >= getPeriodCount()) return res.status(400).json({ error: 'Invalid period' });
   try {
     await signTimesheet(period);
     res.json({ success: true });
@@ -953,7 +1003,7 @@ app.post("/api/sign", async (req, res) => {
   }
 });
 
-app.get("/api/refresh", async (req, res) => {
+app.get('/api/refresh', async (req, res) => {
   try {
     await fetchFreshData();
     res.json({ success: true, data: getMergedData() });
@@ -962,9 +1012,9 @@ app.get("/api/refresh", async (req, res) => {
   }
 });
 
-app.get("/api/leave", async (req, res) => {
+app.get('/api/leave', async (req, res) => {
   try {
-    const result = await withClient(async (cp) => {
+    const result = await withClient(async cp => {
       return await cp.getLeaveBalances();
     });
     res.json(result);
@@ -973,11 +1023,11 @@ app.get("/api/leave", async (req, res) => {
   }
 });
 
-app.get("/api/favorites", async (req, res) => {
+app.get('/api/favorites', async (req, res) => {
   const period = weekWindow.parsePeriod(req.query.period);
-  if (period === null || period >= getPeriodCount()) return res.status(400).json({ error: "Invalid period" });
+  if (period === null || period >= getPeriodCount()) return res.status(400).json({ error: 'Invalid period' });
   try {
-    const result = await withClient(async (cp) => {
+    const result = await withClient(async cp => {
       return await cp.getFavorites();
     }, period);
     res.json(result);
@@ -986,7 +1036,7 @@ app.get("/api/favorites", async (req, res) => {
   }
 });
 
-app.delete("/api/cache", (req, res) => {
+app.delete('/api/cache', (req, res) => {
   try {
     cachedWeeks = {};
     activeWeekStart = null;
@@ -995,7 +1045,7 @@ app.delete("/api/cache", (req, res) => {
     if (fs.existsSync(CACHE_FILE)) {
       fs.unlinkSync(CACHE_FILE);
     }
-    res.json({ success: true, message: "Cache cleared" });
+    res.json({ success: true, message: 'Cache cleared' });
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
@@ -1004,6 +1054,6 @@ app.delete("/api/cache", (req, res) => {
 // Initialize and start server — fetch fresh data immediately on boot
 app.listen(PORT, () => {
   console.log(`Costpoint Web UI running at http://localhost:${PORT}`);
-  console.log("Fetching data from Costpoint...");
+  console.log('Fetching data from Costpoint...');
   fetchFreshDataInBackground();
 });

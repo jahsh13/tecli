@@ -36,8 +36,17 @@ function layout(width, at) {
   return names;
 }
 
-const SHIFTED = { EMPL_FULL_NAME: 0, EMPL_ID: 1, SCHEDULE_DESC_AND_P_TEXT: 2, END_DT: 3, S_STATUS_CD: 4,
-  ACTION_CD: 23, ENABLE_SIGN_FL: 575, ENABLE_CORRECT_FL: 680, TS_CLOSED_FL: 689 };
+const SHIFTED = {
+  EMPL_FULL_NAME: 0,
+  EMPL_ID: 1,
+  SCHEDULE_DESC_AND_P_TEXT: 2,
+  END_DT: 3,
+  S_STATUS_CD: 4,
+  ACTION_CD: 23,
+  ENABLE_SIGN_FL: 575,
+  ENABLE_CORRECT_FL: 680,
+  TS_CLOSED_FL: 689,
+};
 
 test('resolves the shifted live layout (692 columns) by name', () => {
   const cols = DirectClient.resolveParentColumns(layout(692, SHIFTED), 692);
@@ -61,7 +70,11 @@ test('a Processed week in the shifted layout is seen as closed', () => {
   const client = Object.create(DirectClient.prototype);
   client.parentCol = DirectClient.resolveParentColumns(layout(692, SHIFTED), 692);
   const row = new Array(692).fill('');
-  row[4] = 'P'; row[575] = 'N'; row[680] = 'Y'; row[689] = 'Y'; row[685] = 'R';
+  row[4] = 'P';
+  row[575] = 'N';
+  row[680] = 'Y';
+  row[689] = 'Y';
+  row[685] = 'R';
   client.parentData = { rowNums: ['0'], rowFlags: ['0'], rows: [row] };
   client.periodIdx = 0;
   assert.equal(client._isPeriodClosed(), true);
@@ -70,7 +83,8 @@ test('a Processed week in the shifted layout is seen as closed', () => {
 test('refuses to treat a Processed week as open', () => {
   const client = Object.create(DirectClient.prototype);
   const row = new Array(688).fill('');
-  row[4] = 'P'; row[685] = 'R';
+  row[4] = 'P';
+  row[685] = 'R';
   client.parentData = { rowNums: ['0'], rowFlags: ['0'], rows: [row] };
   client.periodIdx = 0;
   assert.throws(() => client._isPeriodClosed(), /Processed/);
@@ -80,15 +94,47 @@ test('refuses to treat a Processed week as open', () => {
 // (402 -> 403 columns), moving every child column from 244 on up by one.
 const CHILD_CAPTURE = path.join(__dirname, '../captured/work-location/008-res.txt');
 
-const CHILD_402 = { S_APPROVE_STATUS_CD: 0, DISPLAY_LINE_NO: 1, LINE_DESC: 2, UDT02_ID: 6, UDT03_ID: 8,
-  UDT10_ID: 16, DAY1_HRS: 26, DAY2_HRS: 27, DAY3_HRS: 28, DAY4_HRS: 29, DAY5_HRS: 30, DAY6_HRS: 31,
-  DAY7_HRS: 32, TOTAL_ENTERED_HRS: 96, CHARGE_BRANCH_CD_U2_CHG_LKUP: 104, CHARGE_CD_U2_CHG_LKUP: 108,
-  CHARGE_TREE_CD_U2_CHG_LKUP: 112, COMMENT___DAY1_HRS: 124, COMMENT___DAY2_HRS: 135,
-  COMMENT___DAY3_HRS: 143, COMMENT___DAY4_HRS: 144, COMMENT___DAY5_HRS: 145, COMMENT___DAY6_HRS: 146,
-  COMMENT___DAY7_HRS: 147, COST_FL: 150, COUNT_ROW: 151, EMPL_ID: 187, HRS_INCREMENT_CD: 193,
-  HRS_MODIFY_FL: 194, IS_AMBIGUOUS_LKP: 196, IS_PROCESSED_FL: 197, LINE_NO: 198, OT_FL: 234,
-  PERIOD_NO_CD: 235, TS_SCHEDULE_CD: 336, UDT10_ID_U2_CHG_LKUP: 376, UDT_FROM_LKP_FL: 393,
-  YEAR_NO_CD: 398, UDT02_DISPLAY: 400 };
+const CHILD_402 = {
+  S_APPROVE_STATUS_CD: 0,
+  DISPLAY_LINE_NO: 1,
+  LINE_DESC: 2,
+  UDT02_ID: 6,
+  UDT03_ID: 8,
+  UDT10_ID: 16,
+  DAY1_HRS: 26,
+  DAY2_HRS: 27,
+  DAY3_HRS: 28,
+  DAY4_HRS: 29,
+  DAY5_HRS: 30,
+  DAY6_HRS: 31,
+  DAY7_HRS: 32,
+  TOTAL_ENTERED_HRS: 96,
+  CHARGE_BRANCH_CD_U2_CHG_LKUP: 104,
+  CHARGE_CD_U2_CHG_LKUP: 108,
+  CHARGE_TREE_CD_U2_CHG_LKUP: 112,
+  COMMENT___DAY1_HRS: 124,
+  COMMENT___DAY2_HRS: 135,
+  COMMENT___DAY3_HRS: 143,
+  COMMENT___DAY4_HRS: 144,
+  COMMENT___DAY5_HRS: 145,
+  COMMENT___DAY6_HRS: 146,
+  COMMENT___DAY7_HRS: 147,
+  COST_FL: 150,
+  COUNT_ROW: 151,
+  EMPL_ID: 187,
+  HRS_INCREMENT_CD: 193,
+  HRS_MODIFY_FL: 194,
+  IS_AMBIGUOUS_LKP: 196,
+  IS_PROCESSED_FL: 197,
+  LINE_NO: 198,
+  OT_FL: 234,
+  PERIOD_NO_CD: 235,
+  TS_SCHEDULE_CD: 336,
+  UDT10_ID_U2_CHG_LKUP: 376,
+  UDT_FROM_LKP_FL: 393,
+  YEAR_NO_CD: 398,
+  UDT02_DISPLAY: 400,
+};
 
 function liveChildLayout() {
   const names = layout(402, CHILD_402);
@@ -96,11 +142,15 @@ function liveChildLayout() {
   return names;
 }
 
-test('the K1 column list in the init response matches the capture layout', { skip: !hasCapture && 'no captured/' }, () => {
-  const [names] = protocol.columnNames(fs.readFileSync(CHILD_CAPTURE, 'utf8'));
-  assert.equal(names.length, 402);
-  for (const [name, i] of Object.entries(CHILD_402)) assert.equal(names[i], name, 'column ' + i);
-});
+test(
+  'the K1 column list in the init response matches the capture layout',
+  { skip: !hasCapture && 'no captured/' },
+  () => {
+    const [names] = protocol.columnNames(fs.readFileSync(CHILD_CAPTURE, 'utf8'));
+    assert.equal(names.length, 402);
+    for (const [name, i] of Object.entries(CHILD_402)) assert.equal(names[i], name, 'column ' + i);
+  }
+);
 
 test('resolves the live child layout (403 columns) by name', () => {
   const cols = DirectClient.resolveChildColumns(liveChildLayout(), 403);
@@ -129,7 +179,10 @@ test('staging a line and copying a charge write the live child columns', () => {
   const client = Object.create(DirectClient.prototype);
   client.childCol = DirectClient.resolveChildColumns(liveChildLayout(), 403);
   const template = new Array(403).fill('');
-  template[337] = 'SCHED'; template[399] = '2026'; template[336] = 'WRONG'; template[398] = 'WRONG';
+  template[337] = 'SCHED';
+  template[399] = '2026';
+  template[336] = 'WRONG';
+  template[398] = 'WRONG';
   client.childData = { rowNums: ['0'], rowFlags: ['0'], rows: [template] };
   client._stagePendingLine();
   const row = client.childData.rows[1];
@@ -140,7 +193,11 @@ test('staging a line and copying a charge write the live child columns', () => {
   assert.equal(row[393], '');
 
   const k2 = new Array(56).fill('');
-  k2[5] = 'PROJ'; k2[15] = 'REG'; k2[24] = 'PROJ.REG'; k2[26] = '1'; k2[32] = 'PROJ-ID';
+  k2[5] = 'PROJ';
+  k2[15] = 'REG';
+  k2[24] = 'PROJ.REG';
+  k2[26] = '1';
+  k2[32] = 'PROJ-ID';
   client._applyCharge(k2);
   assert.equal(row[377], 'REG');
   assert.equal(row[401], 'PROJ-ID');

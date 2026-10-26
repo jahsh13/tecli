@@ -17,7 +17,7 @@ Two client modes (set via env vars):
 Key files:
 - `direct.js` — DirectClient class, binary protocol, session management
 - `protocol.js` — Encode/decode helpers for Costpoint binary protocol
-- `costpoint.js` — Puppeteer-based client (legacy)
+- `costpoint.js` — Puppeteer-based client (legacy). `save()` reads the CMD 206 response and throws like DirectClient (`RevisionRequiredError` included, finished by `saveWithExplanation()`); `sign()` and login throw instead of exiting; `sign()` throws unless the week reads Signed afterwards. Tests: `test/costpoint-puppeteer.test.js` (stubbed page)
 - `cli.js` — Commander CLI
 - `server.js` — Express web UI (port 3000)
 - `tui.js` — Interactive terminal UI (raw ANSI + readline, zero extra deps)

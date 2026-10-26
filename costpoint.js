@@ -1,10 +1,11 @@
 'use strict';
 
-const chalk = require('chalk');
 const moment = require('moment');
 const puppeteer = require('puppeteer');
 const Table = require('cli-table');
 const { normalizeTimesheetStatus } = require('./timesheet-status');
+const protocol = require('./protocol');
+const { RevisionRequiredError } = require('./direct');
 
 class Costpoint {
   constructor() {
@@ -48,7 +49,6 @@ class Costpoint {
   }
 
   async save() {
-    console.log('Saving timesheet...');
     // Wait for the app to finish any background processing (please-wait overlay)
     await this._waitForIdle();
     // wait until Save & Continue is actually usable
@@ -58,33 +58,47 @@ class Costpoint {
       const cs = getComputedStyle(btn);
       return cs.display !== 'none' && cs.visibility !== 'hidden' && cs.pointerEvents !== 'none';
     });
+    const response = this._waitForSaveResponse();
     await this.page.keyboard.press('F6');
-
-    // Handle revisions. Currently overboard for.
-    // // wait for the revision explanation prompt to be visible
-    // await page.waitForFunction(() => {
-    //   const el = document.querySelector('#EXPLANATION_TEXT');
-    //   if (!el) return false;
-    //   const cs = getComputedStyle(el);
-    //   const r = el.getBoundingClientRect();
-    //   return cs.display !== 'none' && cs.visibility !== 'hidden' && r.width > 0 && r.height > 0;
-    // });
-
-    // // fill explanation
-    // await this.page.locator("#EXPLANATION_TEXT").fill(username);
-
-    // // click Continue
-    // await this.page.waitForFunction(() => {
-    //   const btn = document.querySelector('#OK_BUT___T');
-    //   const r = btn.getBoundingClientRect();
-    //   return cs.display !== 'none' && cs.visibility !== 'hidden' && r.width > 0 && r.height > 0;
-    // });
-    // await this.page.click('#OK_BUT___T');
-
-    await this._waitForResponse();
-    console.log('Timesheet saved.');
+    await this._checkSaveResponse(await response);
     await this._waitForIdle();
     await this._refreshTimesheetStatus();
+  }
+
+  // Finish a save that raised RevisionRequiredError: the browser is showing
+  // the explanation prompt, and Continue re-sends the save with it.
+  async saveWithExplanation(explanation) {
+    await this.page.waitForFunction(() => {
+      const el = document.querySelector('#EXPLANATION_TEXT');
+      if (!el) return false;
+      const cs = getComputedStyle(el);
+      const r = el.getBoundingClientRect();
+      return cs.display !== 'none' && cs.visibility !== 'hidden' && r.width > 0 && r.height > 0;
+    });
+    await this.page.locator('#EXPLANATION_TEXT').fill(explanation);
+    const response = this._waitForSaveResponse();
+    await this.page.locator('#OK_BUT___T').click();
+    await this._checkSaveResponse(await response);
+    await this._waitForIdle();
+    await this._refreshTimesheetStatus();
+  }
+
+  // Same checks as DirectClient.save(): the browser does not surface a
+  // failed save to us, so read the servlet's answer.
+  async _checkSaveResponse(response) {
+    const text = await response.text();
+    if (text.includes('onServletException')) {
+      throw new Error('Server error (session may be invalid). Please try again.');
+    }
+    const parsed = protocol.parseResponse(text);
+    const hasRescdError = protocol.checkRescds(parsed);
+    if (hasRescdError && protocol.isSaveRevisionRequired(parsed)) {
+      throw new RevisionRequiredError();
+    }
+    const err = protocol.checkErrors(parsed);
+    if (hasRescdError || err) {
+      throw new Error('Save error: ' + (err || 'server rejected the save'));
+    }
   }
 
   async sign() {
@@ -109,8 +123,7 @@ class Costpoint {
         { timeout: 10000 }
       );
     } catch (error) {
-      console.error(chalk.red('Timesheet is already signed.'));
-      process.exit(1);
+      throw new Error('The Sign button is not available: the timesheet is already signed or cannot be signed.');
     }
 
     // Click the sign button and wait for the confirmation dialog
@@ -127,6 +140,9 @@ class Costpoint {
     await this.page.waitForNetworkIdle({ idleTime: 2000 });
     await this._waitForIdle();
     await this._refreshTimesheetStatus();
+    if (this.timesheetStatusCode !== 'S') {
+      throw new Error('Timesheet was not signed (status: ' + this.timesheetStatus + ')');
+    }
   }
 
   async close() {
@@ -143,9 +159,9 @@ class Costpoint {
       await this.page.keyboard.press('Tab');
     }
 
-    Array.from(hours.toString()).forEach(async x =>
-      x == '.' ? await this.page.keyboard.press('Period') : await this.page.keyboard.press(x)
-    );
+    for (const x of hours.toString()) {
+      await this.page.keyboard.press(x === '.' ? 'Period' : x);
+    }
 
     const end = this.dates[this.dates.length - 1].date();
     for (let i = 0; i <= end - day; i++) {
@@ -163,29 +179,13 @@ class Costpoint {
 
   async add(code) {
     await new Promise(resolve => setTimeout(resolve, 5000));
-    this.page.keyboard.press('F2');
-    //
-    // await this.page.evaluate(() => {
-    //   const button = Array.from(document.querySelectorAll("#newBttn")).pop();
-    //   button.click();
-    // });
-    //this.page.locator("#newBttn").click();
-    //await new Promise(() => {}); // never resolves
+    await this.page.keyboard.press('F2');
     await this.page.waitForSelector('#UDT02_ID-_0_N', {
       visible: true,
     });
     await this.page.click('#UDT02_ID-_0_N');
     await this.page.type('#UDT02_ID-_0_N', code);
     await this.page.waitForSelector('#fldAutoCompleteDiv', { visible: true });
-    // const invalid = await this.page.evaluate(
-    //   () =>
-    //     document.querySelector("#v10.fldAutoCEItem").textContent ===
-    //     "no values found"
-    // );
-    // if (invalid) {
-    //   console.error(chalk.red("Project code does not exist."));
-    //   process.exit(1);
-    // }
     await this.page.keyboard.press('Tab');
     await this.page.waitForFunction(() => document.querySelector('#LINE_DESC-_0_N').value !== '');
     const description = await this.page.evaluate(() => document.querySelector('#LINE_DESC-_0_N').value);
@@ -197,7 +197,6 @@ class Costpoint {
     table.push([this.table.length - 1, description, code]);
     console.log('The following project has been successfully added:');
     console.log(table.toString());
-    //await new Promise(() => {}); // never resolves
   }
 
   async _launch() {
@@ -264,15 +263,10 @@ class Costpoint {
       // Tell it not to try to install the "app"
       await this.page.locator('#pdlgNever').click();
       await new Promise(resolve => setTimeout(resolve, 5000));
-
-      //await new Promise(() => {}); // never resolves
     } catch (e) {
-      console.error(
-        chalk.red(
-          'Invalid login information. Make sure that COSTPOINT_URL, COSTPOINT_USERNAME, COSTPOINT_PASSWORD, COSTPOINT_SYSTEM are escaped correctly.'
-        )
+      throw new Error(
+        'Invalid login information. Make sure that COSTPOINT_URL, COSTPOINT_USERNAME and COSTPOINT_PASSWORD are escaped correctly.'
       );
-      process.exit(1);
     }
 
     async function clickLoginBtn(page) {
@@ -388,9 +382,18 @@ class Costpoint {
   }
 
   async _waitForResponse() {
-    await this.page.waitForResponse(
-      response => response.url().includes('MasterServlet.cps') && response.request().method() === 'POST'
-    );
+    await this.page.waitForResponse(isServletPost);
+  }
+
+  // Start waiting before the key or click that sends the save, so a fast
+  // response is not missed. A request whose body Puppeteer did not keep
+  // (postData() undefined) still counts.
+  _waitForSaveResponse() {
+    return this.page.waitForResponse(response => {
+      if (!isServletPost(response)) return false;
+      const body = response.request().postData?.();
+      return body === undefined || body.includes('206ATMMTIMESHEET');
+    });
   }
 
   async _refreshTimesheetStatus() {
@@ -450,6 +453,10 @@ class Costpoint {
     this.timesheetStatus = statusMeta.label;
     this.timesheetStatusCode = statusMeta.code;
   }
+}
+
+function isServletPost(response) {
+  return response.url().includes('MasterServlet.cps') && response.request().method() === 'POST';
 }
 
 module.exports = Costpoint;

@@ -144,6 +144,26 @@ for (const run of QUIRK_RUNS)
       });
     }
 
+    // tecli-dw7: live Costpoint answered a committed save with an HTML page
+    test('set_hours whose committed save gets an HTML reply reports the save', async () => {
+      mock.htmlSave();
+      const res = await call('set_hours', { line: 0, day: 15, hours: 6 });
+      assert.equal(res.isError, false, res.text);
+      assert.match(res.text, /Set line 0, day 15 to 6h. Saved/);
+      assert.equal((await mock.launch()).getData().projects[0].hours[15], 6);
+    });
+
+    test('set_hours whose lost save gets an HTML reply says the outcome is unknown and sends it once', async () => {
+      const before = (await mock.launch()).getData().projects[0].hours[15];
+      mock.htmlSave(1, { commit: false });
+      const res = await call('set_hours', { line: 0, day: 15, hours: 6 });
+      assert.equal(res.isError, true);
+      assert.match(res.text, /^ERROR: Save outcome unknown/);
+      assert.match(res.text, /before retrying/);
+      // A resent save would have committed: the mock answers only one with HTML
+      assert.equal((await mock.launch()).getData().projects[0].hours[15], before);
+    });
+
     test('set_hours_bulk with out of range hours saves nothing', async () => {
       const before = (await mock.launch()).getData().projects[0].hours[15];
       const res = await call('set_hours_bulk', {

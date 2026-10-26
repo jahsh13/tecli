@@ -15,6 +15,11 @@ const { handleRequest, parseQuirks, SESSION_NOT_VALID } = require('./handlers');
 const DEFAULT_FIXTURE = path.join(__dirname, 'fixture.json');
 const DEFAULT_TTL_MS = 30 * 60 * 1000;
 const SAVE_FAULT = 'Mock save failure';
+// What a gateway or error page in front of the servlet sends instead of a
+// response document (tecli-dw7: live set_hours got one after a committed save)
+const HTML_PAGE =
+  '<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">\n' +
+  '<html><head><title>Costpoint</title></head><body>Request could not be completed</body></html>';
 
 function readFixture(fixture) {
   if (fixture && typeof fixture === 'object') return fixture;
@@ -52,10 +57,12 @@ function send(res, status, body, headers = {}) {
  * or comma string), today (YYYY-MM-DD), user/password (unset accepts any
  * login), sessionTtlMs, stateFile.
  * Returns { server, port, url, db, sessions, reset(), failSave(period, error),
- * stall(count), dropSave(count), expire(sid), close() }. failSave makes the
- * next 206 for that period fail. stall leaves the next count servlet requests
- * unanswered. dropSave commits the next count saves and then drops the
- * connection instead of answering.
+ * stall(count), dropSave(count), htmlSave(count, { commit }), expire(sid),
+ * close() }. failSave makes the next 206 for that period fail. stall leaves
+ * the next count servlet requests unanswered. dropSave commits the next count
+ * saves and then drops the connection instead of answering. htmlSave answers
+ * the next count saves with an HTML page instead of a response document,
+ * after committing them unless commit is false (tecli-dw7).
  */
 async function createMockServer(options = {}) {
   const fixture = readFixture(options.fixture);
@@ -71,6 +78,8 @@ async function createMockServer(options = {}) {
   // Saves left to commit and then answer by dropping the connection, set
   // with dropSave()
   let drops = 0;
+  // Saves left to answer with an HTML page, set with htmlSave()
+  let htmlSaves = { count: 0, commit: true };
   let clock = options.now || (() => Date.now());
 
   const freshDb = () => new Db(fixture, { today });
@@ -121,6 +130,8 @@ async function createMockServer(options = {}) {
     return session;
   }
 
+  const newEnv = session => ({ db, session, quirks, persist, faults, ctx: { stale: new Map(), suppress204: false } });
+
   function handleServlet(body, res) {
     if (stalls > 0) {
       stalls--;
@@ -134,8 +145,12 @@ async function createMockServer(options = {}) {
     let commands;
     try {
       ({ commands } = codec.parseRequest(body));
-      const env = { db, session, quirks, persist, faults, ctx: { stale: new Map(), suppress204: false } };
-      text = handleRequest(env, commands);
+      if (htmlSaves.count > 0 && commands.some(c => c.reqCd === 206)) {
+        htmlSaves.count--;
+        if (htmlSaves.commit) handleRequest(newEnv(session), commands);
+        return send(res, 200, HTML_PAGE);
+      }
+      text = handleRequest(newEnv(session), commands);
     } catch (e) {
       console.error('mock: ' + e.stack);
       return send(res, 500, 'mock error: ' + e.message);
@@ -230,6 +245,7 @@ async function createMockServer(options = {}) {
       faults.clear();
       stalls = 0;
       drops = 0;
+      htmlSaves = { count: 0, commit: true };
     },
     failSave(period, error = SAVE_FAULT) {
       faults.set(period, error);
@@ -239,6 +255,9 @@ async function createMockServer(options = {}) {
     },
     dropSave(count = 1) {
       drops = count;
+    },
+    htmlSave(count = 1, { commit = true } = {}) {
+      htmlSaves = { count, commit };
     },
     expire(sid) {
       if (sid) sessions.delete(sid);

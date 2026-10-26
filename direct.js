@@ -262,6 +262,33 @@ class SessionExpiredError extends Error {
   }
 }
 
+/**
+ * Thrown when a save was sent but its reply is not a response document (live
+ * Costpoint once answered a committed save with an HTML page, tecli-dw7). The
+ * save may have landed, so it is not a session error and must not be resent
+ * before the week is read again.
+ */
+class SaveOutcomeUnknownError extends Error {
+  constructor(cause) {
+    super(
+      'Save outcome unknown: Costpoint did not answer with a readable reply, so the save may or may not have landed. Do not retry; read the week again first. (' +
+        cause.message +
+        ')'
+    );
+    this.name = 'SaveOutcomeUnknownError';
+    this.cause = cause;
+  }
+}
+
+// Parse the reply to a sent save; an unreadable one leaves the outcome unknown
+function parseSaveResponse(respText) {
+  try {
+    return protocol.parseResponse(respText);
+  } catch (e) {
+    throw new SaveOutcomeUnknownError(e);
+  }
+}
+
 // Commands that may change what Costpoint has stored: 206 save, 209 discard,
 // 300 action (sign, Correct, new line, add to favorites)
 const WRITE_COMMAND = /^(206|209|300)A/;
@@ -1101,7 +1128,7 @@ class DirectClient {
       throw new Error('Server error (session may be invalid). Please try again.');
     }
 
-    const parsed = protocol.parseResponse(respText);
+    const parsed = parseSaveResponse(respText);
 
     // Check for errors
     const hasRescdError = protocol.checkRescds(parsed);
@@ -1145,7 +1172,15 @@ class DirectClient {
     // A save that follows add-to-favorites returns no 204 data. Without a
     // re-fetch the saved line stays a pending row (-59999) in local state,
     // and the next add() reuses it and re-saves it as a duplicate.
-    if (!k1Data) await this._refetchTimesheet();
+    // The save has committed by now, so a failed re-fetch must not read as a
+    // failed save
+    if (!k1Data) {
+      try {
+        await this._refetchTimesheet();
+      } catch (e) {
+        throw new SaveOutcomeUnknownError(e);
+      }
+    }
 
     this._buildTableRows();
     debug('Timesheet saved.');
@@ -1251,7 +1286,7 @@ class DirectClient {
       throw new Error('Server error (session may be invalid). Please try again.');
     }
 
-    const parsed = protocol.parseResponse(respText);
+    const parsed = parseSaveResponse(respText);
     const hasRescdError = protocol.checkRescds(parsed);
     const err = protocol.checkErrors(parsed);
 
@@ -3858,6 +3893,7 @@ class DirectClient {
 DirectClient.RevisionRequiredError = RevisionRequiredError;
 DirectClient.RequestTimeoutError = RequestTimeoutError;
 DirectClient.SessionExpiredError = SessionExpiredError;
+DirectClient.SaveOutcomeUnknownError = SaveOutcomeUnknownError;
 DirectClient.ResponseTooLargeError = ResponseTooLargeError;
 DirectClient.requestTimeoutMs = requestTimeoutMs;
 DirectClient.MAX_RESPONSE_BYTES = MAX_RESPONSE_BYTES;

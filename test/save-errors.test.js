@@ -9,6 +9,7 @@ const assert = require('node:assert/strict');
 const codec = require('../mock/codec');
 const protocol = require('../protocol');
 const DirectClient = require('../direct');
+const { isSessionError } = require('../session');
 
 const { RevisionRequiredError } = DirectClient;
 const EXPLANATION = 'Explanation or Reject Reason is required.';
@@ -74,4 +75,28 @@ test('a negative code on another frame is not a revision prompt', () => {
   ]);
   const client = Object.create(DirectClient.prototype);
   assert.equal(client._isSaveRevisionRequired(protocol.parseResponse(resp)), false);
+});
+
+test('an HTML reply to the 206 is an unknown outcome, not a session error', async () => {
+  const client = stubClient([
+    '<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN"><html><body>x</body></html>',
+  ]);
+  await assert.rejects(
+    () => client.save(),
+    err => {
+      assert.ok(err instanceof DirectClient.SaveOutcomeUnknownError, err.message);
+      assert.equal(isSessionError(err), false);
+      assert.match(err.message, /Do not retry/);
+      return true;
+    }
+  );
+});
+
+test('an HTML reply to the re-fetch after a save without rows is an unknown outcome', async () => {
+  const saved = codec.buildResponse([
+    { rsKey: 0, cmdCd: 206 },
+    { rsKey: -1, cmdCd: 507 },
+  ]);
+  const client = stubClient([saved, '<html><body>x</body></html>']);
+  await assert.rejects(() => client.save(), DirectClient.SaveOutcomeUnknownError);
 });

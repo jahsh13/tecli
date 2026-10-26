@@ -179,6 +179,27 @@ test('a request timeout is not a session error and is not retried', async () => 
   assert.strictEqual(m.current(), null);
 });
 
+// An unreadable save reply may follow a committed save (tecli-dw7): never
+// retried, and the session is dropped like after a timeout
+test('a save with an unknown outcome is not retried and drops the session', async () => {
+  const unknown = new DirectClient.SaveOutcomeUnknownError(new Error('responses is not defined at offset 0'));
+  assert.strictEqual(isSessionError(unknown), false);
+
+  const { launch, launched } = fakeLauncher();
+  const m = createSessionManager({ launch });
+  let calls = 0;
+  await assert.rejects(
+    m.withClient(async () => {
+      calls++;
+      throw unknown;
+    }),
+    /Save outcome unknown/
+  );
+  assert.strictEqual(calls, 1);
+  assert.ok(launched[0].closed);
+  assert.strictEqual(m.current(), null);
+});
+
 // A replay after a request that may have committed (a save, a sign, an
 // action) could repeat it, e.g. add the same line twice (tecli-4mz.10)
 describe('withClient retry after a write', () => {

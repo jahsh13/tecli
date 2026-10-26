@@ -53,6 +53,7 @@ async function listFavorites(creds) {
 // Costpoint business message that mentions a session is not one. A timeout
 // (ETIMEDOUT) is not either: the request may have reached Costpoint.
 const CONNECTION_ERRORS = new Set(['ECONNRESET', 'ECONNREFUSED']);
+const UNSURE_ERRORS = new Set(['RequestTimeoutError', 'SaveOutcomeUnknownError']);
 
 function isSessionError(e) {
   if (!e) return false;
@@ -121,9 +122,9 @@ function createSessionManager({ launch, idleMs = DEFAULT_IDLE_MS, onLaunch, onLa
         await releaseClient();
         return await fn(await getClient(period));
       }
-      // After a timeout or a lost session the client may not match what
-      // Costpoint has: the next operation starts on a fresh session
-      if (isSessionError(e) || e.name === 'RequestTimeoutError') await releaseClient();
+      // After a timeout, a lost session or an unreadable save reply the client
+      // may not match what Costpoint has: the next operation starts fresh
+      if (isSessionError(e) || UNSURE_ERRORS.has(e.name)) await releaseClient();
       throw e;
     }
   }

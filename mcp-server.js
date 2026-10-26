@@ -15,7 +15,7 @@ const { MAX_HOURS } = require('./hours');
 
 require('dotenv').config();
 
-const { RevisionRequiredError } = DirectClient;
+const { RevisionRequiredError, SaveOutcomeUnknownError } = DirectClient;
 
 const backSchema = z
   .number()
@@ -57,6 +57,10 @@ function formatTimesheet(data, back) {
 
   return lines.join('\n');
 }
+
+// Lines as code, pay type, hours and comments, in order: what an edit changes
+const entries = data => JSON.stringify(data.projects.map(p => [p.code, p.payType || '', p.hours, p.comments]));
+const sameEntries = (a, b) => entries(a) === entries(b);
 
 // Editing a processed past week reopens it; it must be signed again
 function signHint(data, back) {
@@ -160,8 +164,11 @@ function buildServer(options = {}) {
   async function editWeek(back, summary, mutate) {
     guardRevision(back);
     return withClient(async cp => {
+      let done;
+      let intended;
       try {
-        const done = await mutate(cp);
+        done = await mutate(cp);
+        intended = cp.getData();
         await cp.save();
         const data = cp.getData();
         return text(`${done}. Saved.\n\n${formatTimesheet(data, back)}${signHint(data, back)}`);
@@ -171,9 +178,33 @@ function buildServer(options = {}) {
           return revisionResult(e, summary);
         }
         await releaseClient();
+        if (e instanceof SaveOutcomeUnknownError) return confirmSave(back, done, intended, e);
         throw e;
       }
     }, back);
+  }
+
+  // The save was sent but its reply was unreadable (tecli-dw7). Read the week
+  // back on a fresh login, read-only, and report the save only if the week
+  // shows every edit. The save is never resent.
+  async function confirmSave(back, done, intended, saveError) {
+    let data;
+    try {
+      const cp = await launchForPeriod(credentials(), back);
+      try {
+        data = cp.getData();
+      } finally {
+        await cp.close().catch(() => {});
+      }
+    } catch {
+      throw saveError;
+    }
+    if (sameEntries(intended, data)) {
+      return text(`${done}. Saved.\n\n${formatTimesheet(data, back)}${signHint(data, back)}`);
+    }
+    throw new Error(
+      `Save outcome unknown: Costpoint's reply to the save was unreadable and the week read back does not show every edit. Check it with show_timesheet before retrying.\n\n${formatTimesheet(data, back)}`
+    );
   }
 
   const server = new McpServer({ name: 'tecli', version: '1.0.0' }, { instructions: INSTRUCTIONS });

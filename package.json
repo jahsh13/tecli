@@ -10,7 +10,10 @@
     "tui": "node cli.js tui",
     "mcp": "node mcp-server.js",
     "test": "node --test test/**/*.test.js",
-    "mock": "node mock/server.js"
+    "mock": "node mock/server.js",
+    "lint": "eslint .",
+    "format": "prettier --write .",
+    "format:check": "prettier --check ."
   },
   "keywords": [
     "cli",
@@ -38,9 +41,10 @@
     "sharp": "^0.34.5"
   },
   "devDependencies": {
-    "babel-eslint": "^10.1.0",
+    "@eslint/js": "^9.39.5",
     "eslint": "^9.17.0",
-    "eslint-plugin-prettier": "^5.2.1",
+    "eslint-config-prettier": "^10.1.8",
+    "globals": "^17.13.0",
     "prettier": "^3.4.2"
   }
 }

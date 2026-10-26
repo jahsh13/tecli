@@ -582,14 +582,13 @@ describe('past-week add and favorites batches (captured/past-week-add 014-019)',
     };
     client._buildTableRows = () => {};
     assert.deepEqual(await client.getFavorites(), []);
-    assert.equal(bodies.length, 5);
+    assert.equal(bodies.length, 4);
     assert.equal(cmdStrings(bodies[0])[0], '205 K0 C1 Vtrue $lastPutId$');
     assert.match(cmdStrings(bodies[1])[0], /^201 K2 ITC_UDT02_CHARGE_LKP /);
     assert.match(cmdStrings(bodies[2])[0], /^204 \$rsType\$=L RHLKP S E X-59999 W.*K2 C-60000 P1 Vtrue$/);
     assert.match(cmdStrings(bodies[3])[0], /^204 \$rsType\$=L RHLKP S E X-59999 W.*K2 C0 P1 Vtrue$/);
-    // The line is discarded like the browser's delete (capture 020)
-    assert.deepEqual(cmdStrings(bodies[4]).slice(0, 1), ['209 K1 C-59999 P0 Vtrue']);
-    assert.equal(client.pendingLine(), null);
+    // Live Costpoint refuses the delete of the uncharged line (tecli-4c4)
+    assert.ok(client.pendingLine());
   });
 
   test('getFavorites() does not correct a closed week', async () => {

@@ -11,6 +11,8 @@ const { PARENT, CHILD, CHARGE, toNumber } = require('./state');
 const SESSION_NOT_VALID = 'parent.onServletException("Session not valid");\nsession not valid';
 const RIGHTS_ERROR = 'You do not have rights to execute this process';
 const EXPLANATION_ERROR = 'Explanation or Reject Reason is required.';
+const DELETE_INVALID_LINE_ERROR =
+  'One or more charge lines were invalid and could not be added to timesheet because certain required values were invalid or could not be calculated.';
 const PENDING_ROW = '-59999';
 const PARENT_PAGE = 20;
 const AUDIT_COLS = 8;
@@ -564,11 +566,17 @@ function commit(cmd, env) {
 
 // The browser's row delete on a pending line (captured/past-week-add/020).
 // It carries no period, so it applies to the week of the last child PUT.
+// Live Costpoint validates the line first and refuses one with no charge, such
+// as the line getFavorites stages (tecli-4c4).
 function deleteRow(cmd, env) {
   const { db, session } = env;
   const idx = session.lastPut ? session.lastPut.idx : 0;
   if (int(cmd.codes.K) === 1) {
     const buf = session.buffer(db, idx);
+    const line = buf.lines.find(l => l.rowNum === cmd.codes.C);
+    if (line && !line.row[CHILD.ACCOUNT]) {
+      return [{ rsKey: 1, cmdCd: 209, rescd: -1, error: DELETE_INVALID_LINE_ERROR }];
+    }
     buf.lines = buf.lines.filter(l => l.rowNum !== cmd.codes.C);
   }
   return [{ rsKey: int(cmd.codes.K), cmdCd: 209 }];

@@ -14,13 +14,43 @@ describe('favorites leave the session clean', () => {
   });
   afterEach(() => mock.stop());
 
-  test('getFavorites then set + save succeeds and persists', async () => {
+  // Live Costpoint refuses the CMD 209 delete of the uncharged favorites line
+  // (tecli-4c4), so the line stays and the session cannot save: callers that
+  // go on editing list through listFavorites() instead.
+  test('getFavorites sends no row delete and leaves its line on the session', async () => {
     const cp = await mock.launch();
+    const sent = [];
+    const post = cp._postServlet.bind(cp);
+    cp._postServlet = body => {
+      sent.push(new URLSearchParams(body).get('cmd'));
+      return post(body);
+    };
     assert.equal((await cp.getFavorites()).length, 2);
-    assert.equal(cp.pendingLine(), null);
-    await cp.set(0, 15, 3);
-    await cp.save();
-    assert.equal((await mock.launch()).getData().projects[0].hours[15], 3);
+    const { DLM_RS } = require('../protocol');
+    assert.ok(sent.every(cmd => !cmd.split(DLM_RS).some(c => c.startsWith('209A'))));
+    assert.ok(cp.pendingLine());
+  });
+
+  test('the mock refuses to delete an uncharged pending line, like live Costpoint', async () => {
+    const protocol = require('../protocol');
+    const cp = await mock.launch();
+    await cp.getFavorites();
+    const parsed = protocol.parseResponse(
+      await cp._postServlet(
+        protocol.buildRequestBody(cp.sid, [
+          cp._wrap(
+            cp._cmd(209, [
+              { code: 'K', value: '1' },
+              { code: 'C', value: '-59999' },
+              { code: 'P', value: '0' },
+              { code: 'V', value: 'true' },
+            ])
+          ),
+          cp._keepalive(),
+        ])
+      )
+    );
+    assert.match(protocol.checkErrors(parsed), /^One or more charge lines were invalid/);
   });
 
   test('getFavorites on a processed week leaves it processed', async () => {

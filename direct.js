@@ -688,9 +688,12 @@ class DirectClient {
   }
 
   /**
-   * Favorites belong to the user, so listing them leaves the week as it was:
-   * the pending line it stages is discarded afterwards and a closed week is
-   * not corrected. keepLine keeps both for an add() that follows.
+   * Favorites belong to the user, so listing them does not correct a closed
+   * week. The lookup needs a pending line, and live Costpoint refuses to
+   * delete a line with no charge (CMD 209, tecli-4c4), so a plain listing
+   * leaves the session unable to save: list on a throwaway session
+   * (listFavorites() in session.js). keepLine corrects a closed week and keeps
+   * the line for an add() that follows.
    */
   async getFavorites({ keepLine = false } = {}) {
     if (keepLine && this._isPeriodClosed()) await this._correctTimesheet();
@@ -702,11 +705,7 @@ class DirectClient {
       this._stagePendingLine();
       await this._newTimesheetLine();
     }
-    try {
-      return await this._queryFavorites();
-    } finally {
-      if (!keepLine && !hasPending) await this._discardPendingLine();
-    }
+    return this._queryFavorites();
   }
 
   async _queryFavorites() {
@@ -848,38 +847,6 @@ class DirectClient {
     }
     const k0Data = protocol.extract204(parsed, 0);
     if (k0Data) this.parentData = k0Data;
-  }
-
-  /**
-   * Drop the pending line like the browser's row delete
-   * (captured/past-week-add/020): CMD 209 on K1 C-59999, then the refreshes.
-   * A line left behind has no charge and fails the next save with
-   * "Account required".
-   */
-  async _discardPendingLine() {
-    const idx = this.childData.rowNums.findIndex(n => parseInt(n, 10) < 0);
-    if (idx < 0) return;
-    const rowNum = this.childData.rowNums[idx];
-    const body = protocol.buildRequestBody(this.sid, [
-      this._wrap(
-        this._cmd(209, [
-          { code: 'K', value: '1' },
-          { code: 'C', value: rowNum },
-          { code: 'P', value: '0' },
-          { code: 'V', value: 'true' },
-        ])
-      ),
-      ...this._get204(0),
-      ...this._get204(1, null, { childCursor: rowNum }),
-      this._keepalive(),
-    ]);
-    const parsed = protocol.parseResponse(await this._postServlet(body));
-    const err = protocol.checkErrors(parsed);
-    if (err) throw new Error('Discard line error: ' + err);
-    this.childData.rows.splice(idx, 1);
-    this.childData.rowNums.splice(idx, 1);
-    if (this.childData.rowFlags) this.childData.rowFlags.splice(idx, 1);
-    this._buildTableRows();
   }
 
   /**

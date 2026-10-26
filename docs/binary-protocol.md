@@ -278,7 +278,7 @@ The server response is a JavaScript assignment:
 var responses=[{frame_array}, {rescds_string}, {data_array}, {error_array}];
 ```
 
-This is parsed by `eval`-ing it with stubs for browser globals (`parent`, `D`, `g`) that the server-side JS may reference.
+`parseResponse()` in `protocol.js` reads it as data and never runs it: arrays, `"`/`'` strings, numbers, `null`/`true`/`false` and `new Array(...)`. The `function(g){...}` UI scripts in later slots (OPEN_RS `D.V(g,"maObjId",...)` and the like) come back as their source text; `columnNames()` reads them from the raw body. Any other syntax, or text after the array, fails the parse. Tests: `test/parse-response.test.js`.
 
 ### Response Structure
 

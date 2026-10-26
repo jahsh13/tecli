@@ -120,21 +120,207 @@ function decodeData(dataStr) {
   return data;
 }
 
+// ---------------------------------------------------------------------------
+// Response parsing
+// ---------------------------------------------------------------------------
+// The servlet answers with JavaScript: `var responses=[...];`. It is read as
+// data, never run (tecli-4mz.9). Grammar seen in captured traffic: arrays,
+// "..." and '...' strings with JS escapes, numbers, null, true, false,
+// new Array(...), and UI scripts `function(g){...}`, kept as their source
+// text. Anything else fails the parse.
+
+const RESPONSES_PREFIX = 'var responses=';
+const STRING_ESCAPES = { n: '\n', r: '\r', t: '\t', b: '\b', f: '\f', v: '\v' };
+const NUMBER_RE = /-?(?:0|[1-9]\d*)(?:\.\d+)?(?:[eE][+-]?\d+)?/y;
+const HEX_RE = /^[0-9a-fA-F]+$/;
+
+class ResponseParser {
+  constructor(text) {
+    this.text = text;
+    this.pos = 0;
+  }
+
+  fail(message) {
+    throw new Error(message + ' at offset ' + this.pos);
+  }
+
+  skipSpace() {
+    while (this.pos < this.text.length && /\s/.test(this.text[this.pos])) this.pos++;
+  }
+
+  startsWith(word) {
+    return this.text.startsWith(word, this.pos);
+  }
+
+  expect(token) {
+    this.skipSpace();
+    if (!this.startsWith(token)) this.fail('expected ' + JSON.stringify(token));
+    this.pos += token.length;
+  }
+
+  parseDocument() {
+    this.skipSpace();
+    if (!this.startsWith(RESPONSES_PREFIX)) this.fail('responses is not defined');
+    this.pos += RESPONSES_PREFIX.length;
+    const value = this.parseValue();
+    this.skipSpace();
+    if (this.text[this.pos] === ';') this.pos++;
+    this.skipSpace();
+    if (this.pos !== this.text.length) this.fail('unexpected text after responses');
+    if (!Array.isArray(value)) this.fail('responses is not an array');
+    return value;
+  }
+
+  parseValue() {
+    this.skipSpace();
+    const c = this.text[this.pos];
+    if (c === '[') return this.parseList('[', ']');
+    if (c === '"' || c === "'") return this.parseString();
+    if (c === '-' || (c >= '0' && c <= '9')) return this.parseNumber();
+    for (const [word, value] of [
+      ['null', null],
+      ['true', true],
+      ['false', false],
+    ]) {
+      if (this.startsWithWord(word)) {
+        this.pos += word.length;
+        return value;
+      }
+    }
+    if (this.startsWithWord('new')) return this.parseNewArray();
+    if (this.startsWithWord('function')) return this.parseFunctionSource();
+    return this.fail('unexpected ' + (c === undefined ? 'end of input' : JSON.stringify(c)));
+  }
+
+  startsWithWord(word) {
+    return this.startsWith(word) && !/[\w$]/.test(this.text[this.pos + word.length] || '');
+  }
+
+  parseList(open, close) {
+    this.expect(open);
+    const items = [];
+    this.skipSpace();
+    if (this.text[this.pos] === close) {
+      this.pos++;
+      return items;
+    }
+    for (;;) {
+      items.push(this.parseValue());
+      this.skipSpace();
+      const c = this.text[this.pos];
+      this.pos++;
+      if (c === close) return items;
+      if (c !== ',') {
+        this.pos--;
+        this.fail('expected "," or ' + JSON.stringify(close));
+      }
+    }
+  }
+
+  parseNewArray() {
+    this.pos += 'new'.length;
+    this.expect('Array');
+    const items = this.parseList('(', ')');
+    // new Array(n) would be an empty array of length n, not [n]
+    if (items.length === 1 && typeof items[0] === 'number') this.fail('new Array(length) is not supported');
+    return items;
+  }
+
+  parseNumber() {
+    NUMBER_RE.lastIndex = this.pos;
+    const m = NUMBER_RE.exec(this.text);
+    if (!m) this.fail('bad number');
+    this.pos += m[0].length;
+    return Number(m[0]);
+  }
+
+  parseString() {
+    const text = this.text;
+    const quote = text[this.pos++];
+    let out = '';
+    let chunkStart = this.pos;
+    while (this.pos < text.length) {
+      const c = text[this.pos];
+      if (c === quote) {
+        out += text.slice(chunkStart, this.pos++);
+        return out;
+      }
+      if (c === '\n' || c === '\r') this.fail('newline in string');
+      if (c !== '\\') {
+        this.pos++;
+        continue;
+      }
+      out += text.slice(chunkStart, this.pos) + this.parseEscape();
+      chunkStart = this.pos;
+    }
+    return this.fail('unterminated string');
+  }
+
+  parseEscape() {
+    const text = this.text;
+    const c = text[++this.pos];
+    this.pos++;
+    if (c === undefined) this.fail('unterminated string');
+    if (c in STRING_ESCAPES) return STRING_ESCAPES[c];
+    if (c === 'x') return this.readHex(2);
+    if (c === 'u') {
+      if (text[this.pos] !== '{') return this.readHex(4);
+      const close = text.indexOf('}', this.pos);
+      if (close < 0) this.fail('bad unicode escape');
+      const hex = text.slice(this.pos + 1, close);
+      if (!HEX_RE.test(hex) || parseInt(hex, 16) > 0x10ffff) this.fail('bad unicode escape');
+      this.pos = close + 1;
+      return String.fromCodePoint(parseInt(hex, 16));
+    }
+    if (c === '0' && !/[0-9]/.test(text[this.pos] || '')) return '\0';
+    if (c >= '0' && c <= '9') this.fail('octal escape');
+    if (c === '\r') {
+      if (text[this.pos] === '\n') this.pos++;
+      return '';
+    }
+    if (c === '\n' || c === '\u2028' || c === '\u2029') return '';
+    return c;
+  }
+
+  readHex(len) {
+    const hex = this.text.substr(this.pos, len);
+    if (hex.length !== len || !HEX_RE.test(hex)) this.fail('bad hex escape');
+    this.pos += len;
+    return String.fromCharCode(parseInt(hex, 16));
+  }
+
+  // A UI script for the browser. Only its extent is found: braces are
+  // matched, skipping string literals. The text is returned, never run.
+  parseFunctionSource() {
+    const text = this.text;
+    const start = this.pos;
+    const open = text.indexOf('{', start);
+    if (open < 0) this.fail('function without a body');
+    this.pos = open;
+    let depth = 0;
+    while (this.pos < text.length) {
+      const c = text[this.pos];
+      if (c === '"' || c === "'") {
+        this.parseString();
+        continue;
+      }
+      if (c === '`' || (c === '/' && (text[this.pos + 1] === '/' || text[this.pos + 1] === '*'))) {
+        this.fail('unsupported syntax in function');
+      }
+      this.pos++;
+      if (c === '{') depth++;
+      if (c === '}' && --depth === 0) return text.slice(start, this.pos);
+    }
+    return this.fail('unterminated function');
+  }
+}
+
 /**
- * Parse a `var responses=[...]` string into a JS array.
+ * Parse a `var responses=[...]` string into a JS array without running it.
  */
 function parseResponse(responseText) {
-  // Real server responses may reference browser globals like `parent` (iframe parent frame)
-  // and `D` (framework namespace). Define stubs so eval doesn't throw.
-  // Use a recursive proxy that absorbs any property access or function call.
-  const handler = {
-    get: (_, prop) => (prop === Symbol.toPrimitive ? () => '' : noop),
-    apply: () => noop,
-  };
-  const noop = new Proxy(function () {}, handler);
   try {
-    const fn = new Function('parent', 'D', 'g', responseText + '\nreturn responses;');
-    return fn(noop, noop, noop);
+    return new ResponseParser(responseText).parseDocument();
   } catch (e) {
     throw new Error('parseResponse failed: ' + e.message + ' | response preview: ' + responseText.substring(0, 300));
   }

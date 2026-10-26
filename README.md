@@ -118,7 +118,7 @@ Example: fix last week's Tuesday. Press `<`, move to the cell, type `4`, Enter, 
 
 ## Web UI
 
-`te server` serves http://localhost:3000 (`PORT` changes it). It shows two weeks side by side; `‹ older`, `newer ›` and `Current` slide the pair. Each editable unsigned week has its own Sign button, and the Add Project and Favorites dialogs ask which visible week to add to (Add Project has an "Also add to favorites" checkbox and a work location field). Past-week edits need direct mode.
+`te server` serves http://127.0.0.1:3000 (`PORT` changes it) and listens on the loopback interface only, so other hosts cannot reach it. It answers only its own page: requests must name `127.0.0.1` or `localhost` in Host (and in Origin when the browser sends one), and every `/api` call carries a random token the server puts in the page at each start. A restart changes the token, so reload an open tab after one. It shows two weeks side by side; `‹ older`, `newer ›` and `Current` slide the pair. Each editable unsigned week has its own Sign button, and the Add Project and Favorites dialogs ask which visible week to add to (Add Project has an "Also add to favorites" checkbox and a work location field). Past-week edits need direct mode.
 
 ## MCP Server
 

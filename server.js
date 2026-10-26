@@ -12,11 +12,13 @@ const { normalizeWorkLocation } = require('./add-options');
 const { getCredentials } = require('./credentials');
 const weekWindow = require('./week-window');
 const { launchForPeriod, createSessionManager } = require('./session');
+const { createWebGuard, HOST } = require('./web-guard');
 
 require('dotenv').config();
 
 const app = express();
 const PORT = process.env.PORT || 3000;
+const guard = createWebGuard(PORT);
 
 const creds = getCredentials();
 if (!creds) {
@@ -417,6 +419,7 @@ function fetchFreshDataInBackground() {
 }
 
 // Middleware
+app.use(guard.middleware);
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
 
@@ -486,6 +489,7 @@ function renderHTML(data, isLoading = false) {
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="tecli-token" content="${guard.token}">
   <title>Str8 Outta Deltek</title>
   <link rel="stylesheet" href="/styles.css">
 </head>
@@ -962,7 +966,8 @@ app.post('/api/project', async (req, res) => {
 });
 
 app.post('/api/sign', async (req, res) => {
-  const period = weekWindow.parsePeriod(req.body && req.body.period);
+  // No default: a sign names its week
+  const period = weekWindow.parsePeriod(req.body && req.body.period, null);
   if (period === null || period >= getPeriodCount()) return res.status(400).json({ error: 'Invalid period' });
   try {
     await signTimesheet(period);
@@ -1021,8 +1026,9 @@ app.delete('/api/cache', (req, res) => {
 });
 
 // Initialize and start server — fetch fresh data immediately on boot
-app.listen(PORT, () => {
-  console.log(`Costpoint Web UI running at http://localhost:${PORT}`);
+const listener = app.listen(PORT, HOST, () => {
+  const { address, port } = listener.address();
+  console.log(`Costpoint Web UI running at http://${address}:${port}`);
   console.log('Fetching data from Costpoint...');
   fetchFreshDataInBackground();
 });

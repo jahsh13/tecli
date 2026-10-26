@@ -11,6 +11,14 @@
   let originalComments = new Map();
   let signPeriod = 0; // period of the week whose Sign button opened the sign modal
 
+  // The server refuses /api requests without its per-launch token (web-guard.js)
+  const tokenMeta = document.querySelector('meta[name="tecli-token"]');
+  const apiToken = tokenMeta ? tokenMeta.content : '';
+
+  function apiFetch(url, options = {}) {
+    return fetch(url, { ...options, headers: { ...options.headers, 'X-Tecli-Token': apiToken } });
+  }
+
   // Project codes that require a comment when hours are entered
   var COMMENT_REQUIRED_CODES = ['A09909.SUSP.OVH'];
 
@@ -59,7 +67,7 @@
   function startLoadingPolling() {
     const pollInterval = setInterval(async () => {
       try {
-        const response = await fetch('/api/status');
+        const response = await apiFetch('/api/status');
         if (!response.ok) return;
 
         const statusData = await response.json();
@@ -390,7 +398,7 @@
     try {
       // Send all pending hours changes to server
       for (const change of pendingChanges.values()) {
-        const response = await fetch('/api/hours', {
+        const response = await apiFetch('/api/hours', {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -410,7 +418,7 @@
 
       // Send all pending comment changes to server
       for (const change of pendingComments.values()) {
-        const response = await fetch('/api/comment', {
+        const response = await apiFetch('/api/comment', {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -428,7 +436,7 @@
       }
 
       // Now trigger the actual save to Costpoint
-      const saveResponse = await fetch('/api/save', {
+      const saveResponse = await apiFetch('/api/save', {
         method: 'POST',
       });
 
@@ -563,7 +571,7 @@
       submitBtn.textContent = 'Saving...';
 
       try {
-        const resp = await fetch('/api/save-with-explanation', {
+        const resp = await apiFetch('/api/save-with-explanation', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ explanation }),
@@ -742,7 +750,7 @@
     updateSyncStatus('loading');
 
     try {
-      const response = await fetch('/api/refresh');
+      const response = await apiFetch('/api/refresh');
       if (!response.ok) {
         throw new Error('Refresh failed');
       }
@@ -765,7 +773,7 @@
     }
 
     try {
-      const response = await fetch('/api/cache', {
+      const response = await apiFetch('/api/cache', {
         method: 'DELETE',
       });
 
@@ -795,7 +803,7 @@
     }
 
     try {
-      const response = await fetch('/api/favorites?period=' + period);
+      const response = await apiFetch('/api/favorites?period=' + period);
       if (!response.ok) {
         const errorData = await response.json();
         throw new Error(errorData.error || 'Failed to fetch favorites');
@@ -851,7 +859,7 @@
     showModal(leaveModal);
 
     try {
-      const response = await fetch('/api/leave');
+      const response = await apiFetch('/api/leave');
       if (!response.ok) {
         const errorData = await response.json();
         throw new Error(errorData.error || 'Failed to fetch leave balances');
@@ -909,7 +917,7 @@
     }
     updateSyncStatus('syncing');
     try {
-      const response = await fetch('/api/project', {
+      const response = await apiFetch('/api/project', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ code, payType, period, favorite, workLocation, offset: data ? data.offset : 0 }),
@@ -988,7 +996,7 @@
     updateSyncStatus('syncing');
 
     try {
-      const response = await fetch('/api/sign', {
+      const response = await apiFetch('/api/sign', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ period: signPeriod }),
@@ -1103,7 +1111,7 @@
 
   async function checkStatus() {
     try {
-      const response = await fetch('/api/status');
+      const response = await apiFetch('/api/status');
       if (!response.ok) return null;
 
       const statusData = await response.json();

@@ -246,10 +246,12 @@ function prompt(text) {
   });
 }
 
-function promptSecret(text) {
+// Reads a password without echo. Raw mode hands over whole pasted chunks, so
+// each chunk is scanned character by character. Ctrl+C rejects; the caller
+// decides whether to exit.
+function promptSecret(text, stdin = process.stdin) {
   process.stderr.write(text);
-  return new Promise(resolve => {
-    const stdin = process.stdin;
+  return new Promise((resolve, reject) => {
     if (!stdin.isTTY) {
       // Non-interactive — read a line from stdin
       const rl = readline.createInterface({ input: stdin });
@@ -266,23 +268,25 @@ function promptSecret(text) {
     stdin.setEncoding('utf8');
 
     let input = '';
-    const onData = ch => {
-      if (ch === '\r' || ch === '\n') {
-        stdin.setRawMode(wasRaw || false);
-        stdin.pause();
-        stdin.removeListener('data', onData);
-        process.stderr.write('\n');
-        resolve(input);
-      } else if (ch === '\u0003') {
-        // Ctrl+C
-        stdin.setRawMode(wasRaw || false);
-        process.stderr.write('\n');
-        process.exit(1);
-      } else if (ch === '\u007f' || ch === '\b') {
-        // Backspace
-        input = input.slice(0, -1);
-      } else {
-        input += ch;
+    const finish = () => {
+      stdin.setRawMode(wasRaw || false);
+      stdin.pause();
+      stdin.removeListener('data', onData);
+      process.stderr.write('\n');
+    };
+    const onData = chunk => {
+      for (const ch of chunk) {
+        if (ch === '\r' || ch === '\n') {
+          finish();
+          return resolve(input);
+        } else if (ch === '\u0003') {
+          finish();
+          return reject(new Error('Password prompt cancelled'));
+        } else if (ch === '\u007f' || ch === '\b') {
+          input = input.slice(0, -1);
+        } else {
+          input += ch;
+        }
       }
     };
     stdin.on('data', onData);

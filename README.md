@@ -173,7 +173,7 @@ Every tool returns one text block. Success is plain text. Any other outcome star
 
 ### Prerequisites
 
-- Node.js 18 or later, and `npm install` in this repo (there is no build step).
+- Node.js 22.12 or later, and `npm install` in this repo (there is no build step).
 - Credentials: run `te login` once, or pass `COSTPOINT_URL`, `COSTPOINT_USERNAME` and `COSTPOINT_PASSWORD` (all three, see [Credentials](#credentials)). The server always uses direct mode, so `COSTPOINT_DIRECT` is not needed.
 - Optional: `COSTPOINT_TRACE` (see [Servlet trace](#servlet-trace)) and, for the mock only, `TECLI_MOCK=1` (see [Testing against the mock](#testing-against-the-mock)).
 

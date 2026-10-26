@@ -14,7 +14,9 @@ npm link
 te login
 ```
 
-`npm link` makes the `te` command available globally. `te login` prompts for your username and password and stores them in your OS keychain (macOS Keychain, GNOME Keyring on Linux, or an encrypted file as fallback). Nothing is saved in plaintext.
+`npm link` makes the `te` command available globally. `te login` prompts for your username and password and stores them in your OS keychain: macOS Keychain, GNOME Keyring (`secret-tool`) on Linux, or Windows DPAPI with the encrypted password in `~/.tecli-credentials`. Nothing is saved in plaintext.
+
+Without `secret-tool` (Linux) or PowerShell (Windows), the password goes to `~/.tecli-credentials` (mode 600), AES-encrypted with a key derived from your hostname and username. That is obfuscation, not protection: anyone who can read the file can derive the key and decrypt it. Install `secret-tool` (`libsecret-tools` on Debian/Ubuntu) to use the keyring instead.
 
 Login goes through Okta SSO. Off the corporate network Okta first serves its desktop-SSO (Kerberos) page; tecli follows the same fallback the browser takes, so no extra step is needed.
 

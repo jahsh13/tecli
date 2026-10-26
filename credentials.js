@@ -126,6 +126,13 @@ function _linuxDelete(account) {
   _fallbackDelete(); // clean up any fallback file too
 }
 
+// The mode option only applies when the file is created, so chmod too: a
+// file an older version wrote stays readable by others otherwise.
+function _writeCredentialFile(data) {
+  fs.writeFileSync(CRED_PATH, JSON.stringify(data, null, 2) + '\n', { mode: 0o600 });
+  fs.chmodSync(CRED_PATH, 0o600);
+}
+
 // ── Windows: DPAPI via PowerShell ────────────────────────────────
 // ConvertTo/From-SecureString uses Windows Data Protection API,
 // which ties encryption to the current user + machine — similar
@@ -142,13 +149,14 @@ function _winGet(account) {
         [
           '-NoProfile',
           '-Command',
-          "$secure = ConvertTo-SecureString '" +
-            data.dpapi +
-            "'; " +
+          // The blob comes from a file, so it goes in on stdin: spliced into
+          // the command, a quote in it would run as PowerShell.
+          '$blob = ($input | Out-String).Trim(); ' +
+            '$secure = ConvertTo-SecureString $blob; ' +
             '$ptr = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($secure); ' +
             '[Runtime.InteropServices.Marshal]::PtrToStringAuto($ptr)',
         ],
-        { encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'] }
+        { input: data.dpapi, encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'] }
       ).trim() || null
     );
   } catch {
@@ -169,7 +177,7 @@ function _winSet(account, password) {
       ],
       { input: password, encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'] }
     ).trim();
-    fs.writeFileSync(CRED_PATH, JSON.stringify({ account, dpapi: encrypted }, null, 2) + '\n');
+    _writeCredentialFile({ account, dpapi: encrypted });
   } catch {
     // PowerShell unavailable — fall back to AES
     _fallbackSet(account, password);
@@ -186,8 +194,9 @@ function _winDelete() {
 
 // ── Fallback: AES-256-GCM encrypted file ────────────────────────
 // For Windows or Linux without secret-tool.  File is chmod 600.
-// Key is derived from machine-local data — not a password, but keeps
-// the credential from sitting in plaintext on disk.
+// Key is derived from the hostname and username, which anyone who can
+// read the file can learn: obfuscation that keeps the password out of
+// plaintext, not protection.
 
 function _deriveKey() {
   const material = `${SERVICE}:${os.hostname()}:${os.userInfo().username}`;
@@ -216,20 +225,7 @@ function _fallbackSet(account, password) {
   let encrypted = cipher.update(password, 'utf8', 'hex');
   encrypted += cipher.final('hex');
   const tag = cipher.getAuthTag().toString('hex');
-  fs.writeFileSync(
-    CRED_PATH,
-    JSON.stringify(
-      {
-        account,
-        iv: iv.toString('hex'),
-        encrypted,
-        tag,
-      },
-      null,
-      2
-    ) + '\n',
-    { mode: 0o600 }
-  );
+  _writeCredentialFile({ account, iv: iv.toString('hex'), encrypted, tag });
 }
 
 function _fallbackDelete() {
@@ -423,4 +419,15 @@ function logout() {
   _fallbackDelete();
 }
 
-module.exports = { getCredentials, assertMockSafe, isMockRun, login, logout, prompt, promptSecret };
+module.exports = {
+  getCredentials,
+  assertMockSafe,
+  isMockRun,
+  login,
+  logout,
+  prompt,
+  promptSecret,
+  // Exported for tests only: the Windows path cannot run outside Windows.
+  _winGet,
+  _winSet,
+};

@@ -11,6 +11,7 @@ const { normalizeWorkLocation } = require('./add-options');
 const { normalizeTimesheetStatus } = require('./timesheet-status');
 const { launchForPeriod, createSessionManager, listFavorites } = require('./session');
 const { weekLabel, weekSummary } = require('./week-label');
+const { MAX_HOURS } = require('./hours');
 
 require('dotenv').config();
 
@@ -22,6 +23,8 @@ const backSchema = z
   .min(0)
   .optional()
   .describe('Weeks back from the current week (0 or omitted = current week, 1 = previous week). See list_weeks.');
+
+const hoursSchema = z.number().min(0).max(MAX_HOURS);
 
 // ── Format helpers ─────────────────────────────────────────────
 
@@ -210,7 +213,7 @@ function buildServer(options = {}) {
     {
       line: z.number().int().describe('Project line number (0-based index from show_timesheet)'),
       day: z.number().int().describe('Day of month (e.g. 14 for the 14th)'),
-      hours: z.number().describe('Number of hours to set (e.g. 8, 4.5, 0)'),
+      hours: hoursSchema.describe('Number of hours to set (e.g. 8, 4.5, 0)'),
       comment: z.string().optional().describe('Optional comment for the cell'),
       back: backSchema,
     },
@@ -230,7 +233,7 @@ function buildServer(options = {}) {
           z.object({
             line: z.number().int().describe('Project line number'),
             day: z.number().int().describe('Day of month'),
-            hours: z.number().describe('Hours to set'),
+            hours: hoursSchema.describe('Hours to set'),
             comment: z.string().optional().describe('Optional comment'),
           })
         )

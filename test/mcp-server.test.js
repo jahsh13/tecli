@@ -126,6 +126,29 @@ describe('mcp server against the mock', () => {
     assert.equal(cp.getData().projects[0].hours[15], 6);
   });
 
+  for (const hours of [-1, 25, 1e9]) {
+    test(`set_hours with ${hours} hours is rejected by the schema and saves nothing`, async () => {
+      const before = (await mock.launch()).getData().projects[0].hours[15];
+      const res = await call('set_hours', { line: 0, day: 15, hours });
+      assert.equal(res.isError, true);
+      assert.match(res.text, /^ERROR: .*Input validation error/);
+      assert.equal((await mock.launch()).getData().projects[0].hours[15], before);
+    });
+  }
+
+  test('set_hours_bulk with out of range hours saves nothing', async () => {
+    const before = (await mock.launch()).getData().projects[0].hours[15];
+    const res = await call('set_hours_bulk', {
+      changes: [
+        { line: 0, day: 15, hours: 5 },
+        { line: 1, day: 16, hours: 30 },
+      ],
+    });
+    assert.equal(res.isError, true);
+    assert.match(res.text, /^ERROR: .*Input validation error/);
+    assert.equal((await mock.launch()).getData().projects[0].hours[15], before);
+  });
+
   test('set_hours_bulk saves every change', async () => {
     await call('set_hours_bulk', {
       changes: [

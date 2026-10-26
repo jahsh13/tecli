@@ -9,6 +9,7 @@ const moment = require('moment');
 const { normalizeTimesheetStatus } = require('./timesheet-status');
 const { COMMON_CODES } = require('./charge-codes');
 const { normalizeWorkLocation } = require('./add-options');
+const { MAX_HOURS, parseHours } = require('./hours');
 const { getCredentials } = require('./credentials');
 const weekWindow = require('./week-window');
 const { launchForPeriod, createSessionManager, listFavorites } = require('./session');
@@ -856,10 +857,12 @@ function resolveEditTarget(body) {
   if (!weekWindow.weekEditable(getPeriodWeekData(period), period, useDirect)) {
     return { error: `Week ${period} is not editable` };
   }
-  if (body.periodLine === undefined || body.periodLine === '' || body.periodLine === null) {
+  const line = body.periodLine === '' || body.periodLine === null ? NaN : Number(body.periodLine);
+  const weekData = getPeriodWeekData(period);
+  if (!Number.isInteger(line) || !weekData.projects.some(p => p.line === line)) {
     return { error: 'This line does not exist in that week' };
   }
-  return { period, line: parseInt(body.periodLine, 10) };
+  return { period, line };
 }
 
 app.put('/api/hours', (req, res) => {
@@ -871,9 +874,13 @@ app.put('/api/hours', (req, res) => {
     return res.status(400).json({ error: 'Missing required fields: day, hours' });
   }
 
+  const hoursValue = parseHours(hours);
+  if (hoursValue === null) {
+    return res.status(400).json({ error: `Invalid hours "${hours}" (expected 0 to ${MAX_HOURS})` });
+  }
+
   const { period, line } = target;
   const key = `${period}-${line}-${day}`;
-  const hoursValue = hours === '' ? 0 : parseFloat(hours);
   const existing = pendingChanges.get(key);
   pendingChanges.set(key, { period, line, day, hours: hoursValue, comment: existing ? existing.comment : undefined });
 
@@ -881,7 +888,7 @@ app.put('/api/hours', (req, res) => {
   const weekData = getPeriodWeekData(period);
   const project = weekData && weekData.projects.find(p => p.line === line);
   if (project) {
-    project.hours[day] = hours === '' ? null : parseFloat(hours);
+    project.hours[day] = hours === '' ? null : hoursValue;
   }
 
   res.json({ success: true, pendingCount: pendingChanges.size });

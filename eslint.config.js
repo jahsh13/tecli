@@ -29,7 +29,7 @@ module.exports = [
   },
   {
     // page.evaluate() callbacks run in the browser
-    files: ['costpoint.js'],
+    files: ['costpoint.js', 'test/browser/**/*.js'],
     languageOptions: { globals: { ...globals.node, ...globals.browser } },
   },
   {

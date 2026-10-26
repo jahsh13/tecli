@@ -10,6 +10,7 @@
     "tui": "node cli.js tui",
     "mcp": "node mcp-server.js",
     "test": "node --test test/**/*.test.js",
+    "test:e2e": "node --test --test-concurrency=1 test/browser/*.spec.js",
     "mock": "node mock/server.js",
     "lint": "eslint .",
     "format": "git ls-files -z | xargs -0 prettier --write --ignore-unknown",

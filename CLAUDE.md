@@ -105,6 +105,7 @@ Captured traffic lives in `captured/` — named descriptively (e.g., `leave-bala
 ## Testing
 
 - `npm test` runs everything, including the mock, session and MCP tests.
+- `npm run lint` runs ESLint (`eslint.config.js`); `npm run format` / `npm run format:check` run Prettier (`.prettierrc.json`). Lint does not check formatting.
 - Mock backend: `npm run mock` (`mock/`, port 4000, `MOCK_PORT`). Stateful: edits, Correct, revisions, sign, add, favorites and leave work end to end. Seed: P0 Open, P1 Processed and correctable, P2 Signed, P3+ Processed. State is in memory (`POST /__mock/reset`, `POST /__mock/expire?sid=all`, `GET /__mock/state`; `MOCK_STATE_FILE` keeps it).
 - Point a client at it: `TECLI_MOCK=1 COSTPOINT_URL='http://localhost:4000/cpweb/cploginform.htm?system=MOCK' COSTPOINT_USERNAME=mock COSTPOINT_PASSWORD=mock COSTPOINT_DIRECT=true node cli.js ...`
 - Env: `MOCK_TODAY`, `MOCK_USER`/`MOCK_PASSWORD`, `MOCK_SESSION_TTL_MS`, `MOCK_STATE_FILE`, `MOCK_QUIRKS` (comma list: `sign-poison`, `auto-required`, `favorites-primer` on by default; `correct-stale`, `favsave-no204` opt-in).

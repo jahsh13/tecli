@@ -52,7 +52,8 @@ function send(res, status, body, headers = {}) {
  * or comma string), today (YYYY-MM-DD), user/password (unset accepts any
  * login), sessionTtlMs, stateFile.
  * Returns { server, port, url, db, sessions, reset(), failSave(period, error),
- * expire(sid), close() }. failSave makes the next 206 for that period fail.
+ * stall(count), expire(sid), close() }. failSave makes the next 206 for that
+ * period fail. stall leaves the next count servlet requests unanswered.
  */
 async function createMockServer(options = {}) {
   const fixture = readFixture(options.fixture);
@@ -63,6 +64,8 @@ async function createMockServer(options = {}) {
   const sessions = new Map();
   // One-shot save failures by period, set with failSave()
   const faults = new Map();
+  // Servlet requests left to hold open without an answer, set with stall()
+  let stalls = 0;
   let clock = options.now || (() => Date.now());
 
   const freshDb = () => new Db(fixture, { today });
@@ -114,6 +117,10 @@ async function createMockServer(options = {}) {
   }
 
   function handleServlet(body, res) {
+    if (stalls > 0) {
+      stalls--;
+      return;
+    }
     const params = new URLSearchParams(body);
     const session = liveSession(params.get('sid') || '');
     if (!session) return send(res, 200, SESSION_NOT_VALID);
@@ -151,6 +158,7 @@ async function createMockServer(options = {}) {
       db = freshDb();
       sessions.clear();
       faults.clear();
+      stalls = 0;
       if (stateFile && fs.existsSync(stateFile)) fs.unlinkSync(stateFile);
       return send(res, 200, 'reset');
     }
@@ -163,6 +171,10 @@ async function createMockServer(options = {}) {
     if (req.method === 'POST' && url.pathname === '/__mock/fail-save') {
       faults.set(parseInt(url.searchParams.get('period') || '0', 10), url.searchParams.get('error') || SAVE_FAULT);
       return send(res, 200, 'armed');
+    }
+    if (req.method === 'POST' && url.pathname === '/__mock/stall') {
+      stalls = parseInt(url.searchParams.get('count') || '1', 10);
+      return send(res, 200, 'stalling');
     }
     if (req.method === 'GET' && url.pathname === '/__mock/state') {
       return send(res, 200, JSON.stringify(adminState(), null, 1), { 'Content-Type': 'application/json' });
@@ -206,9 +218,13 @@ async function createMockServer(options = {}) {
       db = freshDb();
       sessions.clear();
       faults.clear();
+      stalls = 0;
     },
     failSave(period, error = SAVE_FAULT) {
       faults.set(period, error);
+    },
+    stall(count = 1) {
+      stalls = count;
     },
     expire(sid) {
       if (sid) sessions.delete(sid);

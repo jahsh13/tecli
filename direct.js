@@ -205,6 +205,37 @@ const REV_COL = {
 // Audit column indices (K3 = TMMTS_TS_AUDIT_EXP)
 const AUDIT_COL = { REVISION_NO: 0, LINE_NO: 1, DATE: 2, PROJECT: 3, ACCOUNT: 5, CHARGE_DESC: 6, DETAIL: 7 };
 
+// Every Costpoint HTTP request must finish within COSTPOINT_TIMEOUT_MS
+// (milliseconds, default 60 s; read per request) and its response stay under
+// MAX_RESPONSE_BYTES. The largest captured response is under 300 KB.
+const DEFAULT_TIMEOUT_MS = 60 * 1000;
+const MAX_RESPONSE_BYTES = 20 * 1024 * 1024;
+
+function requestTimeoutMs() {
+  const ms = parseInt(process.env.COSTPOINT_TIMEOUT_MS || '', 10);
+  return ms > 0 ? ms : DEFAULT_TIMEOUT_MS;
+}
+
+/**
+ * Thrown when Costpoint does not answer in time. The request may still have
+ * been applied (a save or a sign), so it is not a session error and is
+ * never retried.
+ */
+class RequestTimeoutError extends Error {
+  constructor(timeoutMs) {
+    super('Costpoint request timed out after ' + timeoutMs / 1000 + ' s');
+    this.name = 'RequestTimeoutError';
+    this.code = 'ETIMEDOUT';
+  }
+}
+
+class ResponseTooLargeError extends Error {
+  constructor() {
+    super('Costpoint response exceeded ' + MAX_RESPONSE_BYTES / (1024 * 1024) + ' MB');
+    this.name = 'ResponseTooLargeError';
+  }
+}
+
 /**
  * Thrown when a save attempt requires a revision explanation.
  * The auditDetails array describes what changed.
@@ -1890,19 +1921,46 @@ class DirectClient {
       options.headers['Content-Length'] = Buffer.byteLength(body);
     }
 
+    return this._send(lib, options, body, fullUrl.hostname, reqPath);
+  }
+
+  /**
+   * Send one request and collect the response as text. The whole exchange
+   * must finish within requestTimeoutMs() and the body stay under
+   * MAX_RESPONSE_BYTES, so a stalled or runaway gateway fails the call
+   * instead of hanging it.
+   */
+  _send(lib, options, body, hostname, reqPath) {
+    const timeoutMs = requestTimeoutMs();
     return new Promise((resolve, reject) => {
+      let settled = false;
+      const finish = (err, value) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        if (err) {
+          req.destroy();
+          reject(err);
+        } else {
+          resolve(value);
+        }
+      };
       const req = lib.request(options, res => {
-        this._trackCookies(fullUrl.hostname, res.headers['set-cookie'], reqPath);
-        let data = '';
-        res.setEncoding('utf8');
+        this._trackCookies(hostname, res.headers['set-cookie'], reqPath);
+        const chunks = [];
+        let size = 0;
         res.on('data', chunk => {
-          data += chunk;
+          size += chunk.length;
+          if (size > MAX_RESPONSE_BYTES) return finish(new ResponseTooLargeError());
+          chunks.push(chunk);
         });
         res.on('end', () => {
-          resolve({ status: res.statusCode, body: data, headers: res.headers });
+          finish(null, { status: res.statusCode, body: Buffer.concat(chunks).toString('utf8'), headers: res.headers });
         });
+        res.on('error', finish);
       });
-      req.on('error', reject);
+      const timer = setTimeout(() => finish(new RequestTimeoutError(timeoutMs)), timeoutMs);
+      req.on('error', finish);
       if (body !== undefined && body !== null) req.write(body);
       req.end();
     });
@@ -2029,32 +2087,15 @@ class DirectClient {
       headers['Content-Length'] = Buffer.byteLength(bodyStr);
     }
 
-    return new Promise((resolve, reject) => {
-      const req = lib.request(
-        {
-          method,
-          hostname: fullUrl.hostname,
-          port: fullUrl.port || (isHttps ? 443 : 80),
-          path: fullUrl.pathname + fullUrl.search,
-          agent: isHttps ? this._httpsAgent : this._httpAgent,
-          headers,
-        },
-        res => {
-          this._trackCookies(fullUrl.hostname, res.headers['set-cookie'], reqPath);
-          let data = '';
-          res.setEncoding('utf8');
-          res.on('data', chunk => {
-            data += chunk;
-          });
-          res.on('end', () => {
-            resolve({ status: res.statusCode, body: data, headers: res.headers });
-          });
-        }
-      );
-      req.on('error', reject);
-      if (bodyStr) req.write(bodyStr);
-      req.end();
-    });
+    const options = {
+      method,
+      hostname: fullUrl.hostname,
+      port: fullUrl.port || (isHttps ? 443 : 80),
+      path: fullUrl.pathname + fullUrl.search,
+      agent: isHttps ? this._httpsAgent : this._httpAgent,
+      headers,
+    };
+    return this._send(lib, options, bodyStr, fullUrl.hostname, reqPath);
   }
 
   /**
@@ -3808,6 +3849,10 @@ class DirectClient {
 }
 
 DirectClient.RevisionRequiredError = RevisionRequiredError;
+DirectClient.RequestTimeoutError = RequestTimeoutError;
+DirectClient.ResponseTooLargeError = ResponseTooLargeError;
+DirectClient.requestTimeoutMs = requestTimeoutMs;
+DirectClient.MAX_RESPONSE_BYTES = MAX_RESPONSE_BYTES;
 DirectClient.resolveParentColumns = resolveParentColumns;
 DirectClient.resolveChildColumns = resolveChildColumns;
 DirectClient.TRACE_MAX_BYTES = TRACE_MAX_BYTES;

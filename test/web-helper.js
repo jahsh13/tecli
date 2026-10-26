@@ -21,7 +21,7 @@ function freePort() {
   });
 }
 
-async function startWeb(mock) {
+async function startWeb(mock, extraEnv = {}) {
   const port = await freePort();
   // cwd and HOME in a temp dir: no .env from the repo, no real cache file
   const home = fs.mkdtempSync(path.join(os.tmpdir(), 'tecli-web-'));
@@ -36,6 +36,7 @@ async function startWeb(mock) {
       COSTPOINT_PASSWORD: 'mock',
       COSTPOINT_DIRECT: 'true',
       PORT: String(port),
+      ...extraEnv,
     },
     stdio: ['ignore', 'pipe', 'pipe'],
   });

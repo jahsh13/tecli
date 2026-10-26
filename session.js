@@ -49,6 +49,9 @@ async function listFavorites(creds) {
 }
 
 function isSessionError(e) {
+  // A timed-out request may have reached Costpoint, and a retry could repeat
+  // a save or a sign
+  if (e.name === 'RequestTimeoutError') return false;
   const msg = (e.message || '').toLowerCase();
   return (
     msg.includes('session') ||
@@ -114,6 +117,9 @@ function createSessionManager({ launch, idleMs = DEFAULT_IDLE_MS, onLaunch, onLa
         await releaseClient();
         return await fn(await getClient(period));
       }
+      // After a timeout the client may not match what Costpoint has: the
+      // next operation starts on a fresh session
+      if (e.name === 'RequestTimeoutError') await releaseClient();
       throw e;
     }
   }

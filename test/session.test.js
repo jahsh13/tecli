@@ -3,6 +3,7 @@
 const test = require('node:test');
 const assert = require('node:assert');
 const { launchForPeriod, isSessionError, createSessionManager } = require('../session');
+const DirectClient = require('../direct');
 
 function fakeLauncher() {
   const launched = [];
@@ -151,4 +152,27 @@ test('launchForPeriod rejects a period beyond the loaded weeks, with the CLI mes
   } finally {
     await mock.stop();
   }
+});
+
+// A timed-out request may have reached Costpoint (a save or a sign), so a
+// blind retry could repeat the write: the timeout is not a session error
+// (tecli-4mz.8)
+test('a request timeout is not a session error and is not retried', async () => {
+  const timeout = new DirectClient.RequestTimeoutError(60000);
+  assert.strictEqual(isSessionError(timeout), false);
+
+  const { launch, launched } = fakeLauncher();
+  const m = createSessionManager({ launch });
+  let calls = 0;
+  await assert.rejects(
+    m.withClient(async () => {
+      calls++;
+      throw timeout;
+    }),
+    /timed out/
+  );
+  assert.strictEqual(calls, 1);
+  assert.strictEqual(launched.length, 1);
+  assert.ok(launched[0].closed);
+  assert.strictEqual(m.current(), null);
 });

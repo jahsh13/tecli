@@ -177,7 +177,7 @@ Every tool returns one text block. Success is plain text. Any other outcome star
 
 - Node.js 22.12 or later, and `npm install` in this repo (there is no build step).
 - Credentials: run `te login` once, or pass `COSTPOINT_URL`, `COSTPOINT_USERNAME` and `COSTPOINT_PASSWORD` (all three, see [Credentials](#credentials)). The server always uses direct mode, so `COSTPOINT_DIRECT` is not needed.
-- Optional: `COSTPOINT_TRACE` (see [Servlet trace](#servlet-trace)) and, for the mock only, `TECLI_MOCK=1` (see [Testing against the mock](#testing-against-the-mock)).
+- Optional: `COSTPOINT_TRACE` (see [Servlet trace](#servlet-trace)), `COSTPOINT_TIMEOUT_MS` (see [Request timeout](#request-timeout)) and, for the mock only, `TECLI_MOCK=1` (see [Testing against the mock](#testing-against-the-mock)).
 
 `mcp-server.js` loads a `.env` from its working directory, which is the client's, not this repo's. Pass variables through the client config instead.
 
@@ -357,6 +357,10 @@ COSTPOINT_TRACE=/tmp/te-trace.jsonl te tui     # writes to that file
 
 Empty, `0`, `off` and `false` mean off. For the MCP server, set it in the client config (`-e COSTPOINT_TRACE=1`, or the `env` object).
 
+## Request timeout
+
+Every Costpoint HTTP request in direct mode must finish within 60 seconds. `COSTPOINT_TIMEOUT_MS=<milliseconds>` changes the limit (a value that is not a positive number keeps 60 s). A request that runs out fails with "Costpoint request timed out after N s", and a response larger than 20 MB fails with "Costpoint response exceeded 20 MB". A timeout is not retried, because a save or sign that timed out may still have reached Costpoint: check the week before saving again. The web UI, TUI and MCP server drop their session after a timeout, so the next operation logs in fresh.
+
 ## Running tests
 
 `npm test` runs the unit and mock tests offline. Tests against live Costpoint are opt-in: `RUN_E2E=1 npm test` runs them with your stored `te login` or the `COSTPOINT_*` variables. They are read-only but reach te.leidos.com. They still skip without credentials, with `TECLI_MOCK` set or with `SKIP_E2E=1`.
@@ -381,7 +385,7 @@ claude mcp add tecli-mock -e TECLI_MOCK=1 -e COSTPOINT_URL='http://localhost:400
 
 Set `TECLI_MOCK=1` for any mock run. With it set, `COSTPOINT_URL`, `COSTPOINT_USERNAME` and `COSTPOINT_PASSWORD` must all be in the environment (the stored `te login` credentials are never used) and the URL must be `localhost`, `127.0.0.1` or `::1`. Otherwise credential lookup throws and `mcp-server.js` refuses to start (stderr message, exit code 2). It refuses rather than warns because a mock run that reaches real Costpoint can edit or sign a real timesheet. Any value other than empty, `0` or `false` turns it on. The mock tests set it themselves.
 
-State lives in memory, so restarting the mock resets it. `POST /__mock/reset` resets it in place, `POST /__mock/expire?sid=all` drops every login (to see the retry), `POST /__mock/fail-save?period=<n>` makes that week's next save fail once (optional `error=<text>`), and `GET /__mock/state` dumps it.
+State lives in memory, so restarting the mock resets it. `POST /__mock/reset` resets it in place, `POST /__mock/expire?sid=all` drops every login (to see the retry), `POST /__mock/fail-save?period=<n>` makes that week's next save fail once (optional `error=<text>`), `POST /__mock/stall?count=<n>` leaves the next n servlet requests unanswered (to see the timeout), and `GET /__mock/state` dumps it.
 
 | Variable | Effect |
 |----------|--------|

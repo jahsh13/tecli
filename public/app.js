@@ -3,6 +3,9 @@
 (function () {
   'use strict';
 
+  const render = window.TecliRender;
+  const escapeHtml = render.escapeHtml;
+
   let data = window.TIMESHEET_DATA;
   let isLoading = window.IS_LOADING;
   let pendingChanges = new Map();
@@ -511,30 +514,7 @@
     overlay.id = 'revision-modal';
     overlay.className = 'modal-overlay';
 
-    let auditHTML = '';
-    if (auditDetails.length > 0) {
-      auditHTML =
-        '<table class="audit-table"><thead><tr>' +
-        '<th>Line</th><th>Date</th><th>Project</th><th>Description</th><th>Change</th>' +
-        '</tr></thead><tbody>' +
-        auditDetails
-          .map(
-            d =>
-              '<tr><td>' +
-              (d.lineNo || '') +
-              '</td><td>' +
-              (d.date || '') +
-              '</td><td>' +
-              (d.project || '') +
-              '</td><td>' +
-              (d.chargeDescription || '') +
-              '</td><td>' +
-              (d.description || '') +
-              '</td></tr>'
-          )
-          .join('') +
-        '</tbody></table>';
-    }
+    const auditHTML = render.auditTableHTML(auditDetails);
 
     overlay.innerHTML =
       '<div class="modal-content">' +
@@ -662,10 +642,10 @@
       '<div class="comment-modal">' +
       '<h3>Cell Comment</h3>' +
       '<p class="comment-cell-ref">' +
-      cellRef +
+      escapeHtml(cellRef) +
       '</p>' +
       '<textarea id="comment-text" placeholder="Enter comment...">' +
-      (currentComment || '').replace(/</g, '&lt;') +
+      escapeHtml(currentComment || '') +
       '</textarea>' +
       '<div class="comment-modal-buttons">' +
       '<button class="comment-btn-cancel">Cancel</button>' +
@@ -798,7 +778,7 @@
     body.innerHTML = '<p>Loading favorites...</p>';
     showModal(modal);
     if (period === null) {
-      body.innerHTML = '<p class="error">No editable week is shown.</p>';
+      body.innerHTML = render.errorHTML('No editable week is shown.');
       return;
     }
 
@@ -815,28 +795,7 @@
         return;
       }
 
-      let html =
-        '<table class="leave-table"><thead><tr><th>Code</th><th>Pay Type</th><th>Description</th><th>Work Location</th><th></th></tr></thead><tbody>';
-      for (const f of favs) {
-        html +=
-          '<tr><td><code>' +
-          escapeHtml(f.code) +
-          '</code></td>' +
-          '<td>' +
-          escapeHtml(f.payType || '') +
-          '</td>' +
-          '<td>' +
-          escapeHtml(f.description || '') +
-          '</td>' +
-          '<td><input type="text" class="fav-location" maxlength="10" size="10" placeholder="default" /></td>' +
-          '<td><button class="btn btn-sm btn-primary fav-add-btn" data-code="' +
-          escapeHtml(f.code) +
-          '" data-paytype="' +
-          escapeHtml(f.payType || 'REG') +
-          '">Add</button></td></tr>';
-      }
-      html += '</tbody></table>';
-      body.innerHTML = html;
+      body.innerHTML = render.favoritesTableHTML(favs);
 
       body.querySelectorAll('.fav-add-btn').forEach(btn => {
         btn.addEventListener('click', async () => {
@@ -848,7 +807,7 @@
         });
       });
     } catch (err) {
-      body.innerHTML = '<p class="error">' + (err.message || 'Failed to load favorites') + '</p>';
+      body.innerHTML = render.errorHTML(err.message || 'Failed to load favorites');
     }
   }
 
@@ -865,42 +824,9 @@
         throw new Error(errorData.error || 'Failed to fetch leave balances');
       }
       const result = await response.json();
-      let html = '';
-
-      if (result.balances && result.balances.length > 0) {
-        html +=
-          '<table class="leave-table"><thead><tr><th>Leave Type</th><th class="num">Balance</th></tr></thead><tbody>';
-        for (const b of result.balances) {
-          const val = b.balance.toFixed(2);
-          const cls = b.balance > 0 ? 'positive' : b.balance < 0 ? 'negative' : '';
-          html += '<tr><td>' + b.description + '</td><td class="num ' + cls + '">' + val + '</td></tr>';
-        }
-        html += '</tbody></table>';
-      } else {
-        html += '<p>No leave balances found.</p>';
-      }
-
-      if (result.details && result.details.length > 0) {
-        html +=
-          '<h3>Recent Activity</h3><table class="leave-table"><thead><tr><th>Date</th><th>Type</th><th class="num">Hours</th><th>Leave Type</th></tr></thead><tbody>';
-        for (const d of result.details) {
-          html +=
-            '<tr><td>' +
-            d.date +
-            '</td><td>' +
-            d.type +
-            '</td><td class="num">' +
-            d.hours.toFixed(2) +
-            '</td><td>' +
-            (d.leaveTypeDesc || d.leaveTypeCode) +
-            '</td></tr>';
-        }
-        html += '</tbody></table>';
-      }
-
-      leaveBody.innerHTML = html;
+      leaveBody.innerHTML = render.leaveHTML(result);
     } catch (err) {
-      leaveBody.innerHTML = '<p class="error">' + (err.message || 'Failed to load leave balances') + '</p>';
+      leaveBody.innerHTML = render.errorHTML(err.message || 'Failed to load leave balances');
     }
   }
 
@@ -1159,10 +1085,6 @@
         errorBanner.style.display = 'none';
       }, 3000);
     }
-  }
-
-  function escapeHtml(str) {
-    return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
   }
 
   function showModal(modal) {

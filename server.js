@@ -13,6 +13,7 @@ const { getCredentials } = require('./credentials');
 const weekWindow = require('./week-window');
 const { launchForPeriod, createSessionManager, listFavorites } = require('./session');
 const { createWebGuard, HOST } = require('./web-guard');
+const { escapeHtml: esc } = require('./public/render');
 
 require('dotenv').config();
 
@@ -434,7 +435,7 @@ function renderHTML(data, isLoading = false) {
     : null;
   const timesheetStatusTitle =
     timesheetStatusMeta && timesheetStatusMeta.code
-      ? `Raw status code: ${timesheetStatusMeta.code}`
+      ? `Raw status code: ${esc(timesheetStatusMeta.code)}`
       : 'Raw status unavailable';
 
   const weeksInfo =
@@ -458,7 +459,7 @@ function renderHTML(data, isLoading = false) {
         <div class="modal-field">
           <label for="${id}">Week:</label>
           <select id="${id}" class="target-period">
-            ${targetWeeks.map(w => `<option value="${w.period}">${w.label}${w.isActive ? ' (current)' : ''}</option>`).join('')}
+            ${targetWeeks.map(w => `<option value="${w.period}">${esc(w.label)}${w.isActive ? ' (current)' : ''}</option>`).join('')}
           </select>
         </div>`;
   const navHref = offset => (offset === 0 ? '/' : `/?offset=${offset}`);
@@ -508,7 +509,7 @@ function renderHTML(data, isLoading = false) {
             class="status-badge timesheet-status-badge timesheet-status-${timesheetStatusMeta.tone}"
             title="${timesheetStatusTitle}"
           >
-            ${timesheetStatusMeta.label}
+            ${esc(timesheetStatusMeta.label)}
           </span>
           `
               : ''
@@ -532,7 +533,7 @@ function renderHTML(data, isLoading = false) {
         ? `
     <div class="period-info">
       <span class="period-label">Period:</span>
-      <span class="period-dates">${periodStart.dayOfWeek} ${periodStart.fullDate} - ${periodEnd.dayOfWeek} ${periodEnd.fullDate}</span>
+      <span class="period-dates">${esc(periodStart.dayOfWeek)} ${esc(periodStart.fullDate)} - ${esc(periodEnd.dayOfWeek)} ${esc(periodEnd.fullDate)}</span>
     </div>
     ${weekNav}
 
@@ -541,8 +542,8 @@ function renderHTML(data, isLoading = false) {
       .map(
         w => `
     <div class="thursday-nudge past-sign-nudge">
-      <span class="nudge-message">${w.period === 1 ? 'Previous week' : `Week of ${w.label}`} is Open and needs to be signed</span>
-      <button class="btn-week-sign" data-week="${w.period}" data-label="${w.label}">Sign ${w.label}</button>
+      <span class="nudge-message">${w.period === 1 ? 'Previous week' : `Week of ${esc(w.label)}`} is Open and needs to be signed</span>
+      <button class="btn-week-sign" data-week="${w.period}" data-label="${esc(w.label)}">Sign ${esc(w.label)}</button>
     </div>
     `
       )
@@ -562,10 +563,10 @@ function renderHTML(data, isLoading = false) {
               .map(w => {
                 return `<th colspan="7" class="week-header ${w.isEditable ? 'week-active' : 'week-inactive'}">
                 <div class="week-header-content">
-                  <span class="week-dates">${w.label}</span>
-                  ${w.statusLabel ? `<span class="week-status-badge timesheet-status-${w.statusTone}">${w.statusLabel}</span>` : ''}
+                  <span class="week-dates">${esc(w.label)}</span>
+                  ${w.statusLabel ? `<span class="week-status-badge timesheet-status-${esc(w.statusTone)}">${esc(w.statusLabel)}</span>` : ''}
                   ${w.canSign && w.isActive ? '<button class="btn-copy-thu" title="Copy Thursday hours to Friday">Thu &rarr; Fri</button>' : ''}
-                  ${w.canSign ? `<button class="btn-week-sign" data-week="${w.period}" data-label="${w.label}">Sign</button>` : ''}
+                  ${w.canSign ? `<button class="btn-week-sign" data-week="${w.period}" data-label="${esc(w.label)}">Sign</button>` : ''}
                 </div>
               </th>`;
               })
@@ -580,7 +581,7 @@ function renderHTML(data, isLoading = false) {
             ${data.dates
               .map((d, i) => {
                 const isWeekend = d.dayOfWeek === 'Sat' || d.dayOfWeek === 'Sun';
-                return `<th class="col-day ${isWeekend ? 'col-weekend' : 'col-weekday'}${i === 6 ? ' week-divider' : ''}"><div class="day-header"><span class="day-name">${d.dayOfWeek}</span><span class="day-num">${d.date}</span></div></th>`;
+                return `<th class="col-day ${isWeekend ? 'col-weekend' : 'col-weekday'}${i === 6 ? ' week-divider' : ''}"><div class="day-header"><span class="day-name">${esc(d.dayOfWeek)}</span><span class="day-num">${esc(d.date)}</span></div></th>`;
               })
               .join('')}
             <th class="col-total">Total</th>
@@ -590,23 +591,23 @@ function renderHTML(data, isLoading = false) {
           ${data.projects
             .map(
               project => `
-          <tr data-line="${project.line}">
-            <td class="col-line">${project.line}</td>
-            <td class="col-code" title="${project.code || ''}">${project.code || ''}</td>
-            <td class="col-desc" title="${project.description}">${project.description}</td>
-            <td class="col-pay">${project.payType || ''}</td>
+          <tr data-line="${esc(project.line)}">
+            <td class="col-line">${esc(project.line)}</td>
+            <td class="col-code" title="${esc(project.code || '')}">${esc(project.code || '')}</td>
+            <td class="col-desc" title="${esc(project.description)}">${esc(project.description)}</td>
+            <td class="col-pay">${esc(project.payType || '')}</td>
             ${data.dates
               .map((d, i) => {
                 const hours = project.hours[d.date];
                 const displayValue = hours !== null && hours !== undefined ? hours : '';
                 const comment = (project.comments && project.comments[d.date]) || '';
-                const escapedComment = comment.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;');
+                const escapedComment = esc(comment);
                 const isWeekend = d.dayOfWeek === 'Sat' || d.dayOfWeek === 'Sun';
                 const w = data.weeks[i < 7 ? 0 : 1];
                 const periodLine = project.lines[w.period];
                 const isEditable = w.isEditable && periodLine != null;
                 const disabled = !isEditable ? 'disabled' : '';
-                return `<td class="col-day ${isWeekend ? 'col-weekend' : 'col-weekday'} ${!isEditable ? 'col-inactive' : ''}${i === 6 ? ' week-divider' : ''}"><div class="cell-wrap${comment ? ' has-comment' : ''}"${comment ? ` title="${escapedComment}"` : ''}><input type="text" class="hours-input ${!isEditable ? 'inactive' : ''}" data-line="${project.line}" data-week="${w.period}" data-period-line="${isEditable ? periodLine : ''}" data-day="${d.date}" data-fulldate="${d.fullDate}" data-comment="${escapedComment}" value="${displayValue}" ${disabled} /></div></td>`;
+                return `<td class="col-day ${isWeekend ? 'col-weekend' : 'col-weekday'} ${!isEditable ? 'col-inactive' : ''}${i === 6 ? ' week-divider' : ''}"><div class="cell-wrap${comment ? ' has-comment' : ''}"${comment ? ` title="${escapedComment}"` : ''}><input type="text" class="hours-input ${!isEditable ? 'inactive' : ''}" data-line="${esc(project.line)}" data-week="${esc(w.period)}" data-period-line="${isEditable ? esc(periodLine) : ''}" data-day="${esc(d.date)}" data-fulldate="${esc(d.fullDate)}" data-comment="${escapedComment}" value="${esc(displayValue)}" ${disabled} /></div></td>`;
               })
               .join('')}
             <td class="col-total row-total">0</td>
@@ -798,9 +799,10 @@ function renderHTML(data, isLoading = false) {
   </div>
 
   <script>
-    window.TIMESHEET_DATA = ${hasData ? JSON.stringify(data) : 'null'};
+    window.TIMESHEET_DATA = ${hasData ? JSON.stringify(data).replace(/</g, '\\u003c') : 'null'};
     window.IS_LOADING = ${isLoading};
   </script>
+  <script src="/render.js"></script>
   <script src="/app.js"></script>
 </body>
 </html>`;

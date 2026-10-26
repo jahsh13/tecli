@@ -26,11 +26,12 @@ Key files:
 - `mock/` — Stateful Costpoint mock (see Testing)
 - `timesheet-status.js` — Status code normalization (A/M/O/P/R/S)
 - `public/app.js` — Client-side vanilla JS
+- `public/render.js` — HTML builders for the modals (audit, favorites, leave, errors) and `escapeHtml`, shared by the page (`window.TecliRender`), `server.js` (`esc()`) and tests
 - `public/styles.css` — Dark theme ("Str8 Outta Deltek")
 
 ## Web UI
 
-Single-page app with server-rendered HTML (no framework, no template engine). All HTML is constructed in `renderHTML()` inside `server.js`. Client-side state managed in `public/app.js`.
+Single-page app with server-rendered HTML (no framework, no template engine). All HTML is constructed in `renderHTML()` inside `server.js`. Client-side state managed in `public/app.js`. Costpoint data and error text are escaped before they reach HTML: `esc()` in `renderHTML()`, `escapeHtml()` in every `innerHTML` built from data, and `<` written as `\u003c` in the inline `TIMESHEET_DATA` JSON. Tests: `test/web-escape.test.js`
 
 ### Sliding two-week window
 - Weeks are identified by period number: the parent K0 row index (0 = active week, 1 = the week before, and so on). `week-window.js` holds the window math (testable without the server).

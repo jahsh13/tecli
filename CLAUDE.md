@@ -17,7 +17,7 @@ Two client modes (set via env vars):
 Key files:
 - `direct.js` — DirectClient class, binary protocol, session management
 - `protocol.js` — Encode/decode helpers for Costpoint binary protocol
-- `costpoint.js` — Puppeteer-based client (legacy). `save()` reads the CMD 206 response and throws like DirectClient (`RevisionRequiredError` included, finished by `saveWithExplanation()`); `sign()` and login throw instead of exiting; `sign()` throws unless the week reads Signed afterwards. Tests: `test/costpoint-puppeteer.test.js` (stubbed page)
+- `costpoint.js` — Puppeteer-based client (legacy). `save()` reads the CMD 206 response and throws like DirectClient (`RevisionRequiredError` included, finished by `saveWithExplanation()`); `sign()` and login throw instead of exiting; `sign()` throws unless the week reads Signed afterwards. Active week only: `getPeriods()` lists one week, `getPreviousPeriodData()` is null, and past weeks, comments, favorites, `addToFavorites()`, leave balances, a non-REG pay type and a work location throw `Costpoint.NotSupportedError` ("... not supported in Puppeteer mode; set COSTPOINT_DIRECT=true"). `listFavorites()` and the CLI `favorites`, `leave` and bare `add` refuse before launching a browser. Tests: `test/costpoint-puppeteer.test.js` (stubbed page), `test/cli-puppeteer.test.js`
 - `cli.js` — Commander CLI
 - `server.js` — Express web UI (port 3000)
 - `tui.js` — Interactive terminal UI (raw ANSI + readline, zero extra deps)

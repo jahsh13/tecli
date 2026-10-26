@@ -39,6 +39,7 @@ async function launchForPeriod(creds, period, { preloadPrevious = false } = {}) 
 // Favorites belong to the user, not the week: list them on a throwaway
 // active-week session so an edit session and a processed week stay as they are
 async function listFavorites(creds) {
+  if (!creds.useDirect) throw new Costpoint.NotSupportedError('Favorites');
   const cp = await launchForPeriod(creds, 0);
   try {
     return await cp.getFavorites();

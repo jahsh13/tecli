@@ -47,6 +47,8 @@ te logout                      # remove stored credentials
 
 `<day>` is the day of the month. `--prev` and `-b, --back <n>` (direct mode only) work on `show`, `set`, `setm`, `sign`, `add` and `favorites`. `--prev` is `--back 1`, and the two cannot be combined. `<n>` is an integer of 1 or more, capped at the weeks Costpoint lists (about 20); `add` and `favorites` on a past week work the same way as on the current one. Editing a processed previous week reopens it through Costpoint's Correct action and asks for a revision explanation. The week is Open afterwards and has to be signed again with `te sign --prev` (or `te sign --back <n>`). The web UI shows two weeks at a time and slides back through the loaded weeks with `‹ older`, `newer ›` and `Current`. It edits, adds projects to and signs either visible week (a banner shows for any visible past week that is Open), and the TUI walks back through the loaded weeks with `<` and `>` (`[w]` toggles to the last past week viewed), adds projects to the shown week and signs it with `[S]`.
 
+Puppeteer mode (`COSTPOINT_DIRECT` not `true`, `COSTPOINT_SYSTEM` set) drives the active week in a browser: show, set, setm, save, sign and `add <code>` with the default pay type. Past weeks, cell comments, favorites, leave balances, other pay types and work locations stop with "... is not supported in Puppeteer mode; set COSTPOINT_DIRECT=true".
+
 ### Examples
 
 `te show` prints the status, then the signed state and the week total, then the grid:

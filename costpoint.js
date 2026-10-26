@@ -7,6 +7,19 @@ const { normalizeTimesheetStatus } = require('./timesheet-status');
 const protocol = require('./protocol');
 const { RevisionRequiredError } = require('./direct');
 
+// The browser client only drives the active week's grid. Features it has no
+// flow for throw this instead of guessing at Costpoint's pages.
+class NotSupportedError extends Error {
+  constructor(feature) {
+    super(feature + ' is not supported in Puppeteer mode; set COSTPOINT_DIRECT=true');
+    this.name = 'NotSupportedError';
+  }
+}
+
+// add() types the code and lets Costpoint fill the rest, so it can only
+// honour the default pay type
+const DEFAULT_PAY_TYPE = 'REG';
+
 class Costpoint {
   constructor() {
     this.browser = null;
@@ -29,6 +42,38 @@ class Costpoint {
 
   display() {
     console.log(this.table.toString());
+  }
+
+  // Only the active week is loaded
+  getPeriods() {
+    return [
+      {
+        idx: 0,
+        endDate: this.dates[this.dates.length - 1].format('YYYY-MM-DD'),
+        statusCode: this.timesheetStatusCode,
+        editable: null,
+      },
+    ];
+  }
+
+  getPreviousPeriodData() {
+    return null;
+  }
+
+  async selectPeriod(idx) {
+    if (idx !== 0) throw new NotSupportedError('Selecting a past week');
+  }
+
+  async getFavorites() {
+    throw new NotSupportedError('Favorites');
+  }
+
+  async addToFavorites() {
+    throw new NotSupportedError('Adding to favorites');
+  }
+
+  async getLeaveBalances() {
+    throw new NotSupportedError('Leave balances');
   }
 
   getData() {
@@ -149,7 +194,8 @@ class Costpoint {
     await this.browser.close();
   }
 
-  async set(line, day, hours) {
+  async set(line, day, hours, comment) {
+    if (comment) throw new NotSupportedError('Cell comments');
     const start = this.dates[0].date();
     this.table[line][day - start + 2] = hours;
 
@@ -171,13 +217,18 @@ class Costpoint {
   }
 
   async setm(changes) {
-    // changes is an array of { line, day, hours }
+    // changes is an array of { line, day, hours, comment }
+    if (changes.some(c => c.comment)) throw new NotSupportedError('Cell comments');
     for (const { line, day, hours } of changes) {
       await this.set(line, day, hours);
     }
   }
 
-  async add(code) {
+  async add(code, payType, { workLocation } = {}) {
+    if (payType && payType.toUpperCase() !== DEFAULT_PAY_TYPE) {
+      throw new NotSupportedError('Pay type ' + payType);
+    }
+    if (workLocation) throw new NotSupportedError('Setting a work location');
     await new Promise(resolve => setTimeout(resolve, 5000));
     await this.page.keyboard.press('F2');
     await this.page.waitForSelector('#UDT02_ID-_0_N', {
@@ -459,4 +510,5 @@ function isServletPost(response) {
   return response.url().includes('MasterServlet.cps') && response.request().method() === 'POST';
 }
 
+Costpoint.NotSupportedError = NotSupportedError;
 module.exports = Costpoint;

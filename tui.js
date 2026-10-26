@@ -163,7 +163,6 @@ function storeClientData(cp) {
 }
 
 function noteClientPeriods(cp) {
-  if (typeof cp.getPeriods !== 'function') return;
   const periods = cp.getPeriods();
   if (periods.length > 0) periodCount = periods.length;
 }
@@ -199,10 +198,8 @@ async function fetchData() {
     noteClientPeriods(cp);
 
     try {
-      if (typeof cp.getPreviousPeriodData === 'function') {
-        const other = cp.getPreviousPeriodData();
-        if (other) cacheWeek(other);
-      }
+      const other = cp.getPreviousPeriodData();
+      if (other) cacheWeek(other);
     } catch (e) {
       /* non-fatal */
     }

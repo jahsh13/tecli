@@ -378,20 +378,14 @@ async function fetchFreshData() {
     // Get previous period data without mutating client state (keeps
     // the session usable for subsequent save/sign operations)
     try {
-      if (typeof cp.getPreviousPeriodData === 'function') {
-        const otherWeek = cp.getPreviousPeriodData();
-        if (otherWeek) cacheWeek(otherWeek);
-      } else {
-        // Fallback for Puppeteer client — uses navigateToPreviousPeriod
-        await cp.navigateToPreviousPeriod();
-        cacheWeek(cp.getData());
-      }
+      const otherWeek = cp.getPreviousPeriodData();
+      if (otherWeek) cacheWeek(otherWeek);
     } catch (navErr) {
       console.error('Failed to fetch other period (non-fatal):', navErr.message);
     }
 
     activeWeekStart = weekStartKey(currentWeek);
-    if (typeof cp.getPeriods === 'function') cachedPeriodCount = cp.getPeriods().length;
+    cachedPeriodCount = cp.getPeriods().length;
     dropStalePastWeeks();
 
     saveCache();

@@ -59,6 +59,11 @@ function requireCredentials() {
   return _creds;
 }
 
+// Refuse a Puppeteer-mode feature before the browser logs in
+function requireDirect(feature) {
+  if (!requireCredentials().useDirect) throw new Costpoint.NotSupportedError(feature);
+}
+
 function launchClient() {
   const { url, username, password, useDirect } = requireCredentials();
   if (useDirect) return DirectClient.launch(url, username, password);
@@ -130,6 +135,19 @@ async function askLine(prompt) {
 
 async function askYesNo(prompt) {
   return /^y(es)?$/i.test((await askLine(prompt)).trim());
+}
+
+// Stops the spinner either way, so a failure message prints on a clean line
+async function withSpinner(text, done, fn) {
+  const s = spin(text + '...');
+  try {
+    const result = await fn();
+    s.succeed(done);
+    return result;
+  } catch (e) {
+    s.fail(text + ' failed');
+    throw e;
+  }
 }
 
 async function saveWithSpinner(cp) {
@@ -372,6 +390,7 @@ withWeekOptions(
   .action(async (code, payType, options) => {
     try {
       const explicitLocation = normalizeWorkLocation(options.location);
+      if (!code) requireDirect('Picking from favorites');
       const cp = await connect(options);
       let fromFavorites = false;
 
@@ -429,9 +448,7 @@ async function addToFavoritesWithSpinner(cp) {
 }
 
 async function pickFromFavorites(cp) {
-  const s = spin('Loading favorites...');
-  const favs = await cp.getFavorites({ keepLine: true });
-  s.succeed('Favorites loaded');
+  const favs = await withSpinner('Loading favorites', 'Favorites loaded', () => cp.getFavorites({ keepLine: true }));
   console.log();
 
   if (favs.length === 0) {
@@ -467,10 +484,9 @@ withWeekOptions(
   'list favorites for'
 ).action(async options => {
   try {
+    requireDirect('Favorites');
     const cp = await connect(options);
-    const s = spin('Loading favorites...');
-    const favs = await cp.getFavorites();
-    s.succeed('Favorites loaded');
+    const favs = await withSpinner('Loading favorites', 'Favorites loaded', () => cp.getFavorites());
     console.log();
 
     if (favs.length === 0) {
@@ -495,11 +511,12 @@ program
   .description('show leave balances')
   .action(async () => {
     try {
+      requireDirect('Leave balances');
       const cp = await connect();
 
-      const s = spin('Loading balances...');
-      const { balances, details } = await cp.getLeaveBalances();
-      s.succeed('Balances loaded');
+      const { balances, details } = await withSpinner('Loading balances', 'Balances loaded', () =>
+        cp.getLeaveBalances()
+      );
       console.log();
 
       if (balances.length === 0) {

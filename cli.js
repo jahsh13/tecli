@@ -430,7 +430,7 @@ async function addToFavoritesWithSpinner(cp) {
 
 async function pickFromFavorites(cp) {
   const s = spin('Loading favorites...');
-  const favs = await cp.getFavorites();
+  const favs = await cp.getFavorites({ keepLine: true });
   s.succeed('Favorites loaded');
   console.log();
 

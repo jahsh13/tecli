@@ -578,12 +578,27 @@ describe('past-week add and favorites batches (captured/past-week-add 014-019)',
       bodies.push(b);
       return OK_RESPONSE;
     };
+    client._buildTableRows = () => {};
     assert.deepEqual(await client.getFavorites(), []);
-    assert.equal(bodies.length, 4);
+    assert.equal(bodies.length, 5);
     assert.equal(cmdStrings(bodies[0])[0], '205 K0 C1 Vtrue $lastPutId$');
     assert.match(cmdStrings(bodies[1])[0], /^201 K2 ITC_UDT02_CHARGE_LKP /);
     assert.match(cmdStrings(bodies[2])[0], /^204 \$rsType\$=L RHLKP S E X-59999 W.*K2 C-60000 P1 Vtrue$/);
     assert.match(cmdStrings(bodies[3])[0], /^204 \$rsType\$=L RHLKP S E X-59999 W.*K2 C0 P1 Vtrue$/);
+    // The line is discarded like the browser's delete (capture 020)
+    assert.deepEqual(cmdStrings(bodies[4]).slice(0, 1), ['209 K1 C-59999 P0 Vtrue']);
+    assert.equal(client.pendingLine(), null);
+  });
+
+  test('getFavorites() does not correct a closed week', async () => {
+    const client = makeStubClient(1);
+    client.parentData.rows[1][TS_CLOSED_FL] = 'Y';
+    client._correctTimesheet = async () => {
+      throw new Error('must not correct');
+    };
+    client._postServlet = async () => OK_RESPONSE;
+    client._buildTableRows = () => {};
+    assert.deepEqual(await client.getFavorites(), []);
   });
 
   test('stage refuses a week with no lines', () => {
@@ -674,7 +689,7 @@ describe(
 describe('previous-week guards', () => {
   for (const [name, call] of [
     ['add()', c => c.add('ZLEAVE.CMP', 'REG')],
-    ['getFavorites()', c => c.getFavorites()],
+    ['getFavorites({ keepLine: true })', c => c.getFavorites({ keepLine: true })],
   ]) {
     test(`${name} on a closed past week corrects first`, async () => {
       const client = makeStubClient(1);

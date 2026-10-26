@@ -13,7 +13,7 @@ const { COMMON_CODES } = require('./charge-codes');
 const { normalizeWorkLocation } = require('./add-options');
 const numberPick = require('./number-pick');
 const { periodLabel, stepPeriod, currentWeekStart } = require('./tui-nav');
-const { launchForPeriod, createSessionManager } = require('./session');
+const { launchForPeriod, createSessionManager, listFavorites } = require('./session');
 
 require('dotenv').config();
 
@@ -424,7 +424,7 @@ async function doFavorites() {
   render();
 
   try {
-    favoritesData = await withClient(cp => cp.getFavorites(), viewPeriod);
+    favoritesData = await listFavorites(creds);
     showFavorites = true;
     pickBuffer = '';
     setStatus(chalk.green('Favorites loaded.'), 3000);

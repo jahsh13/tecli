@@ -36,6 +36,17 @@ async function launchForPeriod(creds, period, { preloadPrevious = false } = {}) 
   return cp;
 }
 
+// Favorites belong to the user, not the week: list them on a throwaway
+// active-week session so an edit session and a processed week stay as they are
+async function listFavorites(creds) {
+  const cp = await launchForPeriod(creds, 0);
+  try {
+    return await cp.getFavorites();
+  } finally {
+    await cp.close().catch(() => {});
+  }
+}
+
 function isSessionError(e) {
   const msg = (e.message || '').toLowerCase();
   return (
@@ -117,4 +128,4 @@ function createSessionManager({ launch, idleMs = DEFAULT_IDLE_MS, onLaunch, onLa
   };
 }
 
-module.exports = { launchForPeriod, isSessionError, createSessionManager };
+module.exports = { launchForPeriod, listFavorites, isSessionError, createSessionManager };

@@ -9,7 +9,7 @@ const { getCredentials, assertMockSafe, isMockRun } = require('./credentials');
 const { COMMON_CODES, resolveAlias } = require('./charge-codes');
 const { normalizeWorkLocation } = require('./add-options');
 const { normalizeTimesheetStatus } = require('./timesheet-status');
-const { launchForPeriod, createSessionManager } = require('./session');
+const { launchForPeriod, createSessionManager, listFavorites } = require('./session');
 const { weekLabel, weekSummary } = require('./week-label');
 
 require('dotenv').config();
@@ -296,7 +296,7 @@ function buildServer(options = {}) {
     `List the favorite charge codes saved in Costpoint. Favorites belong to the user, not to a week. Use the index with add_from_favorites. ${NOTE.error}`,
     {},
     async () => {
-      const favs = await withThrowaway(cp => cp.getFavorites());
+      const favs = await listFavorites(credentials());
       if (favs.length === 0) return text('No favorites found.');
       return text(favs.map((f, i) => `${i} | ${f.code} | ${f.description || ''} | ${f.payType || ''}`).join('\n'));
     }
@@ -316,7 +316,7 @@ function buildServer(options = {}) {
     async ({ index, workLocation, back = 0 }) => {
       const zip = normalizeWorkLocation(workLocation);
       return editWeek(back, 'Favorite added', async cp => {
-        const favs = await cp.getFavorites();
+        const favs = await cp.getFavorites({ keepLine: true });
         if (index >= favs.length) {
           throw new Error(`Favorite index ${index} out of range (0-${favs.length - 1})`);
         }

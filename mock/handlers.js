@@ -555,6 +555,20 @@ function commit(cmd, env) {
   return [frame];
 }
 
+// ─── Delete row (209) ─────────────────────────────────────────────────────
+
+// The browser's row delete on a pending line (captured/past-week-add/020).
+// It carries no period, so it applies to the week of the last child PUT.
+function deleteRow(cmd, env) {
+  const { db, session } = env;
+  const idx = session.lastPut ? session.lastPut.idx : 0;
+  if (int(cmd.codes.K) === 1) {
+    const buf = session.buffer(db, idx);
+    buf.lines = buf.lines.filter(l => l.rowNum !== cmd.codes.C);
+  }
+  return [{ rsKey: int(cmd.codes.K), cmdCd: 209 }];
+}
+
 // ─── Dispatch ─────────────────────────────────────────────────────────────
 
 const okFrame = rsKey => cmd => [{ rsKey, cmdCd: cmd.reqCd }];
@@ -566,6 +580,7 @@ const HANDLERS = {
   205: put,
   206: commit,
   208: validate,
+  209: deleteRow,
   221: okFrame(-1),
   300: action,
   507: okFrame(-1),

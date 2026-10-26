@@ -621,8 +621,13 @@ class DirectClient {
     if (this.childData.rowFlags) this.childData.rowFlags.push('19');
   }
 
-  async getFavorites() {
-    if (this._isPeriodClosed()) await this._correctTimesheet();
+  /**
+   * Favorites belong to the user, so listing them leaves the week as it was:
+   * the pending line it stages is discarded afterwards and a closed week is
+   * not corrected. keepLine keeps both for an add() that follows.
+   */
+  async getFavorites({ keepLine = false } = {}) {
+    if (keepLine && this._isPeriodClosed()) await this._correctTimesheet();
     // Favorites require a pending row at -59999 — the lookup is scoped to it
     // via HLKP's X=-59999. Matches the browser flow: user clicks "add row"
     // before the magnifier is clickable.
@@ -631,7 +636,14 @@ class DirectClient {
       this._stagePendingLine();
       await this._newTimesheetLine();
     }
+    try {
+      return await this._queryFavorites();
+    } finally {
+      if (!keepLine && !hasPending) await this._discardPendingLine();
+    }
+  }
 
+  async _queryFavorites() {
     // Bare OPEN_RS K2 (no PUT K1) — matches the browser's magnifier click.
     const openResp = await this._postServlet(this._buildOpenFavoritesLookup());
     const openErr = protocol.checkErrors(protocol.parseResponse(openResp));
@@ -673,7 +685,7 @@ class DirectClient {
    * fetches favorites, picks by index, delegates to add().
    */
   async addFromFavorite(index) {
-    const favs = await this.getFavorites();
+    const favs = await this.getFavorites({ keepLine: true });
     if (!favs.length) throw new Error('No favorites available');
     if (index < 0 || index >= favs.length) {
       throw new Error('Favorite index ' + index + ' out of range (0-' + (favs.length - 1) + ')');
@@ -770,6 +782,38 @@ class DirectClient {
     }
     const k0Data = protocol.extract204(parsed, 0);
     if (k0Data) this.parentData = k0Data;
+  }
+
+  /**
+   * Drop the pending line like the browser's row delete
+   * (captured/past-week-add/020): CMD 209 on K1 C-59999, then the refreshes.
+   * A line left behind has no charge and fails the next save with
+   * "Account required".
+   */
+  async _discardPendingLine() {
+    const idx = this.childData.rowNums.findIndex(n => parseInt(n, 10) < 0);
+    if (idx < 0) return;
+    const rowNum = this.childData.rowNums[idx];
+    const body = protocol.buildRequestBody(this.sid, [
+      this._wrap(
+        this._cmd(209, [
+          { code: 'K', value: '1' },
+          { code: 'C', value: rowNum },
+          { code: 'P', value: '0' },
+          { code: 'V', value: 'true' },
+        ])
+      ),
+      ...this._get204(0),
+      ...this._get204(1, null, { childCursor: rowNum }),
+      this._keepalive(),
+    ]);
+    const parsed = protocol.parseResponse(await this._postServlet(body));
+    const err = protocol.checkErrors(parsed);
+    if (err) throw new Error('Discard line error: ' + err);
+    this.childData.rows.splice(idx, 1);
+    this.childData.rowNums.splice(idx, 1);
+    if (this.childData.rowFlags) this.childData.rowFlags.splice(idx, 1);
+    this._buildTableRows();
   }
 
   /**

@@ -1036,7 +1036,7 @@ The corrected week is Open afterwards and has to be signed again (**Sign** below
 4. pick: lookup-OK batch (TC_TS_CHARGE_LKP_OK, K2 C=<row>), see Add Project Line
 ```
 
-Without step 2, step 3 returns `<NO DATA>`. The lookup needs a pending K1 row first, so `getFavorites()` stages one and runs `TMMTS_NEW_TS_LINE` when none exists.
+Without step 2, step 3 returns `<NO DATA>`. The lookup needs a pending K1 row first, so `getFavorites()` stages one and runs `TMMTS_NEW_TS_LINE` when none exists. It then discards that row with the CMD 209 delete above, so a list leaves no chargeless line behind for the next save. The mock emulates the 209; the client's 209 batch is not verified live.
 
 **Typed code** (capture 022-023): `204 RAUTO X=-59999` on `TC_UDT02_CHARGE_LKP` (K1 `C=-59999`), then a K1 PUT of the pending row (`X=1 C-59998`) with the code in the data, then `208 UDT02_ID`. There is no OPEN_RS K2 and no HLKP. `add()` does not follow this: it always runs the OPEN_RS K2 resolve flow so it has the K2 row to commit CHARGE_ID. The divergence is unverified live on a past week.
 

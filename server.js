@@ -11,7 +11,7 @@ const { COMMON_CODES } = require('./charge-codes');
 const { normalizeWorkLocation } = require('./add-options');
 const { getCredentials } = require('./credentials');
 const weekWindow = require('./week-window');
-const { launchForPeriod, createSessionManager } = require('./session');
+const { launchForPeriod, createSessionManager, listFavorites } = require('./session');
 const { createWebGuard, HOST } = require('./web-guard');
 
 require('dotenv').config();
@@ -1001,10 +1001,7 @@ app.get('/api/favorites', async (req, res) => {
   const period = weekWindow.parsePeriod(req.query.period);
   if (period === null || period >= getPeriodCount()) return res.status(400).json({ error: 'Invalid period' });
   try {
-    const result = await withClient(async cp => {
-      return await cp.getFavorites();
-    }, period);
-    res.json(result);
+    res.json(await listFavorites(creds));
   } catch (e) {
     res.status(500).json({ error: e.message });
   }

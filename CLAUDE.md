@@ -68,6 +68,7 @@ Interactive terminal UI (`node tui.js` or `npm run tui`). Zero extra dependencie
 - Typing a custom project code (add menu `[0]`/`[c]`) asks "Also add to favorites? [y/N]" after the pay type
 - Shares cache file (`~/.costpoint-cache.json`) with the web UI. At start the cached active week is moved up to the week holding today (`currentWeekStart()` in `tui-nav.js`), so a cache from an earlier week is shown as a past week. Until a fetch works the header shows `[CACHED]` and a failed fetch's error stays in the status line
 - Shows one week at a time (7 columns) — fits in 80-col terminals
+- Tests: `test/tui-pty.test.js` runs tui.js on a pty through util-linux script(1) against the mock (week keys, the unsaved-edit guard, multi-digit favorites picks, add prompts, past-week sign). Part of `npm test`; skips where script(1) is missing
 
 ## Direct Protocol
 

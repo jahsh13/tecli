@@ -45,6 +45,7 @@ async function startWeb(mock, extraEnv = {}) {
   child.stderr.on('data', d => (log += d));
   const web = {
     port,
+    home,
     base: 'http://127.0.0.1:' + port,
     log: () => log,
     stop: () =>

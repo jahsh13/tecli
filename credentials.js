@@ -6,6 +6,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const readline = require('readline');
+const { writePrivateFile } = require('./private-file');
 
 const SERVICE = 'tecli';
 const CONFIG_PATH = path.join(os.homedir(), '.tecli.json');
@@ -23,7 +24,7 @@ function readConfig() {
 }
 
 function writeConfig(config) {
-  fs.writeFileSync(CONFIG_PATH, JSON.stringify(config, null, 2) + '\n', { mode: 0o600 });
+  writePrivateFile(CONFIG_PATH, JSON.stringify(config, null, 2) + '\n');
 }
 
 function deleteConfig() {
@@ -126,11 +127,8 @@ function _linuxDelete(account) {
   _fallbackDelete(); // clean up any fallback file too
 }
 
-// The mode option only applies when the file is created, so chmod too: a
-// file an older version wrote stays readable by others otherwise.
 function _writeCredentialFile(data) {
-  fs.writeFileSync(CRED_PATH, JSON.stringify(data, null, 2) + '\n', { mode: 0o600 });
-  fs.chmodSync(CRED_PATH, 0o600);
+  writePrivateFile(CRED_PATH, JSON.stringify(data, null, 2) + '\n');
 }
 
 // ── Windows: DPAPI via PowerShell ────────────────────────────────

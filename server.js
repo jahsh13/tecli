@@ -10,6 +10,7 @@ const { normalizeTimesheetStatus } = require('./timesheet-status');
 const { COMMON_CODES } = require('./charge-codes');
 const { normalizeWorkLocation } = require('./add-options');
 const { MAX_HOURS, parseHours } = require('./hours');
+const { writePrivateFile } = require('./private-file');
 const { getCredentials } = require('./credentials');
 const weekWindow = require('./week-window');
 const { launchForPeriod, createSessionManager, listFavorites } = require('./session');
@@ -154,7 +155,7 @@ function getActiveWeekData() {
 // Save cache to disk
 function saveCache() {
   try {
-    fs.writeFileSync(
+    writePrivateFile(
       CACHE_FILE,
       JSON.stringify(
         {

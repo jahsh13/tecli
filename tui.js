@@ -12,6 +12,7 @@ const { getCredentials } = require('./credentials');
 const { COMMON_CODES } = require('./charge-codes');
 const { normalizeWorkLocation } = require('./add-options');
 const numberPick = require('./number-pick');
+const { writePrivateFile } = require('./private-file');
 const { periodLabel, stepPeriod, currentWeekStart } = require('./tui-nav');
 const { launchForPeriod, createSessionManager, listFavorites } = require('./session');
 
@@ -84,7 +85,7 @@ function loadCache() {
 
 function saveCache() {
   try {
-    fs.writeFileSync(CACHE_FILE, JSON.stringify({ weeks: cachedWeeks, activeWeekStart }, null, 2));
+    writePrivateFile(CACHE_FILE, JSON.stringify({ weeks: cachedWeeks, activeWeekStart }, null, 2));
   } catch (e) {
     /* ignore */
   }

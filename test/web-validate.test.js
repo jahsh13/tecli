@@ -1,9 +1,12 @@
 'use strict';
 
-// The web UI rejects bad cell edits before queueing them (tecli-4mz.13 L1, L2).
+// The web UI rejects bad cell edits before queueing them and keeps its cache
+// file private (tecli-4mz.13 L1-L3).
 
 const { test, describe, before, after } = require('node:test');
 const assert = require('node:assert/strict');
+const fs = require('fs');
+const path = require('path');
 const { startMock } = require('./mock-helper');
 const { startWeb, pageToken, waitForData } = require('./web-helper');
 
@@ -51,5 +54,11 @@ describe('web UI edit validation', () => {
       assert.equal((await put('/api/hours', { period: 0, periodLine: 0, day: 15, hours })).status, 200);
     }
     assert.equal(await pendingCount(), 1);
+  });
+
+  test('the cache file is readable by the owner only', () => {
+    const file = path.join(web.home, '.costpoint-cache.json');
+    assert.ok(fs.existsSync(file));
+    assert.equal(fs.statSync(file).mode & 0o777, 0o600);
   });
 });

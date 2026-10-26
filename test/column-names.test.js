@@ -82,6 +82,7 @@ test('a Processed week in the shifted layout is seen as closed', () => {
 
 test('refuses to treat a Processed week as open', () => {
   const client = Object.create(DirectClient.prototype);
+  client.parentCol = DirectClient.CAPTURE_PARENT_COL;
   const row = new Array(688).fill('');
   row[4] = 'P';
   row[685] = 'R';
@@ -203,4 +204,20 @@ test('staging a line and copying a charge write the live child columns', () => {
   assert.equal(row[401], 'PROJ-ID');
   assert.equal(row[376], '');
   assert.equal(row[400], '');
+});
+
+// A client that skipped launch must not fall back to a stale layout
+// (tecli-4mz.13 L7); stubs opt in to the capture layout explicitly.
+test('a client without resolved columns throws instead of using the capture layout', () => {
+  const client = Object.create(DirectClient.prototype);
+  assert.throws(() => client.parentCol, /parent columns.*not resolved/i);
+  assert.throws(() => client.childCol, /child columns.*not resolved/i);
+});
+
+test('the capture layout is still available to stubs that ask for it', () => {
+  const client = Object.create(DirectClient.prototype);
+  client.parentCol = DirectClient.CAPTURE_PARENT_COL;
+  client.childCol = DirectClient.CAPTURE_CHILD_COL;
+  assert.equal(client.parentCol.TS_CLOSED_FL, 685);
+  assert.equal(client.childCol.PAY_TYPE, 16);
 });

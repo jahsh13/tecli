@@ -11,6 +11,8 @@ const codec = require('../mock/codec');
 
 function makeStubClient() {
   const client = Object.create(DirectClient.prototype);
+  client.parentCol = DirectClient.CAPTURE_PARENT_COL;
+  client.childCol = DirectClient.CAPTURE_CHILD_COL;
   client.sid = 'TESTSESSION';
   client.baseUrl = 'https://example.com';
   client.lastPutId = 0;

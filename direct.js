@@ -63,7 +63,8 @@ const PARENT_COL_NAMES = {
   TS_CLOSED_FL: 'TS_CLOSED_FL',
 };
 
-// Layout of the 688-column captures, for stub clients built without a launch
+// Layout of the 688-column captures. Only test stubs built without a launch
+// set it (DirectClient.CAPTURE_PARENT_COL); a real client resolves by name.
 const PARENT_COL = {
   EMPL_FULL_NAME: 0,
   EMPL_ID: 1,
@@ -167,7 +168,7 @@ const CHILD_COL_NAMES = {
   CHARGE_PROJECT_ID: 'UDT02_DISPLAY',
 };
 
-// Layout of the 402-column captures, for stub clients built without a launch
+// Layout of the 402-column captures, for test stubs only (CAPTURE_CHILD_COL)
 const CHILD_COL = {
   LINE_DESC: 2,
   UDT02_ID: 6,
@@ -289,18 +290,20 @@ class DirectClient {
     this._httpsAgent = new https.Agent({ keepAlive: true });
   }
 
-  /** Parent column indices: resolved at launch, the capture layout otherwise. */
+  /** Parent column indices, resolved at launch. */
   get parentCol() {
-    return this._parentCol || PARENT_COL;
+    if (!this._parentCol) throw new Error('Parent columns are not resolved; launch() first');
+    return this._parentCol;
   }
 
   set parentCol(cols) {
     this._parentCol = cols;
   }
 
-  /** Child column indices: resolved at launch, the capture layout otherwise. */
+  /** Child column indices, resolved at launch. */
   get childCol() {
-    return this._childCol || CHILD_COL;
+    if (!this._childCol) throw new Error('Child columns are not resolved; launch() first');
+    return this._childCol;
   }
 
   set childCol(cols) {
@@ -3881,5 +3884,7 @@ DirectClient.requestTimeoutMs = requestTimeoutMs;
 DirectClient.MAX_RESPONSE_BYTES = MAX_RESPONSE_BYTES;
 DirectClient.resolveParentColumns = resolveParentColumns;
 DirectClient.resolveChildColumns = resolveChildColumns;
+DirectClient.CAPTURE_PARENT_COL = PARENT_COL;
+DirectClient.CAPTURE_CHILD_COL = CHILD_COL;
 DirectClient.TRACE_MAX_BYTES = TRACE_MAX_BYTES;
 module.exports = DirectClient;

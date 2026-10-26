@@ -28,6 +28,8 @@ const ENABLE_CORRECT_FL = 676;
 
 function makeStubClient(periodIdx) {
   const client = Object.create(DirectClient.prototype);
+  client.parentCol = DirectClient.CAPTURE_PARENT_COL;
+  client.childCol = DirectClient.CAPTURE_CHILD_COL;
   client.sid = 'SID';
   client.lastPutId = 0;
   client.periodIdx = periodIdx;

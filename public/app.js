@@ -5,6 +5,8 @@
 
   const render = window.TecliRender;
   const escapeHtml = render.escapeHtml;
+  const cellKey = window.TecliPending.cellKey;
+  const takeSaved = window.TecliPending.takeSaved;
 
   let data = window.TIMESHEET_DATA;
   let isLoading = window.IS_LOADING;
@@ -56,8 +58,8 @@
   function storeOriginalValues() {
     if (!data) return;
     data.projects.forEach(project => {
-      data.dates.forEach(d => {
-        const key = `${project.line}-${d.date}`;
+      data.dates.forEach((d, i) => {
+        const key = cellKey(data.weeks[i < 7 ? 0 : 1].period, project.line, d.date);
         const value = project.hours[d.date];
         originalValues.set(key, value !== null && value !== undefined ? value : '');
         const comment = (project.comments && project.comments[d.date]) || '';
@@ -300,7 +302,7 @@
     const day = parseInt(input.dataset.day);
     const week = input.dataset.week;
     const periodLine = input.dataset.periodLine;
-    const key = `${line}-${day}`;
+    const key = cellKey(week, line, day);
     const newValue = input.value.trim();
     const originalValue = originalValues.get(key);
     const originalStr =
@@ -341,7 +343,7 @@
       });
       if (project && isCommentRequired(project.code)) {
         // Only prompt if no comment already exists for this cell
-        var key = line + '-' + day;
+        var key = cellKey(input.dataset.week, line, day);
         var existingComment = (pendingComments.get(key) || {}).comment || input.dataset.comment || '';
         if (!existingComment) {
           // Defer so blur completes first
@@ -444,6 +446,9 @@
       });
 
       const saveResult = await saveResponse.json();
+      // Weeks saved before a failure or a revision prompt are done; the rest
+      // stay pending so a retry sends only them
+      settleSaved(saveResult.saved);
 
       if (!saveResponse.ok) {
         throw new Error(saveResult.error || 'Failed to save to Costpoint');
@@ -458,41 +463,6 @@
         return;
       }
 
-      // Clear pending changes and update UI
-      pendingChanges.forEach((change, key) => {
-        const [line, day] = key.split('-').map(Number);
-        const input = document.querySelector(`.hours-input[data-line="${line}"][data-day="${day}"]`);
-        if (input) {
-          input.classList.remove('modified');
-        }
-        originalValues.set(key, change.hours === '' ? '' : parseFloat(change.hours));
-      });
-      pendingChanges.clear();
-
-      // Clear pending comments and update UI
-      pendingComments.forEach((change, key) => {
-        originalComments.set(key, change.comment || '');
-        // Update the cell-wrap indicator
-        var input = document.querySelector(
-          '.hours-input[data-line="' + change.line + '"][data-day="' + change.day + '"]'
-        );
-        if (input) {
-          input.dataset.comment = change.comment || '';
-          input.classList.remove('comment-modified');
-          var wrap = input.closest('.cell-wrap');
-          if (wrap) {
-            if (change.comment) {
-              wrap.classList.add('has-comment');
-              wrap.title = change.comment;
-            } else {
-              wrap.classList.remove('has-comment');
-              wrap.title = '';
-            }
-          }
-        }
-      });
-      pendingComments.clear();
-
       updateSyncStatus('idle');
       showSuccess('Changes saved successfully!');
     } catch (err) {
@@ -503,6 +473,40 @@
       saveBtn.textContent = 'Save';
       updateSaveButton();
     }
+  }
+
+  function cellInput(change) {
+    return document.querySelector(
+      '.hours-input[data-week="' + change.week + '"][data-line="' + change.line + '"][data-day="' + change.day + '"]'
+    );
+  }
+
+  // Mark the changes of the periods the server saved as the new originals
+  function settleSaved(periods) {
+    takeSaved(pendingChanges, periods).forEach(([key, change]) => {
+      const input = cellInput(change);
+      if (input) input.classList.remove('modified');
+      originalValues.set(key, change.hours === '' ? '' : parseFloat(change.hours));
+    });
+
+    takeSaved(pendingComments, periods).forEach(([key, change]) => {
+      originalComments.set(key, change.comment || '');
+      const input = cellInput(change);
+      if (!input) return;
+      input.dataset.comment = change.comment || '';
+      input.classList.remove('comment-modified');
+      const wrap = input.closest('.cell-wrap');
+      if (wrap) {
+        if (change.comment) {
+          wrap.classList.add('has-comment');
+          wrap.title = change.comment;
+        } else {
+          wrap.classList.remove('has-comment');
+          wrap.title = '';
+        }
+      }
+    });
+    updateSaveButton();
   }
 
   function showRevisionModal(auditDetails, reloadAfter = false) {
@@ -557,6 +561,7 @@
           body: JSON.stringify({ explanation }),
         });
         const result = await resp.json();
+        settleSaved(result.saved);
         if (!resp.ok) throw new Error(result.error || 'Failed to save');
 
         // The other week's changes were saved next and need their own explanation
@@ -575,15 +580,6 @@
           return;
         }
 
-        // Clear pending changes
-        pendingChanges.forEach((change, key) => {
-          const [line, day] = key.split('-').map(Number);
-          const input = document.querySelector('.hours-input[data-line="' + line + '"][data-day="' + day + '"]');
-          if (input) input.classList.remove('modified');
-          originalValues.set(key, change.hours === '' ? '' : parseFloat(change.hours));
-        });
-        pendingChanges.clear();
-        pendingComments.clear();
         updateSyncStatus('idle');
         updateSaveButton();
         overlay.remove();
@@ -608,7 +604,7 @@
 
     var currentComment = input.dataset.comment || '';
     // Check for pending comment
-    var pendingKey = line + '-' + day;
+    var pendingKey = cellKey(input.dataset.week, line, day);
     var pending = pendingComments.get(pendingKey);
     if (pending) currentComment = pending.comment || '';
 
@@ -664,7 +660,7 @@
     }
 
     function applyComment(text) {
-      var key = line + '-' + day;
+      var key = cellKey(inputEl.dataset.week, line, day);
       var orig = originalComments.get(key) || '';
 
       if (text !== orig) {

@@ -14,6 +14,7 @@ const { handleRequest, parseQuirks, SESSION_NOT_VALID } = require('./handlers');
 
 const DEFAULT_FIXTURE = path.join(__dirname, 'fixture.json');
 const DEFAULT_TTL_MS = 30 * 60 * 1000;
+const SAVE_FAULT = 'Mock save failure';
 
 function readFixture(fixture) {
   if (fixture && typeof fixture === 'object') return fixture;
@@ -50,7 +51,8 @@ function send(res, status, body, headers = {}) {
  * options: port (0 picks a free one), fixture (path or object), quirks (list
  * or comma string), today (YYYY-MM-DD), user/password (unset accepts any
  * login), sessionTtlMs, stateFile.
- * Returns { server, port, url, db, sessions, reset(), expire(sid), close() }.
+ * Returns { server, port, url, db, sessions, reset(), failSave(period, error),
+ * expire(sid), close() }. failSave makes the next 206 for that period fail.
  */
 async function createMockServer(options = {}) {
   const fixture = readFixture(options.fixture);
@@ -59,6 +61,8 @@ async function createMockServer(options = {}) {
   const stateFile = options.stateFile;
   const today = options.today;
   const sessions = new Map();
+  // One-shot save failures by period, set with failSave()
+  const faults = new Map();
   let clock = options.now || (() => Date.now());
 
   const freshDb = () => new Db(fixture, { today });
@@ -117,7 +121,7 @@ async function createMockServer(options = {}) {
     let text;
     try {
       const { commands } = codec.parseRequest(body);
-      const env = { db, session, quirks, persist, ctx: { stale: new Map(), suppress204: false } };
+      const env = { db, session, quirks, persist, faults, ctx: { stale: new Map(), suppress204: false } };
       text = handleRequest(env, commands);
     } catch (e) {
       console.error('mock: ' + e.stack);
@@ -146,6 +150,7 @@ async function createMockServer(options = {}) {
     if (req.method === 'POST' && url.pathname === '/__mock/reset') {
       db = freshDb();
       sessions.clear();
+      faults.clear();
       if (stateFile && fs.existsSync(stateFile)) fs.unlinkSync(stateFile);
       return send(res, 200, 'reset');
     }
@@ -154,6 +159,10 @@ async function createMockServer(options = {}) {
       if (!sid || sid === 'all') sessions.clear();
       else sessions.delete(sid);
       return send(res, 200, 'expired');
+    }
+    if (req.method === 'POST' && url.pathname === '/__mock/fail-save') {
+      faults.set(parseInt(url.searchParams.get('period') || '0', 10), url.searchParams.get('error') || SAVE_FAULT);
+      return send(res, 200, 'armed');
     }
     if (req.method === 'GET' && url.pathname === '/__mock/state') {
       return send(res, 200, JSON.stringify(adminState(), null, 1), { 'Content-Type': 'application/json' });
@@ -196,6 +205,10 @@ async function createMockServer(options = {}) {
     reset() {
       db = freshDb();
       sessions.clear();
+      faults.clear();
+    },
+    failSave(period, error = SAVE_FAULT) {
+      faults.set(period, error);
     },
     expire(sid) {
       if (sid) sessions.delete(sid);

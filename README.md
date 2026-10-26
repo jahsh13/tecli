@@ -379,7 +379,7 @@ claude mcp add tecli-mock -e TECLI_MOCK=1 -e COSTPOINT_URL='http://localhost:400
 
 Set `TECLI_MOCK=1` for any mock run. With it set, `COSTPOINT_URL`, `COSTPOINT_USERNAME` and `COSTPOINT_PASSWORD` must all be in the environment (the stored `te login` credentials are never used) and the URL must be `localhost`, `127.0.0.1` or `::1`. Otherwise credential lookup throws and `mcp-server.js` refuses to start (stderr message, exit code 2). It refuses rather than warns because a mock run that reaches real Costpoint can edit or sign a real timesheet. Any value other than empty, `0` or `false` turns it on. The mock tests set it themselves.
 
-State lives in memory, so restarting the mock resets it. `POST /__mock/reset` resets it in place, `POST /__mock/expire?sid=all` drops every login (to see the retry), and `GET /__mock/state` dumps it.
+State lives in memory, so restarting the mock resets it. `POST /__mock/reset` resets it in place, `POST /__mock/expire?sid=all` drops every login (to see the retry), `POST /__mock/fail-save?period=<n>` makes that week's next save fail once (optional `error=<text>`), and `GET /__mock/state` dumps it.
 
 | Variable | Effect |
 |----------|--------|

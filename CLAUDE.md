@@ -27,6 +27,7 @@ Key files:
 - `timesheet-status.js` — Status code normalization (A/M/O/P/R/S)
 - `public/app.js` — Client-side vanilla JS
 - `public/render.js` — HTML builders for the modals (audit, favorites, leave, errors) and `escapeHtml`, shared by the page (`window.TecliRender`), `server.js` (`esc()`) and tests
+- `public/pending.js` — Page-side unsaved-edit keys (`cellKey(week, line, day)`) and `takeSaved()`, shared by the page (`window.TecliPending`) and tests
 - `public/styles.css` — Dark theme ("Str8 Outta Deltek")
 
 ## Web UI
@@ -40,7 +41,7 @@ Single-page app with server-rendered HTML (no framework, no template engine). Al
 - Both weeks are editable (`weeks[].isEditable`) unless the week is closed and Costpoint offers no Correct. Past-week edits need direct mode.
 - Cells carry `data-week` (the period number) and `data-period-line` (the line index within that week). Cells for a line that only exists in the other week are read-only.
 - `/api/hours`, `/api/comment`, `/api/sign`, `/api/project` and `/api/favorites` take a `period`.
-- `saveAllChanges()` saves each period in `pendingChanges`, newest first, each on its own period session. A week that needs a revision explanation stops the run. `saveWithExplanation()` finishes that week (`pendingRevisionWeek`, a period) and then saves the rest.
+- `saveAllChanges()` saves each period in `pendingChanges`, newest first, each on its own period session. A week that needs a revision explanation stops the run. `saveWithExplanation()` finishes that week (`pendingRevisionWeek`, a period) and then saves the rest. `/api/save` and `/api/save-with-explanation` answer with `saved` (periods committed, also on a 500) and `failed` (the period that threw); the page clears only the saved weeks' cells, so a retry resends only the rest. Page pending edits are keyed by period + line + day. Tests: `test/web-save.test.js`
 - Per-week headers show date range, status badge, and a Sign button on each editable unsigned week (Copy Thu -> Fri on the active week only). Add Project and Favorites modals pick a target week from the two visible ones.
 
 ### Session management
@@ -108,7 +109,7 @@ Captured traffic lives in `captured/` — named descriptively (e.g., `leave-bala
 
 - `npm test` runs everything, including the mock, session and MCP tests.
 - `npm run lint` runs ESLint (`eslint.config.js`); `npm run format` / `npm run format:check` run Prettier (`.prettierrc.json`) on git-tracked files only, so untracked scratch files never fail the check. Lint does not check formatting.
-- Mock backend: `npm run mock` (`mock/`, port 4000, `MOCK_PORT`). Stateful: edits, Correct, revisions, sign, add, favorites and leave work end to end. Seed: P0 Open, P1 Processed and correctable, P2 Signed, P3+ Processed. State is in memory (`POST /__mock/reset`, `POST /__mock/expire?sid=all`, `GET /__mock/state`; `MOCK_STATE_FILE` keeps it).
+- Mock backend: `npm run mock` (`mock/`, port 4000, `MOCK_PORT`). Stateful: edits, Correct, revisions, sign, add, favorites and leave work end to end. Seed: P0 Open, P1 Processed and correctable, P2 Signed, P3+ Processed. State is in memory (`POST /__mock/reset`, `POST /__mock/expire?sid=all`, `GET /__mock/state`; `MOCK_STATE_FILE` keeps it). `POST /__mock/fail-save?period=n&error=...` (or `mock.failSave(n)`) fails that period's next save once.
 - Point a client at it: `TECLI_MOCK=1 COSTPOINT_URL='http://localhost:4000/cpweb/cploginform.htm?system=MOCK' COSTPOINT_USERNAME=mock COSTPOINT_PASSWORD=mock COSTPOINT_DIRECT=true node cli.js ...`
 - Env: `MOCK_TODAY`, `MOCK_USER`/`MOCK_PASSWORD`, `MOCK_SESSION_TTL_MS`, `MOCK_STATE_FILE`, `MOCK_QUIRKS` (comma list: `sign-poison`, `auto-required`, `favorites-primer` on by default; `correct-stale`, `favsave-no204` opt-in).
 - `TECLI_MOCK` (any value but empty/`0`/`false`, `isMockRun()` in `credentials.js`) guards mock runs: `getCredentials()` skips the `~/.tecli.json` + keychain fallback and throws unless the env URL is local (`assertMockSafe()`), and `mcp-server.js` refuses to start (exit 2). Refuse, not warn: a mock run reaching production is worse than a failed start. `test/mock-helper.js` sets it for every mock test; `test/mock-guard.test.js` covers it.

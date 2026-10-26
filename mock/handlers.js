@@ -509,8 +509,13 @@ function commitSign(idx, env) {
 }
 
 function commitBuffer(idx, buf, env) {
-  const { db, session, ctx } = env;
+  const { db, session, ctx, faults } = env;
   const period = db.period(idx);
+  if (faults && faults.has(idx)) {
+    const error = faults.get(idx);
+    faults.delete(idx);
+    return { rescd: 0, error };
+  }
   const explanation = session.explanations.get(idx);
   const cells = changedCells(db, idx, buf);
   if (cells.length > 0 && period.signedOnce && !explanation) {

@@ -172,16 +172,21 @@ function saveCache() {
 // Save all pending changes to Costpoint, one session per period, newest week
 // first. Each period's changes leave pendingChanges once saved. A period that
 // needs a revision explanation stops the run; saveWithExplanation() finishes
-// it and resumes with the rest.
+// it and resumes with the rest. Results and errors carry `saved` (periods
+// committed by this run) and, when a period stopped the run, `failed` or
+// `period`, so the page clears only what Costpoint has.
 async function saveAllChanges() {
-  if (isProcessing || pendingChanges.size === 0) return { success: true, message: 'No changes to save' };
+  if (isProcessing || pendingChanges.size === 0) return { success: true, message: 'No changes to save', saved: [] };
 
   isProcessing = true;
   syncStatus = 'syncing';
   const total = pendingChanges.size;
+  const saved = [];
+  let current = null;
 
   try {
     for (const period of weekWindow.pendingPeriods(pendingChanges.values())) {
+      current = period;
       const changes = Array.from(pendingChanges.values()).filter(c => c.period === period);
       try {
         await withClient(async cp => {
@@ -194,20 +199,23 @@ async function saveAllChanges() {
         if (e.name === 'RevisionRequiredError') {
           pendingRevisionWeek = period;
           syncStatus = 'idle';
-          return { revisionRequired: true, period, auditDetails: e.auditDetails };
+          return { revisionRequired: true, period, auditDetails: e.auditDetails, saved };
         }
         throw e;
       }
       clearPendingPeriod(period);
+      saved.push(period);
     }
 
     lastError = null;
     syncStatus = 'idle';
-    return { success: true, message: `Saved ${total} changes` };
+    return { success: true, message: `Saved ${total} changes`, saved };
   } catch (e) {
     console.error('Save failed:', e.message);
     lastError = e.message;
     syncStatus = 'error';
+    e.saved = saved;
+    e.failed = current;
     throw e;
   } finally {
     isProcessing = false;
@@ -244,15 +252,24 @@ async function saveWithExplanation(explanation) {
     console.error('Save with explanation failed:', e.message);
     lastError = e.message;
     syncStatus = 'error';
+    e.saved = [];
+    e.failed = period;
     throw e;
   } finally {
     isProcessing = false;
   }
 
   // Save the other periods' changes, if any are still pending
-  const rest = await saveAllChanges();
-  if (rest.revisionRequired) return rest;
-  return { success: true, message: 'Saved with revision explanation' };
+  let rest;
+  try {
+    rest = await saveAllChanges();
+  } catch (e) {
+    e.saved = [period, ...(e.saved || [])];
+    throw e;
+  }
+  const saved = [period, ...rest.saved];
+  if (rest.revisionRequired) return { ...rest, saved };
+  return { success: true, message: 'Saved with revision explanation', saved };
 }
 
 // Add a project to one week's timesheet. A save that needs a revision
@@ -803,6 +820,7 @@ function renderHTML(data, isLoading = false) {
     window.IS_LOADING = ${isLoading};
   </script>
   <script src="/render.js"></script>
+  <script src="/pending.js"></script>
   <script src="/app.js"></script>
 </body>
 </html>`;
@@ -908,12 +926,19 @@ app.put('/api/comment', (req, res) => {
   res.json({ success: true, pendingCount: pendingChanges.size });
 });
 
+// A failed save still reports the periods it committed before the failure
+function saveErrorBody(e) {
+  const body = { error: e.message, saved: e.saved || [] };
+  if (e.failed !== undefined && e.failed !== null) body.failed = e.failed;
+  return body;
+}
+
 app.post('/api/save', async (req, res) => {
   try {
     const result = await saveAllChanges();
     res.json(result);
   } catch (e) {
-    res.status(500).json({ error: e.message });
+    res.status(500).json(saveErrorBody(e));
   }
 });
 
@@ -926,7 +951,7 @@ app.post('/api/save-with-explanation', async (req, res) => {
     const result = await saveWithExplanation(explanation.trim());
     res.json(result);
   } catch (e) {
-    res.status(500).json({ error: e.message });
+    res.status(500).json(saveErrorBody(e));
   }
 });
 

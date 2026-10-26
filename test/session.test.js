@@ -31,7 +31,7 @@ test('reuses the client for the same period', async () => {
 });
 
 test('relaunches and closes the old client on period change', async () => {
-  const { launch, launched } = fakeLauncher();
+  const { launch } = fakeLauncher();
   const m = createSessionManager({ launch });
   const a = await m.getClient(0);
   const b = await m.getClient(2);

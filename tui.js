@@ -120,7 +120,6 @@ let periodCount = null; // loaded periods, from getPeriods()
 let cursorRow = 0;
 let cursorCol = 0;
 let mode = 'navigate'; // navigate | edit | prompt | menu
-let menuItems = null; // set when mode === 'menu'
 let editBuffer = '';
 let promptLabel = '';
 let promptBuffer = '';
@@ -1207,7 +1206,6 @@ function handlePickKey(str, key, count, onPick) {
 
 function enterMenu() {
   mode = 'menu';
-  menuItems = COMMON_CODES;
   pickBuffer = '';
   render();
 }
@@ -1217,21 +1215,18 @@ function handleMenuKey(str, key) {
     handlePickKey(str, key, COMMON_CODES.length, n => {
       const pick = COMMON_CODES[n - 1];
       mode = 'navigate';
-      menuItems = null;
       doAddProject(pick.code, pick.payType);
     })
   )
     return;
   if (key.name === 'escape') {
     mode = 'navigate';
-    menuItems = null;
     render();
     return;
   }
   // '0' or 'c' = custom entry
   if (str === '0' || str === 'c') {
     mode = 'navigate';
-    menuItems = null;
     enterPrompt('Project code: ', function (code) {
       if (!code.trim()) return;
       enterPrompt('Pay type [REG]: ', function (pt) {

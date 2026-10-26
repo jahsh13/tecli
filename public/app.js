@@ -390,7 +390,7 @@
 
     try {
       // Send all pending hours changes to server
-      for (const [key, change] of pendingChanges) {
+      for (const change of pendingChanges.values()) {
         const response = await fetch('/api/hours', {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
@@ -410,7 +410,7 @@
       }
 
       // Send all pending comment changes to server
-      for (const [key, change] of pendingComments) {
+      for (const change of pendingComments.values()) {
         const response = await fetch('/api/comment', {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },

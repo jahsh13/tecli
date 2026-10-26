@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 'use strict';
 
-const { test, describe, beforeEach } = require('node:test');
+const { test, describe } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('fs');
 const path = require('path');
@@ -156,26 +156,6 @@ describe('add() work location', () => {
 // ─── _resolveChargeOnServer charge selection ───────────────────────────────
 
 describe('_resolveChargeOnServer charge selection', () => {
-  // Build a minimal response string with N K2 rows.
-  // Each row has payType at index 15 and code at index 5.
-  function makeHlkpResponse(chargeRows) {
-    // We'll use the captured favorites-filter-res.txt as a template to get the
-    // frame header format right, then verify logic by reading extract204 output.
-    // Instead, build the synthetic response directly via protocol.parseResponse
-    // trick: return a fixed responses array from JS.
-    const rowsJSON = JSON.stringify(chargeRows);
-    return `var responses=(function() {
-      var k2rows = ${rowsJSON};
-      var encoded = ["TMMTIMESHEET|2|204|0|100|0|0", "TMMTIMESHEET|0|507|0|0|0|0"];
-      // Build minimal data slot: [null, rowNums, rowFlags, maxWidths, rows]
-      // Use the internal protocol constants directly — not available here,
-      // so we pass the decoded data object via a custom responses shape.
-      // Instead, synthesize by returning the pre-decoded structure via a closure
-      // stored in a custom slot that _resolveChargeOnServer reads via extract204.
-      return [encoded, "0", [null, null], ["<OK>"]];
-    })();`;
-  }
-
   test('single-charge code: auto-selects first row regardless of payType', async () => {
     const client = makeStubClient();
     client._stagePendingLine();
@@ -225,11 +205,6 @@ describe('_resolveChargeOnServer charge selection', () => {
   });
 
   test('multi-charge code: throws when no payType specified', () => {
-    const multiRows = [
-      Object.assign(new Array(40).fill(''), { 5: '62226', 15: 'REG' }),
-      Object.assign(new Array(40).fill(''), { 5: '62226', 15: 'RHB' }),
-    ];
-    // Fix the array assignment syntax:
     const row0 = new Array(40).fill('');
     row0[5] = '62226';
     row0[15] = 'REG';

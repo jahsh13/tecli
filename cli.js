@@ -16,8 +16,6 @@ const { weekLabel, assertBackReachable, weekSummary } = require('./week-label');
 
 require('dotenv').config();
 
-const { RevisionRequiredError } = DirectClient;
-
 // ── Visual helpers ───────────────────────────────────────────────
 
 function spin(text) {

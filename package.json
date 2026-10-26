@@ -12,8 +12,8 @@
     "test": "node --test test/**/*.test.js",
     "mock": "node mock/server.js",
     "lint": "eslint .",
-    "format": "prettier --write .",
-    "format:check": "prettier --check ."
+    "format": "git ls-files -z | xargs -0 prettier --write --ignore-unknown",
+    "format:check": "git ls-files -z | xargs -0 prettier --check --ignore-unknown"
   },
   "keywords": [
     "cli",

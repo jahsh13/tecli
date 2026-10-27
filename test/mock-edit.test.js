@@ -97,3 +97,40 @@ describe('mock edit and save', () => {
     assert.equal(cp.getData().timesheetStatusCode, 'O');
   });
 });
+
+// Live (tecli-lok): a past-week save answered without row data was followed
+// by a re-read with no R=AUTO fetch, which read the active week's lines
+describe('past-week save with a row-less reply', () => {
+  let mock;
+  beforeEach(async () => {
+    mock = await startMock();
+    Object.assign(mock.db.period(1), { status: 'O', closed: false, signedOnce: false });
+  });
+  afterEach(() => mock.stop());
+
+  test('re-reads the past week, not the active one', async () => {
+    const cp = await mock.launch();
+    await cp.selectPeriod(1);
+    const before = cp.getData().projects.map(p => p.hours);
+    assert.equal(before[0][5], 7.5);
+    await cp.set(0, 5, 7.5);
+    mock.rowlessSave();
+    await cp.save();
+    const data = cp.getData();
+    assert.equal(data.dates[0].fullDate, '2026-10-05');
+    assert.deepEqual(
+      data.projects.map(p => p.hours),
+      before
+    );
+  });
+
+  test('sends no second save', async () => {
+    const cp = await mock.launch();
+    await cp.selectPeriod(1);
+    await cp.set(0, 5, 7.5);
+    mock.rowlessSave();
+    const writes = cp.writesSent;
+    await cp.save();
+    assert.equal(cp.writesSent, writes + 1);
+  });
+});

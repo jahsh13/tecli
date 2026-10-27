@@ -57,12 +57,14 @@ function send(res, status, body, headers = {}) {
  * or comma string), today (YYYY-MM-DD), user/password (unset accepts any
  * login), sessionTtlMs, stateFile.
  * Returns { server, port, url, db, sessions, reset(), failSave(period, error),
- * stall(count), dropSave(count), htmlSave(count, { commit }), expire(sid),
+ * stall(count), dropSave(count), htmlSave(count, { commit }), rowlessSave(count), expire(sid),
  * close() }. failSave makes the next 206 for that period fail. stall leaves
  * the next count servlet requests unanswered. dropSave commits the next count
  * saves and then drops the connection instead of answering. htmlSave answers
  * the next count saves with an HTML page instead of a response document,
- * after committing them unless commit is false (tecli-dw7).
+ * after committing them unless commit is false (tecli-dw7). rowlessSave
+ * answers the next count saves with the 206 frame and no row data, like the
+ * live past-week save in tecli-lok.
  */
 async function createMockServer(options = {}) {
   const fixture = readFixture(options.fixture);
@@ -80,6 +82,8 @@ async function createMockServer(options = {}) {
   let drops = 0;
   // Saves left to answer with an HTML page, set with htmlSave()
   let htmlSaves = { count: 0, commit: true };
+  // Saves left to answer without row data, set with rowlessSave()
+  let rowlessSaves = 0;
   let clock = options.now || (() => Date.now());
 
   const freshDb = () => new Db(fixture, { today });
@@ -150,7 +154,12 @@ async function createMockServer(options = {}) {
         if (htmlSaves.commit) handleRequest(newEnv(session), commands);
         return send(res, 200, HTML_PAGE);
       }
-      text = handleRequest(newEnv(session), commands);
+      const env = newEnv(session);
+      if (rowlessSaves > 0 && commands.some(c => c.reqCd === 206)) {
+        rowlessSaves--;
+        env.ctx.rowlessSave = true;
+      }
+      text = handleRequest(env, commands);
     } catch (e) {
       console.error('mock: ' + e.stack);
       return send(res, 500, 'mock error: ' + e.message);
@@ -246,6 +255,7 @@ async function createMockServer(options = {}) {
       stalls = 0;
       drops = 0;
       htmlSaves = { count: 0, commit: true };
+      rowlessSaves = 0;
     },
     failSave(period, error = SAVE_FAULT) {
       faults.set(period, error);
@@ -258,6 +268,9 @@ async function createMockServer(options = {}) {
     },
     htmlSave(count = 1, { commit = true } = {}) {
       htmlSaves = { count, commit };
+    },
+    rowlessSave(count = 1) {
+      rowlessSaves = count;
     },
     expire(sid) {
       if (sid) sessions.delete(sid);

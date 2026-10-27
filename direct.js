@@ -1186,8 +1186,18 @@ class DirectClient {
     debug('Timesheet saved.');
   }
 
-  /** Re-read the selected period's parent and child rows from the server. */
+  /**
+   * Re-read the selected period's parent and child rows from the server.
+   * A past week goes through _fetchPeriod(): a plain X>0 read without the
+   * R=AUTO fetch returns the active week's lines (tecli-lok).
+   */
   async _refetchTimesheet() {
+    if (this.periodIdx > 0) {
+      const { parentData, childData } = await this._fetchPeriod(this.periodIdx);
+      this.parentData = parentData;
+      this.childData = childData;
+      return;
+    }
     const resp = await this._postServlet(
       protocol.buildRequestBody(this.sid, [...this._get204(0), ...this._get204(1), this._keepalive()])
     );

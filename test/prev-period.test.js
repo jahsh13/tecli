@@ -894,7 +894,11 @@ describe(
       const client = makeStubClient(1);
       client._buildTableRows = () => {};
       const sent = [];
-      const responses = ['014-res.txt', '015-res.txt', '015-res.txt'].map(f => readCapture(f, SIGN_CAPTURE_DIR));
+      // The re-read after the confirm is the AUTO fetch, then the period
+      // fetch (tecli-lok); the AUTO reply is not read
+      const responses = ['014-res.txt', '015-res.txt', '015-res.txt', '015-res.txt'].map(f =>
+        readCapture(f, SIGN_CAPTURE_DIR)
+      );
       client._postServlet = async body => {
         sent.push(body);
         return responses.shift();
@@ -902,8 +906,10 @@ describe(
 
       await client.sign();
 
-      assert.equal(sent.length, 3);
+      assert.equal(sent.length, 4);
       assert.equal(cmdStrings(sent[0])[4], signAction(1));
+      assert.equal(sent[2], client._buildAutoParentFetch());
+      assert.equal(sent[3], client._buildPeriodFetch(1));
       const confirmData = new URLSearchParams(sent[1]).get('data').split(protocol.DLM_RS)[0];
       const browserData = new URLSearchParams(readCapture('015-req.txt', SIGN_CAPTURE_DIR))
         .get('data')

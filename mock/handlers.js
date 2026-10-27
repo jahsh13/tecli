@@ -511,7 +511,7 @@ function commitSign(idx, env) {
 }
 
 function commitBuffer(idx, buf, env) {
-  const { db, session, ctx, faults } = env;
+  const { db, session, ctx, faults, quirks } = env;
   const period = db.period(idx);
   if (faults && faults.has(idx)) {
     const error = faults.get(idx);
@@ -529,6 +529,9 @@ function commitBuffer(idx, buf, env) {
     return { rescd: 0, error: 'Account required' };
   }
   db.commitLines(idx, buf.lines);
+  // Live: after a committed past-week save the next X>0 read again needs the
+  // R=AUTO fetch first (sign-bisect, 2026-10-27, tecli-lok)
+  if (quirks.has('auto-required') && idx > 0) session.autoLoaded = false;
   if (explanation) {
     const revNo = db.nextRevisionNo(idx);
     period.revisions.push({ revNo, explanation });
@@ -536,7 +539,7 @@ function commitBuffer(idx, buf, env) {
   }
   session.discardBuffer(idx);
   session.worked = true;
-  if (session.favSaved) {
+  if (session.favSaved || ctx.rowlessSave) {
     ctx.suppress204 = true;
     session.favSaved = false;
   }
